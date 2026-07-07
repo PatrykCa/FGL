@@ -5,7 +5,7 @@ import math
 st.set_page_config(page_title="Kreator Linii FUCHS Portfolio", layout="wide")
 
 st.title("🏭 Kompleksowy Kreator Produkcyjny FUCHS Oil")
-st.subheader("Zarządzanie Wolumenami i Gabarytami Aparatury (Układ Tabelaryczny)")
+st.subheader("Zarządzanie Wolumenami, Parametrami Szarż oraz Logistyką Opakowań")
 st.markdown("---")
 
 # --- 1. BAZA DANYCH RODZIN PRODUKTOWYCH FUCHS ---
@@ -44,6 +44,18 @@ FUCHS_PORTFOLIO = {
     }
 }
 
+# Słownik konwersji opakowania na jego pojemność w litrach/wielkość
+PACK_SIZES = {
+    "1l (Detal)": 1.0,
+    "4l (Karton)": 4.0,
+    "5l (Karton)": 5.0,
+    "10l (Kanister)": 10.0,
+    "20l (Kanister)": 20.0,
+    "60l (Beczka)": 60.0,
+    "200l (Beczka)": 200.0,
+    "1000l (IBC)": 1000.0
+}
+
 AVAILABLE_HOURS_MONTH = (250 * 16) / 12  # ~333.33 h/miesiąc
 
 # --- 2. PANEL BOCZNY ---
@@ -60,13 +72,15 @@ input_data = {}
 for kat in wybrane_kategorie:
     st.sidebar.markdown(f"### 🧪 {kat}")
     vol = st.sidebar.number_input(f"Roczna produkcja [kg]:", min_value=0, value=1200000, step=100000, key=f"vol_{kat}")
-    pack = st.sidebar.selectbox(
-        "Opakowanie końcowe (FL):",
-        ["1l (Detal)", "4l / 5l (Karton)", "10l / 20l (Kanister)", "60l / 200l (Beczka)", "1000l (Paletopojemnik IBC)", "Bulk (Cysterna luz)"],
-        index=3,
-        key=f"pack_{kat}"
+    
+    # Przebudowa na wielokrotny wybór opakowań (Multiselect)
+    packs = st.sidebar.multiselect(
+        "Opakowania końcowe (FL):",
+        list(PACK_SIZES.keys()) + ["Bulk (Cysterna luz)"],
+        default=["200l (Beczka)", "1000l (IBC)"],
+        key=f"packs_{kat}"
     )
-    input_data[kat] = {"wolumen": vol, "opakowanie": pack}
+    input_data[kat] = {"wolumen": vol, "opakowania": packs}
 
 # Inicjalizacja stanów
 if "confirmed_setup" not in st.session_state:
@@ -78,7 +92,6 @@ with tab1:
     st.header("Zestawienie Wolumenów i Parametrów Szarż")
     st.caption("Rekomendacja systemu wyliczana jest automatycznie przy założeniu 75% poziomu utylizacji (obłożenia) aparatury.")
     
-    # Tworzymy dynamiczny formularz-tabelę, gdzie każdy produkt to wiersz, ale z polami edytowalnymi obok siebie
     for kat in wybrane_kategorie:
         if input_data[kat]["wolumen"] == 0:
             continue
@@ -87,8 +100,8 @@ with tab1:
         dens = FUCHS_PORTFOLIO[kat]["density"]
         cyc = FUCHS_PORTFOLIO[kat]["cycle_h"]
         
-        # OBLICZENIA SYSTEMOWE (REKOMENDACJA NA BAZIE 75%)
-        eff_hours = AVAILABLE_HOURS_MONTH * 0.75  # 250 godzin
+        # OBLICZENIA SYSTEMOWE (REKOMENDACJA NA BAZIE 75% OBCIĄŻENIA)
+        eff_hours = AVAILABLE_HOURS_MONTH * 0.75  
         sys_szarze_miesiac = round(eff_hours / cyc, 1)
         sys_req_m3 = (m_production_kg / sys_szarze_miesiac) / (dens * 1000)
         sys_req_m3 = max(0.5, math.ceil(sys_req_m3 * 2) / 2)
@@ -102,21 +115,23 @@ with tab1:
             
         st.markdown(f"#### 🧪 Produkt: {kat}")
         
-        # Pojedynczy wiersz jako horyzontalna tabela za pomocą kolumn Streamlit
         with st.container(border=True):
-            # 1. Nagłówek wiersza z wielkością produkcji
-            st.markdown(f"**1. Miesięczna produkcja:** `{int(m_production_kg):,}` kg/miesiąc | **Opakowanie:** {input_data[kat]['opakowanie']}")
+            st.markdown(f"**1. Miesięczna produkcja:** `{int(m_production_kg):,}` kg/miesiąc")
             
+            # Naprawiona struktura kolumn - usunięto błędny, surowy blok HTML st.markdown
             c_label, c_sys, c_user, c_action = st.columns([1, 2, 3, 2])
             
             with c_label:
-                st.markdown("<br><p style='color:gray; font-size:13px;'>2. Pojemność MT<br><br>3. Szarże/miesiąc<br><br>4. Utylizacja %</p>", unsafe_allowed_html=True)
+                st.write("**Parametr**")
+                st.caption("Pojemność MT [m³]")
+                st.caption("Szarże / miesiąc")
+                st.caption("Utylizacja [%]")
                 
             with c_sys:
                 st.markdown("**📐 Rekomendacja (75%)**")
-                st.markdown(f"`{sys_req_m3:.1f} m³` — Pojemność MT")
-                st.markdown(f"`{sys_szarze_miesiac:.1f}` — Szarże/miesiąc")
-                st.markdown(f"`{sys_utilization:.1f} %` — Utylizacja")
+                st.info(f"**{sys_req_m3:.1f} m³**")
+                st.info(f"**{sys_szarze_miesiac:.1f}**")
+                st.info(f"**{sys_utilization:.1f} %**")
                 
             with c_user:
                 st.markdown("**✍️ Symulacja Użytkownika**")
@@ -147,33 +162,53 @@ with tab1:
                 choice = st.radio(
                     "Wariant dla linii:",
                     ["Rekomendowany", "Użytkownika"],
-                    key=f"choice_{kat}",
-                    label_visibility="collapsed"
+                    key=f"choice_{kat}"
                 )
                 if st.button("Zatwierdź produkt", key=f"save_{kat}"):
                     if choice == "Rekomendowany":
                         st.session_state.confirmed_setup[kat] = {
-                            "capacity": sys_req_m3, "batches": sys_szarze_miesiac, "utilization": sys_utilization
+                            "capacity": sys_req_m3, "batches": sys_szarze_miesiac, "utilization": sys_utilization, "opakowania": input_data[kat]["opakowania"]
                         }
                     else:
                         st.session_state.confirmed_setup[kat] = {
-                            "capacity": st.session_state[kv], "batches": st.session_state[ks], "utilization": st.session_state[ku]
+                            "capacity": st.session_state[kv], "batches": st.session_state[ks], "utilization": st.session_state[ku], "opakowania": input_data[kat]["opakowania"]
                         }
-                    st.toast(f"✔️ Zapisano wariant: {choice} dla {kat.split(':')[-1]}")
-                    
-        st.markdown("<hr style='margin:10px 0px;'>", unsafe_allowed_html=True)
+                    st.toast(f"✔️ Zapisano wariant dla {kat.split(':')[-1]}")
+            
+            # --- SEKCJA LOGISTYKI OPAKOWAŃ DLA WYBRANEGO WIERSZA ---
+            chosen_packs = input_data[kat]["opakowania"]
+            if chosen_packs:
+                st.markdown("**📦 Szacowane zapotrzebowanie na opakowania (w skali miesiąca):**")
+                # Zakładamy równomierny podział masy na wybrane rodzaje opakowań
+                num_pack_types = len(chosen_packs)
+                mass_per_type_liters = (m_production_kg / dens) / num_pack_types
+                
+                pack_cols = st.columns(max(1, num_pack_types))
+                for p_idx, pack_name in enumerate(chosen_packs):
+                    with pack_cols[p_idx]:
+                        if pack_name in PACK_SIZES:
+                            capacity_l = PACK_SIZES[pack_name]
+                            total_szt = math.ceil(mass_per_type_liters / capacity_l)
+                            st.metric(label=f"Ilość: {pack_name}", value=f"{total_szt:,} szt.")
+                        else:
+                            # Dla Bulk (Cysterny) przeliczamy na typowe cysterny samochodowe 24 000 kg
+                            total_trucks = round((m_production_kg / num_pack_types) / 24000, 1)
+                            st.metric(label="Transport: Bulk", value=f"{total_trucks} cystern")
+                            
+        st.markdown("<br>", unsafe_allowed_html=True)
 
 with tab2:
     st.header("📐 Inżynieryjna Specyfikacja Ciągu Technologicznego")
     
     if not st.session_state.confirmed_setup:
-        st.info("ℹ️ Aby wygenerować specyfikację techniczną, zatwierdź opcje dla wybranych produktów w Zakładce 1.")
+        st.info("ℹ️ Zatwierdź opcje dla wybranych produktów w Zakładce 1, aby wygenerować specyfikację.")
     else:
         rows = []
         idx = 101
         for kat, dane in st.session_state.confirmed_setup.items():
             rules = FUCHS_PORTFOLIO[kat]
             v_final = dane["capacity"]
+            opakowania_str = ", ".join(dane["opakowania"]) if dane["opakowania"] else "Brak"
             
             rows.append({
                 "Tag Mieszalnika": f"MT-{idx}",
@@ -187,7 +222,7 @@ with tab2:
                 "Frost Sensitivity": rules["frost_sensitivity"],
                 "Masa Szarży [kg]": v_final * rules["density"] * 1000,
                 "cp": rules["cp"],
-                "pdf": rules["pdf"]
+                "Opakowania": opakowania_str
             })
             idx += 1
             
@@ -200,6 +235,7 @@ with tab2:
                 c1, c2, c3 = st.columns([2, 3, 3])
                 with c1:
                     st.markdown(f"**{row['Tag Mieszalnika']}**<br><small>{row['Rodzina Produktowa']}</small>", unsafe_allowed_html=True)
+                    st.caption(f"Opakowania końcowe: {row['Opakowania']}")
                 with c2:
                     dt_heat = st.number_input(f"ΔT grzania [°C] ({row['Tag Mieszalnika']}):", value=40, step=5, key=f"dth_{row['Tag Mieszalnika']}")
                     total_heat_gj = (row["Masa Szarży [kg]"] * row["cp"] * dt_heat * row["Szarże / miesiąc"]) / (1_000_000 * 0.85)
@@ -216,7 +252,8 @@ with tab2:
                     "Ciepło chłodzenia [GJ/m]": f"{total_cool_gj:.2f} GJ",
                     "Flash Point": row["Flash Point"],
                     "Lepkość": row["Viscosity"],
-                    "Wrażliwość na mróz": row["Frost Sensitivity"]
+                    "Wrażliwość na mróz": row["Frost Sensitivity"],
+                    "Wybrane Opakowania": row["Opakowania"]
                 })
         
         st.markdown("---")
