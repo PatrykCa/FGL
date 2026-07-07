@@ -10,40 +10,36 @@ st.markdown("---")
 
 # --- 1. OFICJALNA BAZA DANYCH PODZIAŁU PORTFOLIO FUCHS OIL ---
 FUCHS_PORTFOLIO = {
-    # FILAR 1: INDUSTRIAL LUBRICANTS (Środki smarne dla przemysłu)
     "Industrial: Hydraulic Oils (RENOLIN)": 
-        {"material": "Stal węglowa (Carbon Steel)", "density": 0.88, "cycle_h": 4, "e_ratio": 0.02, "g_ratio": 0.0, "group": "Industrial"},
+        {"material": "Stal węglowa (Carbon Steel)", "density": 0.88, "cycle_h": 4, "electricity": 0.02, "gas": 0.0, "group": "Industrial"},
     "Industrial: Gear & Turbine Oils (RENOLIN)": 
-        {"material": "Stal węglowa (Carbon Steel)", "density": 0.89, "cycle_h": 5, "e_ratio": 0.02, "g_ratio": 0.0, "group": "Industrial"},
+        {"material": "Stal węglowa (Carbon Steel)", "density": 0.89, "cycle_h": 5, "electricity": 0.02, "gas": 0.0, "group": "Industrial"},
     "Industrial: Slideway & Machine Oils (RENAX)": 
-        {"material": "Stal węglowa (Carbon Steel)", "density": 0.88, "cycle_h": 4, "e_ratio": 0.02, "g_ratio": 0.0, "group": "Industrial"},
+        {"material": "Stal węglowa (Carbon Steel)", "density": 0.88, "cycle_h": 4, "electricity": 0.02, "gas": 0.0, "group": "Industrial"},
     
-    # FILAR 2: AUTOMOTIVE LUBRICANTS (Motoryzacja)
     "Automotive: Engine Oils (TITAN)": 
-        {"material": "Stal węglowa (Carbon Steel)", "density": 0.87, "cycle_h": 5, "e_ratio": 0.02, "g_ratio": 0.0, "group": "Automotive"},
+        {"material": "Stal węglowa (Carbon Steel)", "density": 0.87, "cycle_h": 5, "electricity": 0.02, "gas": 0.0, "group": "Automotive"},
     "Automotive: Gear & Transmission Oils (TITAN)": 
-        {"material": "Stal węglowa (Carbon Steel)", "density": 0.88, "cycle_h": 5, "e_ratio": 0.02, "g_ratio": 0.0, "group": "Automotive"},
+        {"material": "Stal węglowa (Carbon Steel)", "density": 0.88, "cycle_h": 5, "electricity": 0.02, "gas": 0.0, "group": "Automotive"},
     
-    # FILAR 3: LUBRICATING GREASES (Smary plastyczne)
     "Greases: Plain/Roller Bearing & Multi-purpose (RENOLIT)": 
-        {"material": "Stal węglowa / Specjalna (Wysoka lepkość)", "density": 0.92, "cycle_h": 10, "e_ratio": 0.11, "g_ratio": 0.19, "group": "Greases"},
+        {"material": "Stal węglowa / Specjalna (Wysoka lepkość)", "density": 0.92, "cycle_h": 10, "electricity": 0.11, "gas": 0.19, "group": "Greases"},
     
-    # FILAR 4: METAL PROCESSING LUBRICANTS (Obróbka metali - KLUCZOWE RÓŻNICE MATERIAŁOWE)
     "Metal Processing: Water-miscible Cutting/Grinding (ECOCOOL)": 
-        {"material": "Stal nierdzewna (SS316L) - WODOROZCIENCZALNE!", "density": 0.99, "cycle_h": 6, "e_ratio": 0.02, "g_ratio": 0.0, "group": "Metal Processing"},
+        {"material": "Stal nierdzewna (SS316L) - WODOROZCIENCZALNE!", "density": 0.99, "cycle_h": 6, "electricity": 0.02, "gas": 0.0, "group": "Metal Processing"},
     "Metal Processing: Non-water-miscible / Neat Oils (ECOCUT)": 
-        {"material": "Stal węglowa (Carbon Steel)", "density": 0.87, "cycle_h": 4, "e_ratio": 0.02, "g_ratio": 0.0, "group": "Metal Processing"},
+        {"material": "Stal węglowa (Carbon Steel)", "density": 0.87, "cycle_h": 4, "electricity": 0.02, "gas": 0.0, "group": "Metal Processing"},
     "Metal Processing: Corrosion Preventives (ANTICORIT)": 
-        {"material": "Stal nierdzewna / Specjalna (Zależnie od bazy)", "density": 0.86, "cycle_h": 5, "e_ratio": 0.02, "g_ratio": 0.0, "group": "Metal Processing"},
+        {"material": "Stal nierdzewna / Specjalna (Zależnie od bazy)", "density": 0.86, "cycle_h": 5, "electricity": 0.02, "gas": 0.0, "group": "Metal Processing"},
     "Metal Processing: Cleaners (RENOCLEAN)": 
-        {"material": "Stal nierdzewna (SS304/SS316L) - WODOROZCIENCZALNE!", "density": 1.01, "cycle_h": 4, "e_ratio": 0.02, "g_ratio": 0.0, "group": "Metal Processing"}
+        {"material": "Stal nierdzewna (SS304/SS316L) - WODOROZCIENCZALNE!", "density": 1.01, "cycle_h": 4, "electricity": 0.02, "gas": 0.0, "group": "Metal Processing"}
 }
 
 CONV_GAS = 11.35
 STALE_TLO_PRAD = 800000
 STALE_TLO_GAZ = 1100000
 TARGET_UTILIZATION = 0.80  
-AVAILABLE_HOURS_YEAR = 250 * 16  # 4000h pracy rocznie
+AVAILABLE_HOURS_YEAR = 250 * 16  
 
 # --- KROK 1: INTERFEJS UŻYTKOWNIKA ---
 st.sidebar.header("📋 KROK 1: Portfolio FUCHS")
@@ -77,7 +73,6 @@ for kat, wolumen in input_volumes.items():
     required_kg_per_batch = wolumen / max_batches_per_reaktor
     required_m3_per_batch = (required_kg_per_batch / rules["density"]) / 1000
     
-    # Skalowanie liczby reaktorów, jeśli szarża wychodzi za duża (> 15 m3)
     if required_m3_per_batch > 15.0:
         liczba_mieszalnikow = math.ceil(required_m3_per_batch / 12.0)
         pojemnosc_jednego = required_m3_per_batch / liczba_mieszalnikow
@@ -87,7 +82,6 @@ for kat, wolumen in input_volumes.items():
         
     pojemnosc_jednego = max(0.5, math.ceil(pojemnosc_jednego * 2) / 2)
     
-    # Wyliczenie realnego wykorzystania czasowego reaktora (% Utilization)
     real_batch_capacity_kg = (pojemnosc_jednego * 1000) * rules["density"]
     real_batches_count = wolumen / real_batch_capacity_kg
     real_hours_used = real_batches_count * rules["cycle_h"]
