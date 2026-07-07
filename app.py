@@ -111,12 +111,17 @@ with tab1:
         with st.container(border=True):
             st.markdown(f"**1. Miesięczna produkcja:** `{int(m_production_kg):,}` kg/miesiąc")
             
-            # POWRÓT DO ORYGINALNEGO UKŁADU WIERSZOWEGO (4 KOLUMNY OBOK SIEBIE)
+            # 4 KOLUMNY OBOK SIEBIE (BEZ KODU HTML)
             c_label, c_sys, c_user, c_action = st.columns([1.5, 2, 3, 2.5])
             
             with c_label:
                 st.write("**Parametr**")
-                st.markdown("<br><p style='line-height:2.6;'>Pojemność MT [m³]<br>Szarże / miesiąc<br>Utylizacja [%]</p>", unsafe_allowed_html=True)
+                st.text(" ")  # Odstępy dla wyrównania optycznego
+                st.write("Pojemność MT [m³]")
+                st.text(" ")
+                st.write("Szarże / miesiąc")
+                st.text(" ")
+                st.write("Utylizacja [%]")
                 
             with c_sys:
                 st.markdown("**📐 Rekomendacja (75%)**")
@@ -127,26 +132,23 @@ with tab1:
             with c_user:
                 st.markdown("**✍️ Symulacja Użytkownika**")
                 
-                # Pola numeryczne podpięte pod unikalne zmienne pomocnicze
+                # Pola numeryczne
                 v_in = st.number_input("5. Pojemność [m³]:", min_value=0.5, step=0.5, value=st.session_state[kv], key=f"vin_{kat}")
                 s_in = st.number_input("6. Szarże / miesiąc:", min_value=0.1, step=1.0, value=st.session_state[ks], key=f"sin_{kat}")
                 u_in = st.number_input("7. Utylizacja [%]:", min_value=0.1, max_value=200.0, step=5.0, value=st.session_state[ku], key=f"uin_{kat}")
                 
-                # Prosty przycisk bez formularza - przelicza natychmiast na podstawie tego, co wpisano
+                # Przycisk obliczeniowy
                 if st.button("🔄 Oblicz symulację dla wiersza", key=f"btn_calc_{kat}"):
                     if v_in != st.session_state[kv]:
-                        # Użytkownik zmienił pojemność
                         st.session_state[kv] = v_in
                         st.session_state[ks] = round(m_production_kg / (v_in * dens * 1000), 1)
                         st.session_state[ku] = round((st.session_state[ks] * cyc / AVAILABLE_HOURS_MONTH) * 100, 1)
                     elif s_in != st.session_state[ks]:
-                        # Użytkownik zmienił szarże
                         st.session_state[ks] = s_in
                         v_calc = m_production_kg / (s_in * dens * 1000)
                         st.session_state[kv] = round(max(0.5, math.ceil(v_calc * 2) / 2), 1)
                         st.session_state[ku] = round((s_in * cyc / AVAILABLE_HOURS_MONTH) * 100, 1)
                     elif u_in != st.session_state[ku]:
-                        # Użytkownik zmienił utylizację
                         st.session_state[ku] = u_in
                         s_calc = (u_in / 100) * AVAILABLE_HOURS_MONTH / cyc
                         st.session_state[ks] = round(s_calc, 1)
@@ -167,16 +169,14 @@ with tab1:
                         st.session_state.confirmed_setup[kat] = {
                             "capacity": st.session_state[kv], "batches": st.session_state[ks], "utilization": st.session_state[ku], "opakowania": input_data[kat]["opakowania"]
                         }
-                    st.toast(f"✔️ Pomyślnie zapisano parametry dla {kat.split(':')[-1]}")
+                    st.toast(f"✔️ Zapisano parametry dla {kat.split(':')[-1]}")
             
-            # --- POPRAWIONA SEKCJA LOGISTYKI OPAKOWAŃ ---
+            # --- SEKCJA LOGISTYKI OPAKOWAŃ ---
             chosen_packs = input_data[kat]["opakowania"]
             if chosen_packs:
                 st.markdown("---")
                 st.markdown("**📦 Szacowane zapotrzebowanie na opakowania (w skali miesiąca):**")
                 num_pack_types = len(chosen_packs)
-                
-                # Bezpieczne wyliczenie masy na jedno opakowanie w litrach
                 mass_per_type_l = (m_production_kg / dens) / num_pack_types
                 
                 pack_cols = st.columns(num_pack_types)
@@ -187,7 +187,6 @@ with tab1:
                             total_szt = math.ceil(mass_per_type_l / capacity_l)
                             st.metric(label=f"Ilość: {pack_name}", value=f"{total_szt:,} szt.")
                         else:
-                            # Przeliczenie dla Bulk (Cysterna 24 tony)
                             total_trucks = round((m_production_kg / num_pack_types) / 24000, 1)
                             st.metric(label="Transport: Bulk", value=f"{total_trucks} cystern")
                             
