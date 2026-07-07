@@ -44,16 +44,10 @@ FUCHS_PORTFOLIO = {
     }
 }
 
-# Słownik konwersji opakowania na jego pojemność w litrach/wielkość
 PACK_SIZES = {
-    "1l (Detal)": 1.0,
-    "4l (Karton)": 4.0,
-    "5l (Karton)": 5.0,
-    "10l (Kanister)": 10.0,
-    "20l (Kanister)": 20.0,
-    "60l (Beczka)": 60.0,
-    "200l (Beczka)": 200.0,
-    "1000l (IBC)": 1000.0
+    "1l (Detal)": 1.0, "4l (Karton)": 4.0, "5l (Karton)": 5.0, 
+    "10l (Kanister)": 10.0, "20l (Kanister)": 20.0, 
+    "60l (Beczka)": 60.0, "200l (Beczka)": 200.0, "1000l (IBC)": 1000.0
 }
 
 AVAILABLE_HOURS_MONTH = (250 * 16) / 12  # ~333.33 h/miesiąc
@@ -72,8 +66,6 @@ input_data = {}
 for kat in wybrane_kategorie:
     st.sidebar.markdown(f"### 🧪 {kat}")
     vol = st.sidebar.number_input(f"Roczna produkcja [kg]:", min_value=0, value=1200000, step=100000, key=f"vol_{kat}")
-    
-    # Przebudowa na wielokrotny wybór opakowań (Multiselect)
     packs = st.sidebar.multiselect(
         "Opakowania końcowe (FL):",
         list(PACK_SIZES.keys()) + ["Bulk (Cysterna luz)"],
@@ -100,25 +92,52 @@ with tab1:
         dens = FUCHS_PORTFOLIO[kat]["density"]
         cyc = FUCHS_PORTFOLIO[kat]["cycle_h"]
         
-        # OBLICZENIA SYSTEMOWE (REKOMENDACJA NA BAZIE 75% OBCIĄŻENIA)
+        # Obliczenia bazowe (Rekomendacja)
         eff_hours = AVAILABLE_HOURS_MONTH * 0.75  
         sys_szarze_miesiac = round(eff_hours / cyc, 1)
         sys_req_m3 = (m_production_kg / sys_szarze_miesiac) / (dens * 1000)
         sys_req_m3 = max(0.5, math.ceil(sys_req_m3 * 2) / 2)
         sys_utilization = 75.0
         
-        kv, ks, ku = f"v_{kat}", f"s_{kat}", f"u_{kat}"
+        # Klawisze pamięci podręcznej dla dwukierunkowej logiki symulacji
+        kv, ks, ku = f"val_v_{kat}", f"val_s_{kat}", f"val_u_{kat}"
+        
         if kv not in st.session_state:
             st.session_state[kv] = float(sys_req_m3)
             st.session_state[ks] = float(sys_szarze_miesiac)
             st.session_state[ku] = float(sys_utilization)
-            
+
+        # --- DEDYKOWANE FUNKCJE CALLBACK DLA NATYCHMIASTOWEJ AKTUALIZACJI ---
+        def on_v_change(k=kat, m_prod=m_production_kg, d=dens, c=cyc):
+            # Zmiana pojemności (5) -> Przelicz szarże (6) i utylizację (7)
+            v_current = st.session_state[f"input_v_{k}"]
+            s_calc = m_prod / (v_current * d * 1000)
+            st.session_state[f"val_v_{k}"] = v_current
+            st.session_state[f"val_s_{k}"] = round(s_calc, 1)
+            st.session_state[f"val_u_{k}"] = round((s_calc * c / AVAILABLE_HOURS_MONTH) * 100, 1)
+
+        def on_s_change(k=kat, m_prod=m_production_kg, d=dens, c=cyc):
+            # Zmiana szarż (6) -> Przelicz pojemność (5) i utylizację (7)
+            s_current = st.session_state[f"input_s_{k}"]
+            v_calc = m_prod / (s_current * d * 1000)
+            st.session_state[f"val_s_{k}"] = s_current
+            st.session_state[f"val_v_{k}"] = round(max(0.5, math.ceil(v_calc * 2) / 2), 1)
+            st.session_state[f"val_u_{k}"] = round((s_current * c / AVAILABLE_HOURS_MONTH) * 100, 1)
+
+        def on_u_change(k=kat, m_prod=m_production_kg, d=dens, c=cyc):
+            # Zmiana utylizacji (7) -> Przelicz szarże (6) i pojemność (5)
+            u_current = st.session_state[f"input_u_{k}"]
+            s_calc = (u_current / 100) * AVAILABLE_HOURS_MONTH / c
+            v_calc = m_prod / (s_calc * d * 1000)
+            st.session_state[f"val_u_{k}"] = u_current
+            st.session_state[f"val_s_{k}"] = round(s_calc, 1)
+            st.session_state[f"val_v_{k}"] = round(max(0.5, math.ceil(v_calc * 2) / 2), 1)
+
         st.markdown(f"#### 🧪 Produkt: {kat}")
         
         with st.container(border=True):
             st.markdown(f"**1. Miesięczna produkcja:** `{int(m_production_kg):,}` kg/miesiąc")
             
-            # Naprawiona struktura kolumn - usunięto błędny, surowy blok HTML st.markdown
             c_label, c_sys, c_user, c_action = st.columns([1, 2, 3, 2])
             
             with c_label:
@@ -135,35 +154,15 @@ with tab1:
                 
             with c_user:
                 st.markdown("**✍️ Symulacja Użytkownika**")
-                with st.form(key=f"form_row_{kat}"):
-                    v_in = st.number_input("5. Pojemność [m³]:", value=st.session_state[kv], step=0.5, key=f"vin_{kat}")
-                    s_in = st.number_input("6. Szarże / miesiąc:", value=st.session_state[ks], step=1.0, key=f"sin_{kat}")
-                    u_in = st.number_input("7. Utylizacja [%]:", value=st.session_state[ku], step=5.0, key=f"uin_{kat}")
-                    
-                    calc_btn = st.form_submit_button("🔄 Przelicz wiersz")
-                    if calc_btn:
-                        if v_in != st.session_state[kv]:
-                            st.session_state[kv] = v_in
-                            st.session_state[ks] = round(m_production_kg / (v_in * dens * 1000), 1)
-                            st.session_state[ku] = round((st.session_state[ks] * cyc / AVAILABLE_HOURS_MONTH) * 100, 1)
-                        elif s_in != st.session_state[ks]:
-                            st.session_state[ks] = s_in
-                            st.session_state[kv] = round(max(0.5, math.ceil((m_production_kg / (s_in * dens * 1000)) * 2) / 2), 1)
-                            st.session_state[ku] = round((s_in * cyc / AVAILABLE_HOURS_MONTH) * 100, 1)
-                        elif u_in != st.session_state[ku]:
-                            st.session_state[ku] = u_in
-                            s_calc = (u_in / 100) * AVAILABLE_HOURS_MONTH / cyc
-                            st.session_state[ks] = round(s_calc, 1)
-                            st.session_state[kv] = round(max(0.5, math.ceil((m_production_kg / (s_calc * dens * 1000)) * 2) / 2), 1)
-                        st.rerun()
+                # Brak formularza form! Pola natychmiast wywołują callbacki przy zmianie wartości kliknięciem lub enterem
+                st.number_input("5. Pojemność [m³]:", min_value=0.5, step=0.5, value=st.session_state[kv], key=f"input_v_{kat}", on_change=on_v_change)
+                st.number_input("6. Szarże / miesiąc:", min_value=0.1, step=1.0, value=st.session_state[ks], key=f"input_s_{kat}", on_change=on_s_change)
+                st.number_input("7. Utylizacja [%]:", min_value=0.1, max_value=150.0, step=5.0, value=st.session_state[ku], key=f"input_u_{kat}", on_change=on_u_change)
                         
             with c_action:
                 st.markdown("**🔒 Decyzja projektowa**")
-                choice = st.radio(
-                    "Wariant dla linii:",
-                    ["Rekomendowany", "Użytkownika"],
-                    key=f"choice_{kat}"
-                )
+                choice = st.radio("Wariant dla linii:", ["Rekomendowany", "Użytkownika"], key=f"choice_{kat}")
+                
                 if st.button("Zatwierdź produkt", key=f"save_{kat}"):
                     if choice == "Rekomendowany":
                         st.session_state.confirmed_setup[kat] = {
@@ -173,13 +172,12 @@ with tab1:
                         st.session_state.confirmed_setup[kat] = {
                             "capacity": st.session_state[kv], "batches": st.session_state[ks], "utilization": st.session_state[ku], "opakowania": input_data[kat]["opakowania"]
                         }
-                    st.toast(f"✔️ Zapisano wariant dla {kat.split(':')[-1]}")
+                    st.toast(f"✔️ Zapisano parametry dla {kat.split(':')[-1]}")
             
-            # --- SEKCJA LOGISTYKI OPAKOWAŃ DLA WYBRANEGO WIERSZA ---
+            # Stanowiska pakowania
             chosen_packs = input_data[kat]["opakowania"]
             if chosen_packs:
                 st.markdown("**📦 Szacowane zapotrzebowanie na opakowania (w skali miesiąca):**")
-                # Zakładamy równomierny podział masy na wybrane rodzaje opakowań
                 num_pack_types = len(chosen_packs)
                 mass_per_type_liters = (m_production_kg / dens) / num_pack_types
                 
@@ -191,7 +189,6 @@ with tab1:
                             total_szt = math.ceil(mass_per_type_liters / capacity_l)
                             st.metric(label=f"Ilość: {pack_name}", value=f"{total_szt:,} szt.")
                         else:
-                            # Dla Bulk (Cysterny) przeliczamy na typowe cysterny samochodowe 24 000 kg
                             total_trucks = round((m_production_kg / num_pack_types) / 24000, 1)
                             st.metric(label="Transport: Bulk", value=f"{total_trucks} cystern")
                             
@@ -235,7 +232,7 @@ with tab2:
                 c1, c2, c3 = st.columns([2, 3, 3])
                 with c1:
                     st.markdown(f"**{row['Tag Mieszalnika']}**<br><small>{row['Rodzina Produktowa']}</small>", unsafe_allowed_html=True)
-                    st.caption(f"Opakowania końcowe: {row['Opakowania']}")
+                    st.caption(f"Opakowania: {row['Opakowania']}")
                 with c2:
                     dt_heat = st.number_input(f"ΔT grzania [°C] ({row['Tag Mieszalnika']}):", value=40, step=5, key=f"dth_{row['Tag Mieszalnika']}")
                     total_heat_gj = (row["Masa Szarży [kg]"] * row["cp"] * dt_heat * row["Szarże / miesiąc"]) / (1_000_000 * 0.85)
@@ -252,8 +249,7 @@ with tab2:
                     "Ciepło chłodzenia [GJ/m]": f"{total_cool_gj:.2f} GJ",
                     "Flash Point": row["Flash Point"],
                     "Lepkość": row["Viscosity"],
-                    "Wrażliwość na mróz": row["Frost Sensitivity"],
-                    "Wybrane Opakowania": row["Opakowania"]
+                    "Wrażliwość na mróz": row["Frost Sensitivity"]
                 })
         
         st.markdown("---")
