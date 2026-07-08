@@ -5,7 +5,7 @@ import math
 st.set_page_config(page_title="System Projektowania FUCHS", layout="wide")
 
 st.title("🏭 Inżynieryjny Reaktor Procesowy & Logistyczny FUCHS Oil")
-st.subheader("Stabilna Platforma Projektowania Linii z Automatycznym Doborem Pomp i Reologii")
+st.subheader("Kompletna Platforma Wymiarowania Linii, Reologii, Logistyki i Surowców")
 st.markdown("---")
 
 # --- 1. BAZA DANYCH PROCESOWYCH I FIZYKOCHEMICZNYCH FUCHS ---
@@ -71,7 +71,7 @@ if "prod_dict" not in st.session_state:
 if "confirmed_mixers" not in st.session_state:
     st.session_state.confirmed_mixers = []
 
-# KLUCZOWE FIXY: Domyślne wartości zapobiegające awariom przed kliknięciem
+# Definiowanie domyślnych wartości struktur temperatur
 if "heat_temps" not in st.session_state:
     st.session_state.heat_temps = {f"MT-{i}": 60.0 for i in range(101, 120)}
     for i in range(101, 120):
@@ -84,7 +84,7 @@ if "filling_temps" not in st.session_state:
         st.session_state.filling_temps[f"MT-{i}A"] = 30.0
         st.session_state.filling_temps[f"MT-{i}B"] = 30.0
 
-# --- BEZBŁĘDNA FUNKCJA CALLBACK SYNCHRONIZUJĄCA DANE ---
+# --- FUNKCJA CALLBACK BEZ ZALEŻNOŚCI OD ZMIENNYCH LOKALNYCH ---
 def sync_production_data():
     if "main_production_editor" in st.session_state:
         edits = st.session_state.main_production_editor.get("edited_rows", {})
@@ -97,16 +97,17 @@ def sync_production_data():
                 if "3. Utilization % 🟦" in changes:
                     st.session_state.prod_dict[family_name]["utilization"] = changes["3. Utilization % 🟦"]
 
-# Rejestracja kart interfejsu
-tab1, tab2, tab3, tab4 = st.tabs([
+# --- STRUKTURA PIĘCIU KART INTERFEJSU ---
+tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 1. Główne Zestawienie i Utylizacja", 
     "📐 2. Karta Maszyn i Dobór Pomp", 
     "📦 3. Logistyka i Czas Rozlewu",
-    "💰 4. Analiza Finansowa i Koszty Produkcji"
+    "💰 4. Analiza Finansowa i Koszty Produkcji",
+    "🛢️ 5. Surowce i Park Zbiorników"
 ])
 
 # ==========================================
-# ZAKŁADKA 1: TABELA Z INTERAKTYWNYM SPLITEM ZBIORNIKÓW > 31m³
+# ZAKŁADKA 1: MATRYCA PROCESOWA I WALIDACJA CZASU CYKLU
 # ==========================================
 with tab1:
     st.header(f"Zintegrowane Zestawienie Parametrów Procesowych (Baza: {godziny_dziennie:.1f}h/dzień)")
@@ -168,7 +169,7 @@ with tab1:
         split_decisions = {}
         if oversized_reactors:
             st.markdown("<br>", unsafe_allow_html=True)
-            st.warning("⚠️ **Wykryto przekroczenie dopuszczalnych gabarytów zbiornika (> 31 m³)!**")
+            st.warning("⚠️ **Wykryto przekroczenie dopuszczalnych gabarytów transportowych / technologicznych zbiornika (> 31 m³)!**")
             for kat_over, vol_over in oversized_reactors.items():
                 split_decisions[kat_over] = st.checkbox(
                     f"Czy stworzyć dodatkową pozycję zbiornika (rozbić na 2 bliźniacze reaktory o pojemności {vol_over/2:.1f} m³) dla linii {kat_over}?",
@@ -215,9 +216,47 @@ with tab1:
                 tag_counter += 1
                 
             st.session_state.confirmed_mixers = confirmed_list_temp
-            st.success("✅ Dane przetworzone! Przejdź do kolejnej zakładki.")
-    else:
-        st.info("Zaznacz aktywne rodziny produktów w panelu bocznym.")
+            st.success("✅ Dane przetworzone pomyślnie! Przejdź do kolejnych zakładek.")
+
+        # --- REKAPITULACJA I WERYFIKACJA WYDAJNOŚCIOWEJ PRZEPUSTOWOŚCI MASZYN ---
+        if st.session_state.confirmed_mixers:
+            st.markdown("---")
+            st.markdown("### ⏱️ Weryfikacja Zajętości i Przepustowości Mieszalników (OEE)")
+            dni_robocze = 21
+            maks_dostepny_czas_h = dni_robocze * godziny_dziennie
+            st.info(f"📅 Nominalny fundusz czasu pracy gniazda produkcyjnego w miesiącu: **{maks_dostepny_czas_h:.1f} h** ({dni_robocze} dni roboczych)")
+            
+            capacity_check_ok = True
+            mixers_utilization_data = []
+            
+            for mixer in st.session_state.confirmed_mixers:
+                kat = mixer["product_family"]
+                prod_info = FUCHS_PORTFOLIO[kat]
+                t_process_h = prod_info["cycle_h"]
+                default_q_pump = float(max(round((mixer["capacity_m3"] / 0.75) * 1.25, 1), 5.0))
+                t_discharge_h = mixer["capacity_m3"] / default_q_pump
+                t_total_per_batch_h = t_process_h + t_discharge_h
+                total_required_mixer_hours = t_total_per_batch_h * mixer["batches_count"]
+                utilization_pct = (total_required_mixer_hours / maks_dostepny_czas_h) * 100.0 if maks_dostepny_czas_h > 0 else 0.0
+                
+                if utilization_pct > 100.0:
+                    status_msg = "🚨 PRZEKROCZONO LIMIT CZASU"
+                    capacity_check_ok = False
+                elif utilization_pct > 85.0:
+                    status_msg = "⚠️ Krytyczne obciążenie"
+                else:
+                    status_msg = "✅ Bezpieczny"
+                    
+                mixers_utilization_data.append({
+                    "ID Reaktora": mixer["tag"], "Linia Produktowa": kat, "Liczba szarż [/mies]": mixer["batches_count"],
+                    "Mieszanie [h/szarża]": round(t_process_h, 2), "Rozładunek [h/szarża]": round(t_discharge_h, 2),
+                    "Wymagany czas [h/mies]": round(total_required_mixer_hours, 1), "Obciążenie %": f"{utilization_pct:.1f}%",
+                    "Status operacyjny": status_msg
+                })
+                
+            st.dataframe(pd.DataFrame(mixers_utilization_data), hide_index=True, use_container_width=True)
+            if not capacity_check_ok:
+                st.error("❌ **BŁĄD HARMONOGRAMU:** Przynajmniej jeden mieszalnik ma przypisaną zbyt dużą liczbę szarż i nie wyrobi się w miesięcznym funduszu godzin (wliczając pełny czas rozładunku).")
 
 # ==========================================
 # ZAKŁADKA 2: SPECYFIKACJA MASZYN, REOLOGIA I DOBÓR POMP (KOLOROWANIE LMTD)
@@ -341,8 +380,7 @@ with tab2:
             
         st.subheader("📋 Zbiorcza Karta Techniczna Linii Mieszania, Rozładunku i Termodynamiki")
         df_eng = pd.DataFrame(engineering_table_data)
-
-       # --- NOWE ROZBITO FUNKCJE MAPOWANIA STYLÓW DLA LMTD GRZANIA I CHŁODZENIA ---
+# --- NOWE ROZBITO FUNKCJE MAPOWANIA STYLÓW DLA LMTD GRZANIA I CHŁODZENIA ---
         def style_lmtd_grzanie(val):
             if isinstance(val, (int, float)):
                 if val < 20.0:
@@ -376,146 +414,80 @@ with tab2:
         * **🔥 Kolumna Grzania:** 🟢 **20-40°C** (Bezpieczny & Optymalny) | 🟡 **<20°C** (Słaba wydajność) | 🔴 **>40°C** (Krytyczny: Ryzyko degradacji termicznej dodatków i koksowania na ściance).
         * **❄️ Kolumna Chłodzenia:** 🟢 **15-35°C** (Wydajny & Stabilny) | 🟡 **>35°C** (Mała siła napędowa pod koniec cyklu) | 🔴 **<15°C** (Krytyczny: Zbyt zimne medium chłodzące stworzy izolacyjną warstwę zastygłego oleju na wężownicy).
         """)
+
 # ==========================================
-# ZAKŁADKA 3: ZINTEGROWANA LOGISTYKA OPAKOWAŃ I CZAS ROZLEWU (JEDNA TABELA ZBIORCZA)
+# ZAKŁADKA 3: LOGISTYKA OPAKOWAŃ (JEDNA ZINTEGROWANA TABELA)
 # ==========================================
 with tab3:
     st.header("📦 Harmonogramowanie i Zbiorczy Bilans Rozlewu Opakowań")
     if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Brak zatwierdzonych danych z Zakładki 1. Uruchom konfigurację i kliknij przycisk zatwierdzenia.")
+        st.warning("⚠️ Brak zatwierdzonych danych z Zakładki 1.")
     else:
         st.markdown("### 🛠️ 1. Parametry Sterowania Rozlewem")
-        
-        # Sekcja konfiguracji parametrów wejściowych (temperatury i edycja udziałów)
-        all_logistics_rows = []
-        
-        # Dla przejrzystości wyświetlamy najpierw szybkie doprecyzowanie temperatur rozlewu w kolumnach
         st.markdown("**Konfiguracja temperatur rozlewu dla poszczególnych reaktorów:**")
         temp_cols = st.columns(min(len(st.session_state.confirmed_mixers), 4))
         
         for idx, mixer in enumerate(st.session_state.confirmed_mixers):
-            kat = mixer["product_family"]
-            t_reaktor_max = st.session_state.heat_temps.get(mixer["tag"], 60.0)
-            
             with temp_cols[idx % min(len(st.session_state.confirmed_mixers), 4)]:
                 t_filling = st.number_input(
-                    f"Temp. rozlewu {mixer['tag']} [°C]:", 
-                    min_value=10.0, max_value=120.0, 
-                    value=float(min(30.0, t_reaktor_max)), 
-                    key=f"t_fill_{mixer['tag']}"
+                    f"Temp. rozlewu {mixer['tag']} [°C]:", min_value=10.0, max_value=120.0, 
+                    value=float(min(30.0, st.session_state.heat_temps.get(mixer["tag"], 60.0))), key=f"t_fill_{mixer['tag']}"
                 )
                 st.session_state.filling_temps[mixer["tag"]] = t_filling
 
         st.markdown("---")
         st.markdown("### 📊 2. Zbiorcze Zestawienie Strumieni Logistycznych Zakładu")
         
-        # Budujemy dane do jednej, potężnej tabeli logistycznej
         master_logistics_data = []
-        
         for mixer in st.session_state.confirmed_mixers:
             kat = mixer["product_family"]
-            v_annual = mixer["annual_volume"]
             chosen_packs = input_packs.get(kat, [])
             
-            if v_annual > 0 and chosen_packs:
-                m_monthly_kg = v_annual / 12
-                dens = FUCHS_PORTFOLIO[kat]["density"]
-                total_volume_l = m_monthly_kg / dens
-                
-                # Zarządzanie stanem udziałów procentowych
+            if mixer["annual_volume"] > 0 and chosen_packs:
+                total_volume_l = (mixer["annual_volume"] / 12) / FUCHS_PORTFOLIO[kat]["density"]
                 state_key = f"pct_df_{mixer['tag']}"
                 if state_key not in st.session_state:
                     init_pct = [round(100.0 / len(chosen_packs), 1)] * len(chosen_packs)
                     st.session_state[state_key] = pd.DataFrame({"Typ Opakowania": chosen_packs, "Udział w rozlewie %": init_pct})
                 
-                # Pobieramy udziały (w tle użytkownik może je edytować, domyślnie równe)
-                pct_df = st.session_state[state_key]
-                
-                # Dla każdego opakowania danej linii tworzymy osobny wiersz do wielkiej tabeli
-                for _, p_row in pct_df.iterrows():
+                for _, p_row in st.session_state[state_key].iterrows():
                     p_name = p_row["Typ Opakowania"]
-                    pct = p_row["Udział w rozlewie %"] / 100.0
-                    config = PACK_CONFIGS[p_name]
-                    
-                    allocated_liters = total_volume_l * pct
-                    total_szt = math.ceil(allocated_liters / config["size_l"]) if allocated_liters > 0 else 0
-                    needed_pallets = math.ceil(total_szt / config["per_pallet"]) if total_szt > 0 else 0
-                    filling_hours = total_szt / config["rate_szt_h"] if total_szt > 0 else 0.0
+                    allocated_liters = total_volume_l * (p_row["Udział w rozlewie %"] / 100.0)
+                    total_szt = math.ceil(allocated_liters / PACK_CONFIGS[p_name]["size_l"])
+                    needed_pallets = math.ceil(total_szt / PACK_CONFIGS[p_name]["per_pallet"])
+                    filling_hours = total_szt / PACK_CONFIGS[p_name]["rate_szt_h"]
                     
                     if allocated_liters > 0:
                         master_logistics_data.append({
-                            "ID Reaktora 🔒": mixer["tag"],
-                            "Linia Produktowa 🔒": kat,
-                            "Typ Opakowania 🔒": p_name,
-                            "Udział % 🔒": f"{p_row['Udział w rozlewie %']:.1f}%",
-                            "Objętość Strumienia [l] 🔒": int(allocated_liters),
-                            "Zapotrzebowanie [szt./mies] 🔒": int(total_szt),
-                            "Palety [EPAL/mies] 🔒": int(needed_pallets),
-                            "Czas pracy linii rozlewu [h] 🔒": round(filling_hours, 1)
+                            "ID Reaktora 🔒": mixer["tag"], "Linia Produktowa 🔒": kat, "Typ Opakowania 🔒": p_name,
+                            "Udział % 🔒": f"{p_row['Udział w rozlewie %']:.1f}%", "Objętość [l] 🔒": int(allocated_liters),
+                            "Zapotrzebowanie [szt.] 🔒": int(total_szt), "Palety [EPAL] 🔒": int(needed_pallets), "Czas rozlewu [h] 🔒": round(filling_hours, 1)
                         })
         
         if master_logistics_data:
-            df_master_logistics = pd.DataFrame(master_logistics_data)
-            
-            #Wyświetlenie JEDNEJ, zunifikowanej tabeli dla całej fabryki
-            st.dataframe(
-                df_master_logistics,
-                hide_index=True,
-                use_container_width=True,
-                column_config={
-                    "Objętość Strumienia [l] 🔒": st.column_config.NumberColumn(format="%d"),
-                    "Zapotrzebowanie [szt./mies] 🔒": st.column_config.NumberColumn(format="%d"),
-                    "Palety [EPAL/mies] 🔒": st.column_config.NumberColumn(format="%d"),
-                    "Czas pracy linii rozlewu [h] 🔒": st.column_config.NumberColumn(format="%.1f h")
-                }
-            )
-            
-            # --- SEKCJA KPI POD TABELĄ ---
-            st.markdown("<br>", unsafe_allow_html=True)
-            total_factory_hours = df_master_logistics["Czas pracy linii rozlewu [h] 🔒"].sum()
-            total_factory_pallets = df_master_logistics["Palety [EPAL/mies] 🔒"].sum()
-            total_factory_szt = df_master_logistics["Zapotrzebowanie [szt./mies] 🔒"].sum()
-            
-            st.subheader("📦 Łączne podsumowanie potoku logistycznego fabryki:")
-            sum_col1, sum_col2, sum_col3 = st.columns(3)
-            with sum_col1:
-                st.metric(label="🔄 Sumaryczny wolumen opakowań", value=f"{total_factory_szt:,} szt./miesiąc")
-            with sum_col2:
-                st.metric(label="🧱 Całkowity obrót magazynowy palet", value=f"{total_factory_pallets} EPAL/miesiąc")
-            with sum_col3:
-                factory_days = total_factory_hours / godziny_dziennie if godziny_dziennie > 0 else 0
-                st.metric(
-                    label="⏱️ Globalny czas pracy konfekcji", 
-                    value=f"{total_factory_hours:.1f} h/miesiąc",
-                    delta=f"Obciążenie: {factory_days:.1f} dni roboczych"
-                )
-            
-            st.info("💡 *Wskazówka:* Procentowe podziały strumieni (split opakowań) dla każdej rodziny konfiguruje się bezpośrednio w sekcjach dynamicznych w Zakładce 1 lub w panelu bocznym. Powyższa tabela automatycznie agreguje dane i przedstawia spójny raport dla działu planowania i logistyki.")
+            st.dataframe(pd.DataFrame(master_logistics_data), hide_index=True, use_container_width=True)
+            total_factory_hours = pd.DataFrame(master_logistics_data)["Czas rozlewu [h] 🔒"].sum()
+            st.subheader("📦 Łączne podsumowanie potoku konfekcji:")
+            st.metric(label="⏱️ Globalny czas pracy linii rozlewu", value=f"{total_factory_hours:.1f} h/miesiąc")
         else:
-            st.info("Brak przypisanych opakowań. Wybierz rodzaje opakowań w kroku 3 panelu bocznego.")
+            st.info("Brak przypisanych opakowań w panelu bocznym.")
+
 # ==========================================
-# ZAKŁADKA 4: FINANSE - ENERGIA ELEKTRYCZNA I KOSZT WYTWORZENIA
+# ZAKŁADKA 4: FINANSE - BILANSE MOCY ELEKTRYCZNEJ
 # ==========================================
 with tab4:
     st.header("💰 Optymalizacja Kosztów Energii i Bilans Finansowy")
     if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Brak danych technicznych. Uruchom konfigurację w Zakładce 1 i zatwierdź urządzenia.")
+        st.warning("⚠️ Brak danych. Uruchom konfigurację w Zakładce 1.")
     else:
         st.markdown("### ⚡ 1. Taryfy i Parametry Ekonomiczne")
         waluta = st.selectbox("Wybierz walutę operacyjną:", ["PLN", "EUR", "USD"])
-        
-        # Domyślne stawki bazowe
         default_cost = 2.119 if waluta == "PLN" else 0.535
-        default_energy_rate = 750.0 if waluta == "PLN" else 160.0 # Stawka za MWh dla przemysłu
+        default_energy_rate = 750.0 if waluta == "PLN" else 160.0 
         
         c_fin1, c_fin2 = st.columns(2)
-        with c_fin1:
-            manuf_cost_per_kg = st.number_input(f"Bazowy Manufacturing Cost (bez energii) [za kg] w {waluta}:", min_value=0.01, value=default_cost, format="%.3f")
-        with c_fin2:
-            cena_mwh = st.number_input(f"Cena energii elektrycznej i cieplnej [{waluta}/MWh]:", min_value=1.0, value=default_energy_rate, format="%.2f")
-        
-        st.markdown("---")
-        st.markdown("### 📊 2. Szczegółowy Bilans Energetyczny i Kosztowy Urządzeń")
+        with c_fin1: manuf_cost_per_kg = st.number_input(f"Bazowy Manufacturing Cost [za kg] w {waluta}:", min_value=0.01, value=default_cost, format="%.3f")
+        with c_fin2: cena_mwh = st.number_input(f"Cena energii elektrycznej i cieplnej [{waluta}/MWh]:", min_value=1.0, value=default_energy_rate, format="%.2f")
         
         financial_summary = []
         total_monthly_saving_thermal = 0.0
@@ -523,123 +495,109 @@ with tab4:
         total_mixing_energy_kwh = 0.0
         total_pumping_energy_kwh = 0.0
         
-        # Przechodzimy przez zatwierdzone maszyny, aby ściągnąć parametry mechaniczne z Zakładki 2 w locie
         for mixer in st.session_state.confirmed_mixers:
             kat = mixer["product_family"]
             prod_info = FUCHS_PORTFOLIO[kat]
-            
-            # Pobieramy tonaż miesięczny i liczbę szarż
             m_monthly_kg = mixer["annual_volume"] / 12
             batches_per_month = mixer["batches_count"]
             
-            # --- ODTWORZENIE DANYCH TECHNICZNYCH MOCY (Zsynchronizowane z Zakładką 2) ---
-            V_m3 = mixer["capacity_m3"]
-            rho = prod_info["density"] * 1000.0
-            D_tank = round(2.2 * ((V_m3 / 10.0) ** (1/3)), 2)
-            H_tank = round((4 * V_m3) / (math.pi * (D_tank ** 2)) * 1.2, 2)
-            d_agitor = round(D_tank / 3, 2)
+            # Rekonstrukcja dynamiczna mocy i energii pobieranej z Zakładki 2
+            d_agitor = round(round(2.2 * ((mixer["capacity_m3"] / 10.0) ** (1/3)), 2) / 3, 2)
+            P_max_w = 2.5 * (1.5 ** 3) * (d_agitor ** 5) * (prod_info["density"] * 1000.0)
+            motor_power_kw = max((P_max_w / 0.85 * 1.20) / 1000.0, 0.75)
+            mixing_energy_month_kwh = motor_power_kw * prod_info["cycle_h"] * batches_per_month
             
-            # Wyliczenie szacunkowej mocy mieszadła (identycznie jak w Zakładce 2)
-            Re_ag = (1.5 * (d_agitor ** 2) * rho) / 0.220 # przyjmowane dla max lepkości
-            Ne_ag = 2.5 / Re_ag if Re_ag < 50 else 2.5 # uproszczony model Rushton/Łapowe
-            P_max_w = Ne_ag * (1.5 ** 3) * (d_agitor ** 5) * rho
-            motor_power_kw = max((P_max_w / 0.85 * 1.20) / 1000.0, 0.75) # Minimalnie silnik 0.75kW
+            default_q_pump = float(max(round((mixer["capacity_m3"] / 0.75) * 1.25, 1), 5.0))
+            pump_power_kw = max((default_q_pump * 2.5) / (36.0 * 0.60) * 1.15, 0.37)
+            pumping_energy_month_kwh = pump_power_kw * (mixer["capacity_m3"] / default_q_pump) * batches_per_month
             
-            # Wyliczenie szacunkowej mocy pompy (identycznie jak w Zakładce 2)
-            default_q_pump = float(max(round((V_m3 / 0.75) * 1.25, 1), 5.0))
-            pump_power_kw = max((default_q_pump * 2.5) / (36.0 * 0.60) * 1.15, 0.37) # Szacunek oparty na średnich 2.5 bar
-            
-            # --- OBLICZENIA ZUŻYCIA ENERGII ELEKTRYCZNEJ ---
-            # 1. Mieszanie: Moc silnika * czas cyklu (godziny) * liczba szarż w miesiącu
-            hours_mixing_per_batch = prod_info["cycle_h"]
-            mixing_energy_month_kwh = motor_power_kw * hours_mixing_per_batch * batches_per_month
-            
-            # 2. Przepompowywanie: Czas pracy pompy = Objętość szarży / Wydajność pompy
-            hours_pumping_per_batch = (V_m3 / default_q_pump)
-            pumping_energy_month_kwh = pump_power_kw * hours_pumping_per_batch * batches_per_month
-            
-            # Agregacja globalna prądu
             total_mixing_energy_kwh += mixing_energy_month_kwh
             total_pumping_energy_kwh += pumping_energy_month_kwh
+            cost_el_node = ((mixing_energy_month_kwh + pumping_energy_month_kwh) / 1000.0) * cena_mwh
             
-            # Koszt prądu dla tego konkretnego węzła
-            total_node_el_kwh = mixing_energy_month_kwh + pumping_energy_month_kwh
-            cost_el_node = (total_node_el_kwh / 1000.0) * cena_mwh
-            
-            # --- ENERGIA CIEPLNA (ODZYSK) ---
             t_max_mix = st.session_state.heat_temps.get(mixer["tag"], 60.0)
             t_rozlew = st.session_state.filling_temps.get(mixer["tag"], 30.0)
-            
             base_manuf_cost_monthly = m_monthly_kg * manuf_cost_per_kg
             total_base_manuf_cost += base_manuf_cost_monthly
             
             oszczednosc_cieplna_mies = 0.0
             energia_cieplna_mwh_mies = 0.0
             if t_rozlew < t_max_mix:
-                delta_t = t_max_mix - t_rozlew
-                Q_recovered = m_monthly_kg * prod_info["cp"] * delta_t
-                energia_cieplna_mwh_mies = Q_recovered / 3_600_000.0
+                energia_cieplna_mwh_mies = (m_monthly_kg * prod_info["cp"] * (t_max_mix - t_rozlew)) / 3_600_000.0
                 oszczednosc_cieplna_mies = energia_cieplna_mwh_mies * cena_mwh
                 total_monthly_saving_thermal += oszczednosc_cieplna_mies
                 
             financial_summary.append({
-                "Reaktor 🔒": mixer["tag"],
-                "Miesięczny tonaż [kg] 🔒": int(m_monthly_kg),
-                "Moc Mieszadła [kW] 🔒": round(motor_power_kw, 1),
-                "Energia Mieszania [kWh/m] 🔒": round(mixing_energy_month_kwh, 1),
-                "Moc Pompy [kW] 🔒": round(pump_power_kw, 1),
-                "Energia Pompowania [kWh/m] 🔒": round(pumping_energy_month_kwh, 1),
-                "Koszt energii el. 🔒": f"{cost_el_node:.2f} {waluta}",
-                "Odzysk Ciepła [MWh] 🔒": round(energia_cieplna_mwh_mies, 2),
-                "Oszczędność termiczna 🔒": f"- {oszczednosc_cieplna_mies:.2f} {waluta}"
+                "Reaktor": mixer["tag"], "Miesięczny tonaż [kg]": int(m_monthly_kg),
+                "Energia Mieszania [kWh/m]": round(mixing_energy_month_kwh, 1), "Energia Pompowania [kWh/m]": round(pumping_energy_month_kwh, 1),
+                "Koszt energii el.": f"{cost_el_node:.2f} {waluta}", "Oszczędność termiczna": f"- {oszczednosc_cieplna_mies:.2f} {waluta}"
             })
             
-        # Wyświetlenie zintegrowanej tabeli energetyczno-finansowej
         st.dataframe(pd.DataFrame(financial_summary), hide_index=True, use_container_width=True)
-        
-        # --- SEKCJA PODSUMOWANIA KPI DLA ENERGII ELEKTRYCZNEJ ---
         st.markdown("<br>", unsafe_allow_html=True)
-        st.subheader("⚡ Globalne wskaźniki zużycia energii elektrycznej i koszty:")
+        st.subheader("⚡ Globalne koszty zużycia prądu fabryki:")
+        cost_total_el = ((total_mixing_energy_kwh + total_pumping_energy_kwh) / 1000.0) * cena_mwh
         
-        total_factory_el_kwh = total_mixing_energy_kwh + total_pumping_energy_kwh
-        total_factory_el_mwh = total_factory_el_kwh / 1000.0
-        cost_total_el = total_factory_el_mwh * cena_mwh
+        s_col1, s_col2, s_col3 = st.columns(3)
+        with s_col1: st.metric("⚙️ Zużycie: Mieszanie", f"{total_mixing_energy_kwh:,.1f} kWh/m")
+        with s_col2: st.metric("🔄 Zużycie: Przepompowanie", f"{total_pumping_energy_kwh:,.1f} kWh/m")
+        with s_col3: st.metric("🔌 Łączny koszt energii el.", f"{cost_total_el:,.2f} {waluta}/mies")
         
-        sum_el1, sum_el2, sum_el3 = st.columns(3)
-        with sum_el1:
-            st.metric(
-                label="⚙️ Zużycie prądu: Mieszanie", 
-                value=f"{total_mixing_energy_kwh:,.1f} kWh/miesiąc",
-                delta=f"{total_mixing_energy_kwh/1000.0*cena_mwh:,.2f} {waluta}/mies"
-            )
-        with sum_el2:
-            st.metric(
-                label="🔄 Zużycie prądu: Przepompowanie", 
-                value=f"{total_pumping_energy_kwh:,.1f} kWh/miesiąc",
-                delta=f"{total_pumping_energy_kwh/1000.0*cena_mwh:,.2f} {waluta}/mies"
-            )
-        with sum_el3:
-            st.metric(
-                label="🔌 Sumaryczny koszt energii elektrycznej", 
-                value=f"{cost_total_el:,.2f} {waluta}/miesiąc",
-                delta=f"Łącznie: {total_factory_el_mwh:.2f} MWh"
-            )
+        st.markdown("---")
+        final_manufacturing_cost = total_base_manuf_cost + cost_total_el - total_monthly_saving_thermal
+        st.metric(label="🚀 ZOPTYMALIZOWANY REALNY KOSZT WYTWORZENIA (Miesięcznie)", value=f"{final_manufacturing_cost:,.2f} {waluta}")
+
+# ==========================================
+# ZAKŁADKA 5: RAW MATERIAL (SUROWCE I TANK FARM)
+# ==========================================
+with tab5:
+    st.header("🛢️ Logistyka Surowcowa i Wymiarowanie Parku Zbiorników")
+    if not st.session_state.confirmed_mixers:
+        st.warning("⚠️ Brak danych technicznych. Uruchom konfigurację w Zakładce 1.")
+    else:
+        st.markdown("### ⚙️ 1. Parametry Strategii Zaopatrzenia")
+        c_raw1, c_raw2 = st.columns(2)
+        with c_raw1: base_oil_ratio = st.slider("Udział oleju bazowego w recepturze [%]:", min_value=50, max_value=95, value=80, step=5) / 100.0
+        with c_raw2: days_of_stock = st.number_input("Wymagany zapas bezpieczeństwa surowca [dni]:", min_value=5, max_value=60, value=14, step=1)
             
         st.markdown("---")
-        st.subheader("💰 Końcowe zestawienie ekonomiczne fabryki (Manufacturing Cost):")
+        st.markdown("### 📊 2. Bilans Zapotrzebowania na Oleje Bazowe")
         
-        # Obliczenie ostatecznego, skorygowanego kosztu wytworzenia
-        # Realny Koszt = Koszt Bazowy + Koszt Prądu (Mieszanie+Pompy) - Oszczędności z Odzysku Ciepła
-        final_manufacturing_cost = total_base_manuf_cost + cost_total_el - total_monthly_saving_thermal
+        raw_material_summary = []
+        total_annual_base_oil_kg = 0.0
         
-        col_final1, col_final2 = st.columns(2)
-        with col_final1:
-            st.info(f"**Podstawowy koszt stały i zmienny operacji (wszystkie linie):** {total_base_manuf_cost:,.2f} {waluta}/miesiąc")
-            st.info(f"**Koszt zasilania silników elektrycznych (mieszadła + pompy):** + {cost_total_el:,.2f} {waluta}/miesiąc")
-            st.info(f"**Finansowy ekwiwalent odzyskanego ciepła procesowego:** - {total_monthly_saving_thermal:,.2f} {waluta}/miesiąc")
-        with col_final2:
-            st.metric(
-                label="🚀 ZOPTYMALIZOWANY REALNY KOSZT WYTWORZENIA (Miesięcznie)", 
-                value=f"{final_manufacturing_cost:,.2f} {waluta}",
-                delta=f"Skorygowany koszt prądu i ciepła"
-            )
+        for mixer in st.session_state.confirmed_mixers:
+            kat = mixer["product_family"]
+            v_annual_product_tony = mixer["annual_volume"] / 1000.0
+            base_oil_annual_tony = v_annual_product_tony * base_oil_ratio
+            base_oil_monthly_tony = (v_annual_product_tony / 12.0) * base_oil_ratio
+            base_oil_monthly_m3 = (base_oil_monthly_tony * 1000.0) / (0.88 * 1000.0)
+            total_annual_base_oil_kg += (base_oil_annual_tony * 1000.0)
+            
+            raw_material_summary.append({
+                "ID Reaktora 🔒": mixer["tag"], "Rodzina Produktu 🔒": kat, "Produkcja [t/rok] 🔒": round(v_annual_product_tony, 1),
+                "Baza [t/rok] 🔒": round(base_oil_annual_tony, 1), "Baza [t/mies] 🔒": round(base_oil_monthly_tony, 1), "Objętość Bazy [m³/mies] 🔒": round(base_oil_monthly_m3, 1)
+            })
+            
+        st.dataframe(pd.DataFrame(raw_material_summary), hide_index=True, use_container_width=True)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("🏢 3. Wymiarowanie Infrastruktury Magazynowej (Tank Farm)")
+        
+        total_annual_base_oil_tony = total_annual_base_oil_kg / 1000.0
+        daily_base_oil_consumption_tony = total_annual_base_oil_tony / 250.0
+        required_stock_m3 = (daily_base_oil_consumption_tony * days_of_stock) / 0.88
+        
+        c_tank1, c_tank2 = st.columns(2)
+        with c_tank1: selected_tank_capacity_m3 = st.selectbox("Wybierz typową pojemność pojedynczego silosu [m³]:", [30, 50, 60, 80, 100, 150, 200], index=3)
+        with c_tank2:
+            needed_tanks_count = math.ceil(required_stock_m3 / (selected_tank_capacity_m3 * 0.85)) if required_stock_m3 > 0 else 0
+            st.metric(label="🧱 Wymagana liczba silosów surowca", value=f"{needed_tanks_count} szt.", delta=f"Zapas na {days_of_stock} dni")
+            
+        st.markdown("<br>", unsafe_allow_html=True)
+        raw_kpi1, raw_kpi2, raw_kpi3 = st.columns(3)
+        with raw_kpi1: st.metric(label="📈 Zapotrzebowanie całkowite na bazę", value=f"{total_annual_base_oil_tony:,.1f} t/rok")
+        with raw_kpi2: st.metric(label="🔀 Średnie zużycie dobowe", value=f"{daily_base_oil_consumption_tony:.1f} t/dzień")
+        with raw_kpi3: st.metric(label="📐 Minimalna pojemność parku zbiorników", value=f"{required_stock_m3:,.1f} m³")
+        
+        st.warning(f"🚚 **Logistyka:** Wymaga to dostarczenia średnio **{((total_annual_base_oil_tony / 12.0) / 24.0):.1f} cystern (24t) na miesiąc**.")
