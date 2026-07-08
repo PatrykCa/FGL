@@ -55,7 +55,6 @@ PACK_CONFIGS = {
     "1000l (IBC)": {"size_l": 1000.0, "per_pallet": 1}
 }
 
-# CHARAKTERYSTYKI MOCZOWE MIESZADEŁ (Aproksymacja stałych b, m, C z wykresu 1-54 z Twojej książki)
 AGITATOR_TYPES = {
     "Turbinowe (Rushton)": {"laminar_C": 70.0, "turbulent_Ne": 5.0, "desc": "Wysokie ścinanie, doskonałe do dyspersji dodatków."},
     "Łapowe / Płatowe": {"laminar_C": 50.0, "turbulent_Ne": 2.5, "desc": "Mieszanie łagodne, niskie opory, uniwersalne do olejów."},
@@ -87,16 +86,28 @@ for kat in wybrane_kategorie:
     )
     input_packs[kat] = packs
 
-if "df_base" not in st.session_state_df_base if "df_base" in st.session_state else True:
+# --- NAPRAWIONA INICJALIZACJA STANÓW (ELIMINACJA ATTRIBUTERROR LINIJA 90) ---
+if "df_base" not in st.session_state or st.sidebar.button("🔄 Przywróć domyślne (Rekomendacja 75%)"):
     initial_rows = []
     for kat in wybrane_kategorie:
         initial_rows.append({"1. Nazwa rodziny": kat, "2. Roczna produkcja [kg]": 1200000, "3. Utilization %": 75.0})
     st.session_state.df_base = pd.DataFrame(initial_rows)
 
-if set(st.session_state.df_base["1. Nazwa rodziny"].tolist()) != set(wybrane_kategorie):
+# Synchronizacja przy zmianie listy wybranych kategorii
+current_stored = st.session_state.df_base["1. Nazwa rodziny"].tolist() if not st.session_state.df_base.empty else []
+if set(current_stored) != set(wybrane_kategorie):
     updated_rows = []
     for kat in wybrane_kategorie:
-        updated_rows.append({"1. Nazwa rodziny": kat, "2. Roczna produkcja [kg]": 1200000, "3. Utilization %": 75.0})
+        # Zachowaj istniejące dane, dopisz nowe
+        existing = st.session_state.df_base[st.session_state.df_base["1. Nazwa rodziny"] == kat]
+        if not existing.empty:
+            updated_rows.append({
+                "1. Nazwa rodziny": kat,
+                "2. Roczna produkcja [kg]": int(existing.iloc[0]["2. Roczna produkcja [kg]"]),
+                "3. Utilization %": float(existing.iloc[0]["3. Utilization %"])
+            })
+        else:
+            updated_rows.append({"1. Nazwa rodziny": kat, "2. Roczna produkcja [kg]": 1200000, "3. Utilization %": 75.0})
     st.session_state.df_base = pd.DataFrame(updated_rows)
 
 if "confirmed_mixers" not in st.session_state:
@@ -168,13 +179,13 @@ with tab1:
         st.info("Zaznacz rodziny produktów w panelu bocznym.")
 
 # ==========================================
-# ZAKŁADKA 2: KARTA MASZYN - REOLOGIA I TYPY MIESZADEŁ
+# ZAKŁADKA 2: KARTA MASZYN - REOLOGIA I CIEPŁO
 # ==========================================
 with tab2:
     st.header("Wymiarowanie Układu Mieszania pod Kątem Zmiennej Lepkości")
     
     if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Brak zatwierdzonych danych. Wróć do Zakładki 1 i kliknij zielony przycisk zatwierdzenia.")
+        st.warning("⚠️ Brak zatwierdzonych danych. Wróć do Zakładki 1 i kliknij przycisk 'Zatwierdź i wyślij konfigurację'.")
     else:
         engineering_table_data = []
         
@@ -182,7 +193,7 @@ with tab2:
             kat = mixer["product_family"]
             prod_info = FUCHS_PORTFOLIO[kat]
             
-            st.markdown(f"### ⚙️ Konfiguracja Napędu Mieszadła: **{mixer['tag']}** (Dedykowany dla: *{kat}*)")
+            st.markdown(f"### ⚙️ Konfiguracja Reaktora: **{mixer['tag']}** (Dedykowany dla: *{kat}*)")
             
             # --- INPUT PARAMETRÓW MIESZADŁA I LEPKOŚCI ---
             c_mix1, c_mix2, c_mix3 = st.columns(3)
@@ -194,52 +205,42 @@ with tab2:
             with c_mix3:
                 visc_max = st.number_input(f"Lepkość MAKSYMALNA (końcowa) [cSt]:", min_value=5.0, value=220.0, step=10.0, key=f"v_max_{mixer['tag']}")
             
-            # --- OBLICZENIA HYDRODYNAMICZNE DLA DWÓCH STANÓW LEPKOŚCI ---
+            # --- OBLICZENIA HYDRODYNAMICZNE ---
             V_m3 = mixer["capacity_m3"]
             rho = prod_info["density"] * 1000.0  
             D_tank = round(2.2 * ((V_m3 / 10.0) ** (1/3)), 2)
             H_tank = round((4 * V_m3) / (math.pi * (D_tank ** 2)) * 1.2, 2)
             F_surface = math.pi * D_tank * H_tank  
             d_agitor = round(D_tank / 3, 2)
-            n_speed = 1.5  # 90 obr/min
+            n_speed = 1.5  
             
             cfg = AGITATOR_TYPES[agitator_choice]
             
-            # Funkcja pomocnicza wyliczająca moc na podstawie lepkości kinematycznej
             def calculate_visc_power(v_kin_cst):
-                eta_dyn = (v_kin_cst / 1_000_000.0) * rho  # Pa*s
+                eta_dyn = (v_kin_cst / 1_000_000.0) * rho  
                 Re = (n_speed * (d_agitor ** 2) * rho) / eta_dyn
-                
-                # Wyznaczenie liczby Newtona na podstawie krzywej z książki
-                if Re < 50:  # Ruch laminarny
+                if Re < 50:  
                     Ne = cfg["laminar_C"] / Re
-                elif Re >= 50 and Re < 10000:  # Przejściowy
+                elif Re >= 50 and Re < 10000:  
                     Ne = cfg["turbulent_Ne"] * 1.3
-                else:  # W pełni turbulentny
+                else:  
                     Ne = cfg["turbulent_Ne"]
-                
                 P_w = Ne * (n_speed ** 3) * (d_agitor ** 5) * rho
                 return P_w, Re, Ne
 
-            # Wyliczenia dla punktu startowego i końcowego szarży
             P_min_w, Re_min, Ne_min = calculate_visc_power(visc_min)
             P_max_w, Re_max, Ne_max = calculate_visc_power(visc_max)
-            
-            # Rekomendowana moc silnika z uwzględnieniem sprawności i 20% marginesu bezpieczeństwa
             required_motor_power_kw = (P_max_w / 0.85 * 1.20) / 1000.0
             
-            # --- WYŚWIETLENIE PROFILU NAPĘDU ---
             col_res1, col_res2 = st.columns(2)
             with col_res1:
-                st.write(f"🟢 **Stan początkowy szarży (Lepkość: {visc_min} cSt):**")
-                st.write(f"* Liczba Reynoldsa ($Re_{{min}}$): `{Re_min:,.1f}` | Liczba Newtona ($Ne$): `{Ne_min:.2f}`")
-                st.write(f"* Pobór mocy netto na mieszadle: **{P_min_w/1000.0:.2f} kW**")
+                st.write(f"🟢 **Stan początkowy szarży ({visc_min} cSt):**")
+                st.write(f"* $Re_{{min}}$: `{Re_min:,.1f}` | $Ne$: `{Ne_min:.2f}` | Moc netto: **{P_min_w/1000.0:.2f} kW**")
             with col_res2:
-                st.write(f"🔴 **Stan końcowy szarży (Lepkość: {visc_max} cSt):**")
-                st.write(f"* Liczba Reynoldsa ($Re_{{max}}$): `{Re_max:,.1f}` | Liczba Newtona ($Ne$): `{Ne_max:.2f}`")
-                st.write(f"* Pobór mocy netto na mieszadle: **{P_max_w/1000.0:.2f} kW**")
+                st.write(f"🔴 **Stan końcowy szarży ({visc_max} cSt):**")
+                st.write(f"* $Re_{{max}}$: `{Re_max:,.1f}` | $Ne$: `{Ne_max:.2f}` | Moc netto: **{P_max_w/1000.0:.2f} kW**")
                 
-            st.success(f"⚡ **Rekomendowana moc znamionowa silnika dla {mixer['tag']}: {required_motor_power_kw:.2f} kW** (Uwzględnia max. lepkość, sprawność przekładni 85% i bufor +20%)")
+            st.success(f"⚡ **Rekomendowana moc silnika: {required_motor_power_kw:.2f} kW** (Uwzględnia bufor bezpieczeństwa +20%)")
             
             # --- SEKCJA CIEPLNA (LMTD) ---
             col_t1, col_t2 = st.columns(2)
