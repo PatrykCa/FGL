@@ -220,7 +220,7 @@ with tab1:
         st.info("Zaznacz aktywne rodziny produktów w panelu bocznym.")
 
 # ==========================================
-# ZAKŁADKA 2: SPECYFIKACJA MASZYN I DOBÓR POMP
+# ZAKŁADKA 2: SPECYFIKACJA MASZYN, REOLOGIA I DOBÓR POMP (Z LMTD W PODSUMOWANIU)
 # ==========================================
 with tab2:
     st.header("Wymiarowanie Układu Mieszania i Zaawansowany Dobór Hydrauliki")
@@ -242,6 +242,7 @@ with tab2:
             d_agitor = round(D_tank / 3, 2)
             n_speed = 1.5  
             
+            # --- BLOK WEJŚCIOWY REOLOGII ---
             c_mix1, c_mix2, c_mix3 = st.columns(3)
             with c_mix1:
                 agitator_choice = st.selectbox(f"Typ wirnika mieszadła dla {mixer['tag']}:", list(AGITATOR_TYPES.keys()), key=f"agit_{mixer['tag']}", index=1)
@@ -257,32 +258,21 @@ with tab2:
             P_max_w = Ne * (n_speed ** 3) * (d_agitor ** 5) * rho
             required_motor_power_kw = (P_max_w / 0.85 * 1.20) / 1000.0
             
-# --- ZAAWANSOWANY DOBÓR POMPY ROZŁADUNKOWEJ (STRATY WG DARCY-WEISBACHA) ---
+            # --- PROJEKTOWANIE UKŁADU ROZŁADUNKOWEGO ---
             st.markdown("##### 📐 Projektowanie Układu Rozładunkowego i Strat Przepływu (Równanie Darcy-Weisbacha)")
             default_discharge_flow = round((V_m3 / 0.75) * 1.25, 1)
             
-            # KROK 1: Renderujemy jeden, wspólny rząd idealnie równych nagłówków za pomocą kolumn tekstowych
             c_label1, c_label2, c_label3, c_label4 = st.columns(4)
-            with c_label1:
-                st.markdown(f"**Wydajność pompy Q [m³/h]**")
-            with c_label2:
-                st.markdown(f"**Długość rurociągu L [m]**")
-            with c_label3:
-                st.markdown(f"**Średnica rury D [mm]**")
-            with c_label4:
-                st.markdown(f"**Wysokość H_stat [m]**")
+            with c_label1: st.markdown("**Wydajność pompy Q [m³/h]**")
+            with c_label2: st.markdown("**Długość rurociągu L [m]**")
+            with c_label3: st.markdown("**Średnica rury D [mm]**")
+            with c_label4: st.markdown("**Wysokość H_stat [m]**")
             
-            # KROK 2: Renderujemy okienka wejściowe z ukrytymi etykietami (label_visibility="collapsed")
-            # Dzięki temu Streamlit wyrównuje same ramki boksów, ignorując różnice w tekstach
             c_pump1, c_pump2, c_pump3, c_pump4 = st.columns(4)
-            with c_pump1:
-                q_pump = st.number_input("Q", min_value=0.5, value=float(max(default_discharge_flow, 5.0)), key=f"q_p_{mixer['tag']}", label_visibility="collapsed")
-            with c_pump2:
-                pipe_length = st.number_input("L", min_value=1.0, value=15.0, key=f"pipe_l_{mixer['tag']}", label_visibility="collapsed")
-            with c_pump3:
-                pipe_diameter_mm = st.number_input("D", min_value=25, max_value=250, value=80, key=f"pipe_d_{mixer['tag']}", label_visibility="collapsed")
-            with c_pump4:
-                pump_static_head = st.number_input("H", min_value=0.0, value=3.0, key=f"p_stat_{mixer['tag']}", label_visibility="collapsed")
+            with c_pump1: q_pump = st.number_input("Q", min_value=0.5, value=float(max(default_discharge_flow, 5.0)), key=f"q_p_{mixer['tag']}", label_visibility="collapsed")
+            with c_pump2: pipe_length = st.number_input("L", min_value=1.0, value=15.0, key=f"pipe_l_{mixer['tag']}", label_visibility="collapsed")
+            with c_pump3: pipe_diameter_mm = st.number_input("D", min_value=25, max_value=250, value=80, key=f"pipe_d_{mixer['tag']}", label_visibility="collapsed")
+            with c_pump4: pump_static_head = st.number_input("H", min_value=0.0, value=3.0, key=f"p_stat_{mixer['tag']}", label_visibility="collapsed")
 
             D_m = pipe_diameter_mm / 1000.0
             pipe_area = (math.pi * (D_m ** 2)) / 4.0
@@ -292,10 +282,8 @@ with tab2:
             
             if Re_pipe < 2100:
                 lambda_friction = 64.0 / max(Re_pipe, 1.0)
-                flow_regime = "Laminarny"
             else:
                 lambda_friction = 0.3164 / (Re_pipe ** 0.25)
-                flow_regime = "Burzliwy"
                 
             g_gravity = 9.81
             head_loss_m = lambda_friction * (pipe_length / D_m) * ((velocity_m_s ** 2) / (2.0 * g_gravity))
@@ -308,6 +296,7 @@ with tab2:
             
             st.success(f"⚡ **Mieszadło:** Silnik: **{required_motor_power_kw:.2f} kW** | **Pompa Rozładunkowa ({pump_type}):** Przepływ {q_pump:.1f} m³/h @ {required_pressure_bar:.2f} bar")
             
+            # --- BILANSE CIEPLNE I OBLICZANIE LMTD ---
             st.markdown("##### 🧊 Parametry Wymiany Ciepła w Zbiorniku")
             col_geom, _ = st.columns([1, 1])
             with col_geom:
@@ -325,6 +314,10 @@ with tab2:
                 Q_heat_j = mixer["mass_per_batch"] * (prod_info["cp"] * 1000.0) * (t_final_h - t_init_h)
                 req_p_heat_kw = (Q_heat_j / (user_time_heat * 60.0)) / 1000.0
                 
+                # Wyliczenie analityczne LMTD dla grzania na bazie parametrów wymiany
+                calculated_lmtd_h = Q_heat_j / (user_K_heat * user_F_surface * (user_time_heat * 60.0)) if (user_K_heat * user_F_surface * user_time_heat) > 0 else 0.0
+                st.write(f"Moc grzania: **{req_p_heat_kw:.1f} kW** | LMTD grzania: **{calculated_lmtd_h:.1f} °C**")
+                
             with col_t2:
                 st.markdown("**❄️ Proces Chłodzenia**")
                 user_time_cool = st.number_input(f"Zadany czas chłodzenia [min] ({mixer['tag']}):", min_value=1.0, value=60.0, key=f"ut_c_{mixer['tag']}")
@@ -334,17 +327,30 @@ with tab2:
                 
                 Q_cool_j = mixer["mass_per_batch"] * (prod_info["cp"] * 1000.0) * (t_init_c - t_final_c)
                 req_p_cool_kw = (Q_cool_j / (user_time_cool * 60.0)) / 1000.0
+                
+                # Wyliczenie analityczne LMTD dla chłodzenia
+                calculated_lmtd_c = Q_cool_j / (user_K_cool * user_F_surface * (user_time_cool * 60.0)) if (user_K_cool * user_F_surface * user_time_cool) > 0 else 0.0
+                st.write(f"Moc chłodzenia: **{req_p_cool_kw:.1f} kW** | LMTD chłodzenia: **{calculated_lmtd_c:.1f} °C**")
 
+            # Dodajemy dane do zbiorczej tabeli (LMTD uwzględnione na końcu)
             engineering_table_data.append({
-                "Mieszalnik": mixer["tag"], "Materiał korpusu": prod_info["material"], "Pojemność [m³]": round(V_m3, 2), 
-                "Masa szarży [kg]": int(mixer["mass_per_batch"]), "Typ Mieszadła": agitator_choice,
-                "Moc Mieszadła [kW]": round(required_motor_power_kw, 2), "Typ Pompy": pump_type, "Przepływ [m³/h]": round(q_pump, 1),
-                "Ciśnienie pompy [bar]": round(required_pressure_bar, 2), "Moc Pompy [kW]": round(pump_power_kw, 2),
-                "Moc Grzania [kW]": round(req_p_heat_kw, 1), "Moc Chłodzenia [kW]": round(req_p_cool_kw, 1)
+                "Mieszalnik": mixer["tag"], 
+                "Materiał korpusu": prod_info["material"], 
+                "Pojemność [m³]": round(V_m3, 2), 
+                "Masa szarży [kg]": int(mixer["mass_per_batch"]), 
+                "Typ Mieszadła": agitator_choice,
+                "Moc Mieszadła [kW]": round(required_motor_power_kw, 2), 
+                "Typ Pompy": pump_type, 
+                "Przepływ [m³/h]": round(q_pump, 1),
+                "Moc Pompy [kW]": round(pump_power_kw, 2),
+                "Moc Grzania [kW]": round(req_p_heat_kw, 1), 
+                "LMTD Grzania [°C]": f"{calculated_lmtd_h:.1f} °C",
+                "Moc Chłodzenia [kW]": round(req_p_cool_kw, 1),
+                "LMTD Chłodzenia [°C]": f"{calculated_lmtd_c:.1f} °C"
             })
             st.markdown("---")
             
-        st.subheader("📋 Zbiorcza Karta Techniczna Linii Mieszania i Rozładunku")
+        st.subheader("📋 Zbiorcza Karta Techniczna Linii Mieszania, Rozładunku i Termodynamiki")
         st.dataframe(pd.DataFrame(engineering_table_data), hide_index=True, use_container_width=True)
 
 # ==========================================
@@ -465,47 +471,152 @@ with tab3:
         else:
             st.info("Brak przypisanych opakowań. Wybierz rodzaje opakowań w kroku 3 panelu bocznego.")
 # ==========================================
-# ZAKŁADKA 4: FINANSE - MANUFACTURING COST
+# ZAKŁADKA 4: FINANSE - ENERGIA ELEKTRYCZNA I KOSZT WYTWORZENIA
 # ==========================================
 with tab4:
-    st.header("💰 Finansowa Optymalizacja i Koszt Wytworzenia")
+    st.header("💰 Optymalizacja Kosztów Energii i Bilans Finansowy")
     if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Brak danych. Uruchom konfigurację w Zakładki 1.")
+        st.warning("⚠️ Brak danych technicznych. Uruchom konfigurację w Zakładce 1 i zatwierdź urządzenia.")
     else:
-        waluta = st.selectbox("Wybierz walutę operacyjną:", ["EUR", "PLN", "USD"])
-        default_cost = 0.535 if waluta == "EUR" else 2.119
-        manuf_cost_per_kg = st.number_input(f"Bazowy Manuf. Cost [za kg] w {waluta}:", min_value=0.01, value=default_cost, format="%.3f")
-        cena_mwh = st.number_input(f"Energy rate [{waluta}/MWh]:", min_value=1.0, value=450.0)
+        st.markdown("### ⚡ 1. Taryfy i Parametry Ekonomiczne")
+        waluta = st.selectbox("Wybierz walutę operacyjną:", ["PLN", "EUR", "USD"])
+        
+        # Domyślne stawki bazowe
+        default_cost = 2.119 if waluta == "PLN" else 0.535
+        default_energy_rate = 750.0 if waluta == "PLN" else 160.0 # Stawka za MWh dla przemysłu
+        
+        c_fin1, c_fin2 = st.columns(2)
+        with c_fin1:
+            manuf_cost_per_kg = st.number_input(f"Bazowy Manufacturing Cost (bez energii) [za kg] w {waluta}:", min_value=0.01, value=default_cost, format="%.3f")
+        with c_fin2:
+            cena_mwh = st.number_input(f"Cena energii elektrycznej i cieplnej [{waluta}/MWh]:", min_value=1.0, value=default_energy_rate, format="%.2f")
+        
+        st.markdown("---")
+        st.markdown("### 📊 2. Szczegółowy Bilans Energetyczny i Kosztowy Urządzeń")
         
         financial_summary = []
-        total_monthly_saving = 0.0
+        total_monthly_saving_thermal = 0.0
         total_base_manuf_cost = 0.0
+        total_mixing_energy_kwh = 0.0
+        total_pumping_energy_kwh = 0.0
         
+        # Przechodzimy przez zatwierdzone maszyny, aby ściągnąć parametry mechaniczne z Zakładki 2 w locie
         for mixer in st.session_state.confirmed_mixers:
             kat = mixer["product_family"]
             prod_info = FUCHS_PORTFOLIO[kat]
             
+            # Pobieramy tonaż miesięczny i liczbę szarż
+            m_monthly_kg = mixer["annual_volume"] / 12
+            batches_per_month = mixer["batches_count"]
+            
+            # --- ODTWORZENIE DANYCH TECHNICZNYCH MOCY (Zsynchronizowane z Zakładką 2) ---
+            V_m3 = mixer["capacity_m3"]
+            rho = prod_info["density"] * 1000.0
+            D_tank = round(2.2 * ((V_m3 / 10.0) ** (1/3)), 2)
+            H_tank = round((4 * V_m3) / (math.pi * (D_tank ** 2)) * 1.2, 2)
+            d_agitor = round(D_tank / 3, 2)
+            
+            # Wyliczenie szacunkowej mocy mieszadła (identycznie jak w Zakładce 2)
+            Re_ag = (1.5 * (d_agitor ** 2) * rho) / 0.220 # przyjmowane dla max lepkości
+            Ne_ag = 2.5 / Re_ag if Re_ag < 50 else 2.5 # uproszczony model Rushton/Łapowe
+            P_max_w = Ne_ag * (1.5 ** 3) * (d_agitor ** 5) * rho
+            motor_power_kw = max((P_max_w / 0.85 * 1.20) / 1000.0, 0.75) # Minimalnie silnik 0.75kW
+            
+            # Wyliczenie szacunkowej mocy pompy (identycznie jak w Zakładce 2)
+            default_q_pump = float(max(round((V_m3 / 0.75) * 1.25, 1), 5.0))
+            pump_power_kw = max((default_q_pump * 2.5) / (36.0 * 0.60) * 1.15, 0.37) # Szacunek oparty na średnich 2.5 bar
+            
+            # --- OBLICZENIA ZUŻYCIA ENERGII ELEKTRYCZNEJ ---
+            # 1. Mieszanie: Moc silnika * czas cyklu (godziny) * liczba szarż w miesiącu
+            hours_mixing_per_batch = prod_info["cycle_h"]
+            mixing_energy_month_kwh = motor_power_kw * hours_mixing_per_batch * batches_per_month
+            
+            # 2. Przepompowywanie: Czas pracy pompy = Objętość szarży / Wydajność pompy
+            hours_pumping_per_batch = (V_m3 / default_q_pump)
+            pumping_energy_month_kwh = pump_power_kw * hours_pumping_per_batch * batches_per_month
+            
+            # Agregacja globalna prądu
+            total_mixing_energy_kwh += mixing_energy_month_kwh
+            total_pumping_energy_kwh += pumping_energy_month_kwh
+            
+            # Koszt prądu dla tego konkretnego węzła
+            total_node_el_kwh = mixing_energy_month_kwh + pumping_energy_month_kwh
+            cost_el_node = (total_node_el_kwh / 1000.0) * cena_mwh
+            
+            # --- ENERGIA CIEPLNA (ODZYSK) ---
             t_max_mix = st.session_state.heat_temps.get(mixer["tag"], 60.0)
             t_rozlew = st.session_state.filling_temps.get(mixer["tag"], 30.0)
-            m_monthly_kg = mixer["annual_volume"] / 12
             
             base_manuf_cost_monthly = m_monthly_kg * manuf_cost_per_kg
             total_base_manuf_cost += base_manuf_cost_monthly
             
-            oszczednosc_mies = 0.0
-            energia_mwh_mies = 0.0
+            oszczednosc_cieplna_mies = 0.0
+            energia_cieplna_mwh_mies = 0.0
             if t_rozlew < t_max_mix:
                 delta_t = t_max_mix - t_rozlew
                 Q_recovered = m_monthly_kg * prod_info["cp"] * delta_t
-                energia_mwh_mies = Q_recovered / 3_600_000.0
-                oszczednosc_mies = energia_mwh_mies * cena_mwh
-                total_monthly_saving += oszczednosc_mies
+                energia_cieplna_mwh_mies = Q_recovered / 3_600_000.0
+                oszczednosc_cieplna_mies = energia_cieplna_mwh_mies * cena_mwh
+                total_monthly_saving_thermal += oszczednosc_cieplna_mies
                 
             financial_summary.append({
-                "Reaktor": mixer["tag"], "Miesięczny tonaż [kg]": int(m_monthly_kg),
-                "Bazowy koszt": round(base_manuf_cost_monthly, 2), "Odzysk [MWh]": round(energia_mwh_mies, 3),
-                "Oszczędność": round(oszczednosc_mies, 2)
+                "Reaktor 🔒": mixer["tag"],
+                "Miesięczny tonaż [kg] 🔒": int(m_monthly_kg),
+                "Moc Mieszadła [kW] 🔒": round(motor_power_kw, 1),
+                "Energia Mieszania [kWh/m] 🔒": round(mixing_energy_month_kwh, 1),
+                "Moc Pompy [kW] 🔒": round(pump_power_kw, 1),
+                "Energia Pompowania [kWh/m] 🔒": round(pumping_energy_month_kwh, 1),
+                "Koszt energii el. 🔒": f"{cost_el_node:.2f} {waluta}",
+                "Odzysk Ciepła [MWh] 🔒": round(energia_cieplna_mwh_mies, 2),
+                "Oszczędność termiczna 🔒": f"- {oszczednosc_cieplna_mies:.2f} {waluta}"
             })
             
+        # Wyświetlenie zintegrowanej tabeli energetyczno-finansowej
         st.dataframe(pd.DataFrame(financial_summary), hide_index=True, use_container_width=True)
-        st.metric(label="Zoptymalizowany realny koszt wytworzenia", value=f"{(total_base_manuf_cost - total_monthly_saving):,.2f} {waluta}")
+        
+        # --- SEKCJA PODSUMOWANIA KPI DLA ENERGII ELEKTRYCZNEJ ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("⚡ Globalne wskaźniki zużycia energii elektrycznej i koszty:")
+        
+        total_factory_el_kwh = total_mixing_energy_kwh + total_pumping_energy_kwh
+        total_factory_el_mwh = total_factory_el_kwh / 1000.0
+        cost_total_el = total_factory_el_mwh * cena_mwh
+        
+        sum_el1, sum_el2, sum_el3 = st.columns(3)
+        with sum_el1:
+            st.metric(
+                label="⚙️ Zużycie prądu: Mieszanie", 
+                value=f"{total_mixing_energy_kwh:,.1f} kWh/miesiąc",
+                delta=f"{total_mixing_energy_kwh/1000.0*cena_mwh:,.2f} {waluta}/mies"
+            )
+        with sum_el2:
+            st.metric(
+                label="🔄 Zużycie prądu: Przepompowanie", 
+                value=f"{total_pumping_energy_kwh:,.1f} kWh/miesiąc",
+                delta=f"{total_pumping_energy_kwh/1000.0*cena_mwh:,.2f} {waluta}/mies"
+            )
+        with sum_el3:
+            st.metric(
+                label="🔌 Sumaryczny koszt energii elektrycznej", 
+                value=f"{cost_total_el:,.2f} {waluta}/miesiąc",
+                delta=f"Łącznie: {total_factory_el_mwh:.2f} MWh"
+            )
+            
+        st.markdown("---")
+        st.subheader("💰 Końcowe zestawienie ekonomiczne fabryki (Manufacturing Cost):")
+        
+        # Obliczenie ostatecznego, skorygowanego kosztu wytworzenia
+        # Realny Koszt = Koszt Bazowy + Koszt Prądu (Mieszanie+Pompy) - Oszczędności z Odzysku Ciepła
+        final_manufacturing_cost = total_base_manuf_cost + cost_total_el - total_monthly_saving_thermal
+        
+        col_final1, col_final2 = st.columns(2)
+        with col_final1:
+            st.info(f"**Podstawowy koszt stały i zmienny operacji (wszystkie linie):** {total_base_manuf_cost:,.2f} {waluta}/miesiąc")
+            st.info(f"**Koszt zasilania silników elektrycznych (mieszadła + pompy):** + {cost_total_el:,.2f} {waluta}/miesiąc")
+            st.info(f"**Finansowy ekwiwalent odzyskanego ciepła procesowego:** - {total_monthly_saving_thermal:,.2f} {waluta}/miesiąc")
+        with col_final2:
+            st.metric(
+                label="🚀 ZOPTYMALIZOWANY REALNY KOSZT WYTWORZENIA (Miesięcznie)", 
+                value=f"{final_manufacturing_cost:,.2f} {waluta}",
+                delta=f"Skorygowany koszt prądu i ciepła"
+            )
