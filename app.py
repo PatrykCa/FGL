@@ -259,7 +259,7 @@ with tab1:
                 st.error("❌ **BŁĄD HARMONOGRAMU:** Przynajmniej jeden mieszalnik ma przypisaną zbyt dużą liczbę szarż i nie wyrobi się w miesięcznym funduszu godzin (wliczając pełny czas rozładunku).")
 
 # ==========================================
-# ZAKŁADKA 2: SPECYFIKACJA MASZYN, REOLOGIA I DOBÓR POMP (KOLOROWANIE LMTD)
+# ZAKŁADKA 2: SPECYFIKACJA MASZYN, REOLOGIA I DOBÓR POMP (DEDYKOWANE KRYTERIA LMTD)
 # ==========================================
 with tab2:
     st.header("Wymiarowanie Układu Mieszania i Zaawansowany Dobór Hydrauliki")
@@ -380,41 +380,41 @@ with tab2:
             
         st.subheader("📋 Zbiorcza Karta Techniczna Linii Mieszania, Rozładunku i Termodynamiki")
         df_eng = pd.DataFrame(engineering_table_data)
-# --- NOWE ROZBITO FUNKCJE MAPOWANIA STYLÓW DLA LMTD GRZANIA I CHŁODZENIA ---
+
+        # --- DEDYKOWANE MAPOWANIE DLA GRZANIA ORAZ CHŁODZENIA ---
         def style_lmtd_grzanie(val):
             if isinstance(val, (int, float)):
                 if val < 20.0:
-                    return 'background-color: #fff3cd; color: #856404; font-weight: bold;'  # ŻÓŁTY: Niski (proces będzie powolny)
+                    return 'background-color: #fff3cd; color: #856404; font-weight: bold;'  # ŻÓŁTY: Mała wydajność (powolny proces)
                 elif val <= 40.0:
                     return 'background-color: #d4edda; color: #155724; font-weight: bold;'  # ZIELONY: Optymalny i bezpieczny
                 else:
-                    return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'  # CZERWONY: Zbyt wysoki (ryzyko koksowania/degradacji)
+                    return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'  # CZERWONY: Za wysoki (koksowanie oleju)
             return ''
 
         def style_lmtd_chlodzenie(val):
             if isinstance(val, (int, float)):
                 if val < 15.0:
-                    return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'  # CZERWONY: Za niski (blokada reologiczna na ściance)
+                    return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'  # CZERWONY: Za niski (szok i zakleszczenie reologiczne)
                 elif val <= 35.0:
-                    return 'background-color: #d4edda; color: #155724; font-weight: bold;'  # ZIELONY: Optymalny i wydajny
+                    return 'background-color: #d4edda; color: #155724; font-weight: bold;'  # ZIELONY: Optymalna sprawność
                 else:
-                    return 'background-color: #fff3cd; color: #856404; font-weight: bold;'  # ŻÓŁTY: Wysoki (powolna końcówka chłodzenia)
+                    return 'background-color: #fff3cd; color: #856404; font-weight: bold;'  # ŻÓŁTY: Słaba końcówka chłodzenia wodą
             return ''
 
-        # Stosujemy niezależne style dla każdej kolumny LMTD
+        # Mapujemy kolumny niezależnymi kryteriami
         styled_df_eng = (df_eng.style
                          .map(style_lmtd_grzanie, subset=["LMTD Grzania [°C]"])
                          .map(style_lmtd_chlodzenie, subset=["LMTD Chłodzenia [°C]"]))
 
         st.dataframe(styled_df_eng, hide_index=True, use_container_width=True)
         
-        # Rozbita, profesjonalna legenda dla użytkownika
+        # Rozbita, profesjonalna legenda
         st.markdown("""
-        ℹ️ **Profesjonalne Kryteria Interpretacji LMTD dla Olejów:**
-        * **🔥 Kolumna Grzania:** 🟢 **20-40°C** (Bezpieczny & Optymalny) | 🟡 **<20°C** (Słaba wydajność) | 🔴 **>40°C** (Krytyczny: Ryzyko degradacji termicznej dodatków i koksowania na ściance).
-        * **❄️ Kolumna Chłodzenia:** 🟢 **15-35°C** (Wydajny & Stabilny) | 🟡 **>35°C** (Mała siła napędowa pod koniec cyklu) | 🔴 **<15°C** (Krytyczny: Zbyt zimne medium chłodzące stworzy izolacyjną warstwę zastygłego oleju na wężownicy).
+        ℹ️ **Profesjonalne Inżynieryjne Kryteria Interpretacji LMTD dla Olejów:**
+        * **🔥 Kolumna Grzania:** 🟢 **20 - 40°C** (Zrównoważone & Bezpieczne) | 🟡 **< 20°C** (Zbyt mała siła napędowa - proces potrwa długo) | 🔴 **> 40°C** (Krytyczny: Zbyt wysoka temperatura medium grozi koksowaniem oleju na ściance i degradacją dodatków).
+        * **❄️ Kolumna Chłodzenia:** 🟢 **15 - 35°C** (Wydajne & Stabilne) | 🟡 **> 35°C** (Mała różnica temperatur pod koniec cyklu - powolne chłodzenie) | 🔴 **< 15°C** (Krytyczny: Szok termiczny; zbyt zimne medium spowoduje zastygnięcie lepkiej warstwy oleju na wężownicy, blokując dalszą wymianę ciepła).
         """)
-
 # ==========================================
 # ZAKŁADKA 3: LOGISTYKA OPAKOWAŃ (JEDNA ZINTEGROWANA TABELA)
 # ==========================================
