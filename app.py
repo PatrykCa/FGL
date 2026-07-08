@@ -28,7 +28,7 @@ FUCHS_PORTFOLIO = {
     },
     "Gear & Transmission Oils (TITAN)": {
         "material": "Stal zwykła", "density": 0.88, "cycle_h": 5, "cp": 2.0, 
-        "visc_kin": 140.0, "flash_point": "210°C", "frost_sensitivity": "Nie"
+        "flash_point": "210°C", "visc_kin": 140.0, "flash_point": "210°C", "frost_sensitivity": "Nie"
     },
     "Water-miscible (ECOCOOL)": {
         "material": "Stal nierdzewna", "density": 0.99, "cycle_h": 6, "cp": 3.8, 
@@ -55,9 +55,9 @@ PACK_CONFIGS = {
     "1000l (IBC)": {"size_l": 1000.0, "per_pallet": 1}
 }
 
-AVAILABLE_HOURS_MONTH = (250 * 16) / 12  # ~333.33 h/miesiąc (praca dwuzmianowa)
+AVAILABLE_HOURS_MONTH = (250 * 16) / 12  # ~333.33 h/miesiąc
 
-# --- PANEL BOCZNY (WYBÓR LINII I OPAKOWAŃ) ---
+# --- PANEL BOCZNY (WYBÓR OPAKOWAŃ ORAZ RESET) ---
 st.sidebar.header("📋 KROK 1: Wybór Rodzin")
 wybrane_kategorie = st.sidebar.multiselect(
     "Wybierz aktywne linie produktowe FUCHS:",
@@ -77,28 +77,27 @@ for kat in wybrane_kategorie:
     )
     input_packs[kat] = packs
 
-# --- PRZYGOTOWANIE STRUKTURY DANYCH W SESSION STATE ---
-if "df_data" not in st.session_state or st.sidebar.button("🔄 Resetuj do rekomendacji (75%)"):
+# Inicjalizacja lub czyszczenie tabeli bazowej w Session State
+if "df_base" not in st.session_state or st.sidebar.button("🔄 Przywróć domyślne (Rekomendacja 75%)"):
     initial_rows = []
     for kat in wybrane_kategorie:
         initial_rows.append({
-            "Nazwa rodziny": kat,
-            "Roczna produkcja [kg]": 1200000,
-            "Utilization %": 75.0
+            "1. Nazwa rodziny": kat,
+            "2. Roczna produkcja [kg]": 1200000,
+            "3. Utilization %": 75.0
         })
-    st.session_state.df_data = pd.DataFrame(initial_rows)
+    st.session_state.df_base = pd.DataFrame(initial_rows)
 
-# Synchronizacja stanów w przypadku dodania/usunięcia kategorii z poziomu sidebaru
-current_families = st.session_state.df_data["Nazwa rodziny"].tolist() if not st.session_state.df_data.empty else []
-if set(current_families) != set(wybrane_kategorie):
-    new_rows = []
+# Synchronizacja przy zmianie liczby zaznaczonych rodzin w sidebaru
+if set(st.session_state.df_base["1. Nazwa rodziny"].tolist()) != set(wybrane_kategorie):
+    updated_rows = []
     for kat in wybrane_kategorie:
-        new_rows.append({
-            "Nazwa rodziny": kat,
-            "Roczna produkcja [kg]": 1200000,
-            "Utilization %": 75.0
+        updated_rows.append({
+            "1. Nazwa rodziny": kat,
+            "2. Roczna produkcja [kg]": 1200000,
+            "3. Utilization %": 75.0
         })
-    st.session_state.df_data = pd.DataFrame(new_rows)
+    st.session_state.df_base = pd.DataFrame(updated_rows)
 
 # --- PODZIAŁ NA TRZY ZAKŁADKI ---
 tab1, tab2, tab3 = st.tabs([
@@ -108,73 +107,77 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 # ==========================================
-# ZAKŁADKA 1: JEDNA, INTERAKTYWNA TABELA ZBIORCZA
+# ZAKŁADKA 1: JEDNA, KOMPLETNA TABELA PROCESOWA
 # ==========================================
 with tab1:
-    st.header("Zestawienie parametrów procesowych i optymalizacji obłożenia")
+    st.header("Wynikowa specyfikacja operacyjna linii")
     
-    if wybrane_kategorie and not st.session_state.df_data.empty:
-        st.markdown("💡 *Możesz edytować kolumny **Roczna produkcja [kg]** oraz **Utilization %** bezpośrednio w komórkach tabeli. Zmiana wartości automatycznie przeliczy parametry szarży i gabaryt miksera.*")
+    if wybrane_kategorie and not st.session_state.df_base.empty:
+        st.markdown("💡 *Kolumny **2. Roczna produkcja [kg]** oraz **3. Utilization %** są w pełni edytowalne. Kolumny 4, 5 i 6 przeliczają się automatycznie na bieżąco.*")
         
-        # 1. Wyświetlenie i edycja parametrów wejściowych przez użytkownika
-        edited_inputs = st.data_editor(
-            st.session_state.df_data,
-            hide_index=True,
-            use_container_width=True,
-            disabled=["Nazwa rodziny"],
-            column_config={
-                "Nazwa rodziny": st.column_config.TextColumn("1. Nazwa rodziny"),
-                "Roczna produkcja [kg]": st.column_config.NumberColumn("2. Roczna produkcja [kg] (Edytuj)", min_value=0, step=50000, format="%d"),
-                "Utilization %": st.column_config.NumberColumn("3. Utilization % (Edytuj)", min_value=1.0, max_value=200.0, step=5.0)
-            }
-        )
-        st.session_state.df_data = edited_inputs
-
-        # 2. SILNIK OBLICZENIOWY: Dynamiczne generowanie wyników na podstawie powyższej tabeli
-        st.markdown("### 📊 Wynikowa specyfikacja operacyjna linii")
+        display_rows = []
         
-        calculated_rows = []
-        confirmed_list_temp = []
-        
-        for idx, row in edited_inputs.iterrows():
-            kat = row["Nazwa rodziny"]
-            m_annual = row["Roczna produkcja [kg]"]
-            util_val = row["Utilization %"]
+        # Pętla generująca aktualne stany matematyczne przed wyrenderowaniem tabeli
+        for idx, row in st.session_state.df_base.iterrows():
+            kat = row["1. Nazwa rodziny"]
+            m_annual = row["2. Roczna produkcja [kg]"]
+            util_val = row["3. Utilization %"]
             
             m_monthly = m_annual / 12
             util_fraction = util_val / 100.0
             dens = FUCHS_PORTFOLIO[kat]["density"]
             cyc = FUCHS_PORTFOLIO[kat]["cycle_h"]
             
-            # Wyliczenie całkowitej liczby szarż w miesiącu
             allocated_hours = AVAILABLE_HOURS_MONTH * util_fraction
             needed_batches = math.ceil(allocated_hours / cyc) if allocated_hours > 0 else 1
             
-            # Wielkość pojedynczej szarży [kg] oraz objętość robocza mieszalnika [m³]
             batch_size_kg = math.ceil(m_monthly / needed_batches) if needed_batches > 0 else 0
             calculated_vol_m3 = batch_size_kg / (dens * 1000.0) if batch_size_kg > 0 else 0.0
             
-            calculated_rows.append({
+            display_rows.append({
                 "1. Nazwa rodziny": kat,
-                "2. Roczna produkcja [kg]": f"{int(m_annual):,}",
-                "3. Utilization %": f"{util_val:.1f}%",
+                "2. Roczna produkcja [kg]": int(m_annual),
+                "3. Utilization %": float(util_val),
                 "4. Liczba szarż na miesiąc": int(needed_batches),
                 "5. Pojemność mieszalnika [m³]": f"{calculated_vol_m3:.1f} m³",
-                "6. Wielkość pojedynczej szarży [kg]": f"{int(batch_size_kg):,}"
+                "6. Wielkość pojedynczej szarży [kg]": int(batch_size_kg),
+                "hidden_vol_m3": calculated_vol_m3,
+                "hidden_batches": needed_batches,
+                "hidden_batch_kg": batch_size_kg
             })
             
-            # Przekazanie danych do kolejnych zakładek aplikacji
+        df_display = pd.DataFrame(display_rows)
+        
+        # Pojedynczy, zintegrowany edytor danych
+        edited_table = st.data_editor(
+            df_display,
+            hide_index=True,
+            use_container_width=True,
+            disabled=["1. Nazwa rodziny", "4. Liczba szarż na miesiąc", "5. Pojemność mieszalnika [m³]", "6. Wielkość pojedynczej szarży [kg]"],
+            column_config={
+                "2. Roczna produkcja [kg]": st.column_config.NumberColumn("2. Roczna produkcja [kg] (Edytuj)", min_value=0, step=50000, format="%d"),
+                "3. Utilization %": st.column_config.NumberColumn("3. Utilization % (Edytuj)", min_value=1.0, max_value=200.0, step=5.0, format="%.1f%%"),
+                "hidden_vol_m3": None, "hidden_batches": None, "hidden_batch_kg": None  # ukryte kolumny kalkulacyjne
+            }
+        )
+        
+        # Bezpieczne przepisanie zmodyfikowanych komórek do stanu sesji
+        st.session_state.df_base["2. Roczna produkcja [kg]"] = edited_table["2. Roczna produkcja [kg]"]
+        st.session_state.df_base["3. Utilization %"] = edited_table["3. Utilization %"]
+        
+        # Przekazanie struktury technicznej aparatów do kolejnych zakładek
+        confirmed_list_temp = []
+        for idx, r in edited_table.iterrows():
+            kat = r["1. Nazwa rodziny"]
             confirmed_list_temp.append({
                 "tag": f"MT-{101 + idx}",
                 "product_family": kat,
-                "capacity_m3": max(calculated_vol_m3, 0.5),
+                "capacity_m3": max(r["hidden_vol_m3"], 0.5),
                 "material": FUCHS_PORTFOLIO[kat]["material"],
-                "batches_count": needed_batches,
-                "mass_per_batch": batch_size_kg,
-                "annual_volume": m_annual
+                "batches_count": r["hidden_batches"],
+                "mass_per_batch": r["hidden_batch_kg"],
+                "annual_volume": r["2. Roczna produkcja [kg]"]
             })
-            
-        st.dataframe(pd.DataFrame(calculated_rows), hide_index=True, use_container_width=True)
         st.session_state.confirmed_mixers = confirmed_list_temp
     else:
         st.info("Zaznacz rodziny produktów w panelu bocznym.")
@@ -186,7 +189,7 @@ with tab2:
     st.header("Specyfikacja Inżynieryjna i Zużycie Energii Mieszalników")
     
     if "confirmed_mixers" not in st.session_state or not st.session_state.confirmed_mixers:
-        st.info("ℹ️ Profile maszyn pojawią się automatycznie po wygenerowaniu danych w Zakładce 1.")
+        st.info("ℹ️ Dane techniczne pojawią się automatycznie po wygenerowaniu parametrów w Zakładce 1.")
     else:
         engineering_table_data = []
         
@@ -297,5 +300,3 @@ with tab3:
             st.subheader("📋 Miesięczny Bilans Powierzchni Składowania")
             df_pallets = pd.DataFrame(pallet_rows)
             st.dataframe(df_pallets, hide_index=True, use_container_width=True)
-    else:
-        st.info("ℹ️ Dane logistyczne pojawią się po skonfigurowaniu produkcji w Zakładce 1.")
