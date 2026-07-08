@@ -5,7 +5,7 @@ import math
 st.set_page_config(page_title="System Projektowania FUCHS", layout="wide")
 
 st.title("🏭 Inżynieryjny Reaktor Procesowy & Logistyczny FUCHS Oil")
-st.subheader("Stabilna Platforma Wymiarowania Linii, Reologii i Optymalizacji Kosztów Wytworzenia")
+st.subheader("Zoptymalizowana i Stabilna Platforma Wymiarowania Linii i Reologii")
 st.markdown("---")
 
 # --- 1. BAZA DANYCH PROCESOWYCH I FIZYKOCHEMICZNYCH FUCHS ---
@@ -86,16 +86,14 @@ for kat in wybrane_kategorie:
     )
     input_packs[kat] = packs
 
-# Bezpieczna inicjalizacja struktury danych wejściowych bez przycisków generujących pętle re-run
-if "production_inputs" not in st.session_state:
-    st.session_state.production_inputs = {
-        kat: {"roczna": 1200000, "utilization": 75.0} for kat in FUCHS_PORTFOLIO.keys()
-    }
+# --- INICJALIZACJA I SYNCHRONIZACJA STANU ---
+if "df_base_state" not in st.session_state:
+    init_rows = []
+    for k in FUCHS_PORTFOLIO.keys():
+        init_rows.append({"1. Nazwa rodziny": k, "2. Roczna produkcja [kg]": 1200000, "3. Utilization %": 75.0})
+    st.session_state.df_base_state = pd.DataFrame(init_rows)
 
-# Aktualizacja stanów dla nowo wybranych lub usuniętych rodzin płynów
-for kat in wybrane_kategorie:
-    if kat not in st.session_state.production_inputs:
-        st.session_state.production_inputs[kat] = {"roczna": 1200000, "utilization": 75.0}
+df_current_view = st.session_state.df_base_state[st.session_state.df_base_state["1. Nazwa rodziny"].isin(wybrane_kategorie)].copy()
 
 if "confirmed_mixers" not in st.session_state:
     st.session_state.confirmed_mixers = []
@@ -104,7 +102,7 @@ if "heat_temps" not in st.session_state:
 if "filling_temps" not in st.session_state:
     st.session_state.filling_temps = {}
 
-# --- GŁÓWNA STRUKTURA KART INTERFEJSU ---
+# --- GŁÓWNA STRUKTURA KART ---
 tab1, tab2, tab3, tab4 = st.tabs([
     "📊 1. Główne Zestawienie i Utylizacja", 
     "📐 2. Karta Maszyn i Reologia", 
@@ -113,7 +111,7 @@ tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 # ==========================================
-# ZAKŁADKA 1: JEDNA, STABILNA TABELA OPERACYJNA
+# ZAKŁADKA 1: TABELA + METRYKI GLOBALNE
 # ==========================================
 with tab1:
     st.header(f"Zintegrowane Zestawienie Parametrów Procesowych (Baza: {godziny_dziennie:.1f}h/dzień)")
@@ -124,12 +122,35 @@ with tab1:
         * Pola oznaczone kolorem **🔒 [Blokada]** przeliczają się automatycznie na podstawie pozostałych danych.
         """)
         
-        # Budowanie tabeli na podstawie aktualnego stanu pamięci podręcznej
-        rows_list = []
-        for kat in wybrane_kategorie:
-            inputs = st.session_state.production_inputs[kat]
-            m_annual = inputs["roczna"]
-            util_val = inputs["utilization"]
+        edited_table = st.data_editor(
+            df_current_view, 
+            hide_index=True, 
+            use_container_width=True,
+            disabled=["1. Nazwa rodziny"],
+            column_config={
+                "1. Nazwa rodziny": st.column_config.TextColumn("1. Nazwa rodziny 🔒"),
+                "2. Roczna produkcja [kg]": st.column_config.NumberColumn("2. Roczna produkcja [kg] 🟦 (Edytuj)", min_value=0, step=50000, format="%d"),
+                "3. Utilization %": st.column_config.NumberColumn("3. Utilization % 🟦 (Edytuj)", min_value=1.0, max_value=300.0, step=5.0, format="%.1f%%")
+            },
+            key="main_production_editor"
+        )
+        
+        for idx, r in edited_table.iterrows():
+            family_name = r["1. Nazwa rodziny"]
+            match_idx = st.session_state.df_base_state[st.session_state.df_base_state["1. Nazwa rodziny"] == family_name].index
+            if not match_idx.empty:
+                st.session_state.df_base_state.at[match_idx[0], "2. Roczna produkcja [kg]"] = r["2. Roczna produkcja [kg]"]
+                st.session_state.df_base_state.at[match_idx[0], "3. Utilization %"] = r["3. Utilization %"]
+
+        total_annual_production = 0
+        total_batches_per_month = 0
+        total_calculated_volume_m3 = 0.0
+        
+        final_rows_with_calculations = []
+        for idx, row in edited_table.iterrows():
+            kat = row["1. Nazwa rodziny"]
+            m_annual = row["2. Roczna produkcja [kg]"]
+            util_val = row["3. Utilization %"]
             
             m_monthly = m_annual / 12
             util_fraction = util_val / 100.0
@@ -141,53 +162,49 @@ with tab1:
             batch_size_kg = math.ceil(m_monthly / needed_batches) if needed_batches > 0 else 0
             calculated_vol_m3 = batch_size_kg / (dens * 1000.0) if batch_size_kg > 0 else 0.0
             
-            rows_list.append({
-                "1. Nazwa rodziny": kat, 
-                "2. Roczna produkcja [kg]": int(m_annual), 
-                "3. Utilization %": float(util_val),
-                "4. Liczba szarż na miesiąc": int(needed_batches), 
-                "5. Pojemność mieszalnika [m³]": f"{calculated_vol_m3:.1f} m³",
-                "6. Wielkość pojedynczej szarży [kg]": int(batch_size_kg),
-                "hidden_vol_m3": calculated_vol_m3, 
-                "hidden_batches": needed_batches, 
-                "hidden_batch_kg": batch_size_kg
+            total_annual_production += m_annual
+            total_batches_per_month += needed_batches
+            total_calculated_volume_m3 += calculated_vol_m3
+            
+            final_rows_with_calculations.append({
+                "Rodzina Produktowa": kat,
+                "Roczny tonaż [kg]": f"{int(m_annual):,}",
+                "Utylizacja linii": f"{util_val:.1f}%",
+                "Szarże [szt./miesiąc]": needed_batches,
+                "Gabaryt reaktora [m³]": f"{calculated_vol_m3:.1f} m³",
+                "Masa szarży [kg]": f"{int(batch_size_kg):,}",
+                "h_vol": calculated_vol_m3, "h_batches": needed_batches, "h_kg": batch_size_kg, "h_annual": m_annual
             })
             
-        df_display = pd.DataFrame(rows_list)
+        df_results_calculated = pd.DataFrame(final_rows_with_calculations)
         
-        # Pojedynczy, czysty i bezpieczny edytor danych bez wywoływania wymuszonych rerunów
-        edited_table = st.data_editor(
-            df_display, 
+        st.markdown("##### 🔒 Wyliczone automatycznie wskaźniki operacyjne dla linii:")
+        st.dataframe(
+            df_results_calculated.drop(columns=["h_vol", "h_batches", "h_kg", "h_annual"]), 
             hide_index=True, 
-            use_container_width=True,
-            disabled=["1. Nazwa rodziny", "4. Liczba szarż na miesiąc", "5. Pojemność mieszalnika [m³]", "6. Wielkość pojedynczej szarży [kg]"],
-            column_config={
-                "1. Nazwa rodziny": st.column_config.TextColumn("1. Nazwa rodziny 🔒"),
-                "2. Roczna produkcja [kg]": st.column_config.NumberColumn("2. Roczna produkcja [kg] 🟦 (Edytuj)", min_value=0, step=50000, format="%d"),
-                "3. Utilization %": st.column_config.NumberColumn("3. Utilization % 🟦 (Edytuj)", min_value=1.0, max_value=300.0, step=5.0, format="%.1f%%"),
-                "4. Liczba szarż na miesiąc": st.column_config.NumberColumn("4. Liczba szarż/miesiąc 🔒"),
-                "5. Pojemność mieszalnika [m³]": st.column_config.TextColumn("5. Gabaryt reaktora 🔒"),
-                "6. Wielkość pojedynczej szarży [kg]": st.column_config.NumberColumn("6. Masa szarży [kg] 🔒", format="%d"),
-                "hidden_vol_m3": None, "hidden_batches": None, "hidden_batch_kg": None
-            },
-            key="main_production_editor"
+            use_container_width=True
         )
         
-        # Zapisywanie wprowadzonych zmian bezpośrednio do słownika sesji przy kolejnych przebiegach pętli reaktora
-        for idx, r in edited_table.iterrows():
-            k = r["1. Nazwa rodziny"]
-            st.session_state.production_inputs[k]["roczna"] = r["2. Roczna produkcja [kg]"]
-            st.session_state.production_inputs[k]["utilization"] = r["3. Utilization %"]
-        
         st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("📊 Sumaryczne wskaźniki operacyjne zakładu (Łącznie):")
+        
+        sum_col1, sum_col2, sum_col3 = st.columns(3)
+        with sum_col1:
+            st.metric(label="📈 Całkowity tonaż roczny", value=f"{total_annual_production:,} kg")
+        with sum_col2:
+            st.metric(label="🔄 Łączna liczba szarż / miesiąc", value=f"{total_batches_per_month} szarż")
+        with sum_col3:
+            st.metric(label="📐 Całkowita gabarytowość linii (Suma m³)", value=f"{total_calculated_volume_m3:.1f} m³")
+            
+        st.markdown("---")
         if st.button("📥 Zatwierdź i wyślij konfigurację do kolejnych kroków", type="primary", use_container_width=True):
             confirmed_list_temp = []
-            for idx, r in edited_table.iterrows():
-                kat = r["1. Nazwa rodziny"]
+            for idx, r in df_results_calculated.iterrows():
+                kat = r["Rodzina Produktowa"]
                 confirmed_list_temp.append({
-                    "tag": f"MT-{101 + idx}", "product_family": kat, "capacity_m3": max(r["hidden_vol_m3"], 0.5),
-                    "material": FUCHS_PORTFOLIO[kat]["material"], "batches_count": r["hidden_batches"],
-                    "mass_per_batch": r["hidden_batch_kg"], "annual_volume": r["2. Roczna produkcja [kg]"]
+                    "tag": f"MT-{101 + idx}", "product_family": kat, "capacity_m3": max(r["h_vol"], 0.5),
+                    "material": FUCHS_PORTFOLIO[kat]["material"], "batches_count": r["h_batches"],
+                    "mass_per_batch": r["h_kg"], "annual_volume": r["h_annual"]
                 })
             st.session_state.confirmed_mixers = confirmed_list_temp
             st.success("✅ Dane przesłane poprawnie! Parametry zostały zaktualizowane w pozostałych zakładkach.")
@@ -310,7 +327,6 @@ with tab3:
                     init_pct = [round(100.0 / len(chosen_packs), 1)] * len(chosen_packs)
                     st.session_state[state_key] = pd.DataFrame({"Typ Opakowania": chosen_packs, "Udział w rozlewie %": init_pct})
                 
-                # Izolowany i bezpieczny edytor procentowy bez callbacków wyzwalających błędy typu rerun
                 edited_pct_df = st.data_editor(
                     st.session_state[state_key], 
                     hide_index=True, 
@@ -416,7 +432,7 @@ with tab4:
         with col_kpi1:
             st.metric(label=f"🔴 Całkowity bazowy koszt wytworzenia", value=f"{total_base_manuf_cost:,.2f} {waluta}")
         with col_kpi2:
-            st.metric(label=f"🟢 Wygenerowane oszczędności (Rekuperacja)", value=f"{total_monthly_savings:,.2f} {waluta}")
+            st.metric(label=f"🟢 Wygenerowane oszczędności (Rekuperacja)", value=f"{total_monthly_saving:,.2f} {waluta}")
         with col_kpi3:
             real_saving_pct = (total_monthly_saving / total_base_manuf_cost * 100) if total_base_manuf_cost > 0 else 0.0
             st.metric(
