@@ -5,43 +5,19 @@ import math
 st.set_page_config(page_title="System Projektowania FUCHS", layout="wide")
 
 st.title("🏭 Inżynieryjny Reaktor Procesowy & Logistyczny FUCHS Oil")
-st.subheader("Zoptymalizowana i Stabilna Platforma Wymiarowania Linii i Reologii")
+st.subheader("Stabilna Platforma Wymiarowania Linii, Reologii i Optymalizacji Kosztów")
 st.markdown("---")
 
 # --- 1. BAZA DANYCH PROCESOWYCH I FIZYKOCHEMICZNYCH FUCHS ---
 FUCHS_PORTFOLIO = {
-    "Hydraulic Oils (RENOLIN)": {
-        "material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0, 
-        "flash_point": "220°C", "frost_sensitivity": "Nie"
-    },
-    "Gear & Turbine Oils (RENOLIN)": {
-        "material": "Stal zwykła", "density": 0.89, "cycle_h": 5, "cp": 1.9, 
-        "flash_point": "240°C", "frost_sensitivity": "Nie"
-    },
-    "Slideway & Machine Oils (RENAX)": {
-        "material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0, 
-        "flash_point": "210°C", "frost_sensitivity": "Nie"
-    },
-    "Engine Oils (TITAN)": {
-        "material": "Stal zwykła", "density": 0.87, "cycle_h": 5, "cp": 2.1, 
-        "flash_point": "230°C", "frost_sensitivity": "Nie"
-    },
-    "Gear & Transmission Oils (TITAN)": {
-        "material": "Stal zwykła", "density": 0.88, "cycle_h": 5, "cp": 2.0, 
-        "flash_point": "210°C", "frost_sensitivity": "Nie"
-    },
-    "Water-miscible (ECOCOOL)": {
-        "material": "Stal nierdzewna", "density": 0.99, "cycle_h": 6, "cp": 3.8, 
-        "flash_point": "Brak", "frost_sensitivity": "TAK"
-    },
-    "Non-water-miscible (ECOCUT)": {
-        "material": "Stal zwykła", "density": 0.87, "cycle_h": 4, "cp": 2.0, 
-        "flash_point": "190°C", "frost_sensitivity": "Nie"
-    },
-    "Cleaners (RENOCLEAN)": {
-        "material": "Stal nierdzewna", "density": 1.01, "cycle_h": 4, "cp": 3.9, 
-        "flash_point": "Brak", "frost_sensitivity": "TAK"
-    }
+    "Hydraulic Oils (RENOLIN)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0},
+    "Gear & Turbine Oils (RENOLIN)": {"material": "Stal zwykła", "density": 0.89, "cycle_h": 5, "cp": 1.9},
+    "Slideway & Machine Oils (RENAX)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0},
+    "Engine Oils (TITAN)": {"material": "Stal zwykła", "density": 0.87, "cycle_h": 5, "cp": 2.1},
+    "Gear & Transmission Oils (TITAN)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 5, "cp": 2.0},
+    "Water-miscible (ECOCOOL)": {"material": "Stal nierdzewna", "density": 0.99, "cycle_h": 6, "cp": 3.8},
+    "Non-water-miscible (ECOCUT)": {"material": "Stal zwykła", "density": 0.87, "cycle_h": 4, "cp": 2.0},
+    "Cleaners (RENOCLEAN)": {"material": "Stal nierdzewna", "density": 1.01, "cycle_h": 4, "cp": 3.9}
 }
 
 PACK_CONFIGS = {
@@ -56,9 +32,9 @@ PACK_CONFIGS = {
 }
 
 AGITATOR_TYPES = {
-    "Turbinowe (Rushton)": {"laminar_C": 70.0, "turbulent_Ne": 5.0, "desc": "Wysokie ścinanie, doskonałe do dyspersji dodatków."},
-    "Łapowe / Płatowe": {"laminar_C": 50.0, "turbulent_Ne": 2.5, "desc": "Mieszanie łagodne, niskie opory, uniwersalne do olejów."},
-    "Propelerowe (Śmigłowe)": {"laminar_C": 35.0, "turbulent_Ne": 0.8, "desc": "Mieszanie osiowe, wysoka cyrkulacja przy niskiej lepkości."}
+    "Turbinowe (Rushton)": {"laminar_C": 70.0, "turbulent_Ne": 5.0},
+    "Łapowe / Płatowe": {"laminar_C": 50.0, "turbulent_Ne": 2.5},
+    "Propelerowe (Śmigłowe)": {"laminar_C": 35.0, "turbulent_Ne": 0.8}
 }
 
 # --- PANEL BOCZNY ---
@@ -86,14 +62,11 @@ for kat in wybrane_kategorie:
     )
     input_packs[kat] = packs
 
-# --- INICJALIZACJA I SYNCHRONIZACJA STANU ---
-if "df_base_state" not in st.session_state:
-    init_rows = []
-    for k in FUCHS_PORTFOLIO.keys():
-        init_rows.append({"1. Nazwa rodziny": k, "2. Roczna produkcja [kg]": 1200000, "3. Utilization %": 75.0})
-    st.session_state.df_base_state = pd.DataFrame(init_rows)
-
-df_current_view = st.session_state.df_base_state[st.session_state.df_base_state["1. Nazwa rodziny"].isin(wybrane_kategorie)].copy()
+# --- INICJALIZACJA STRUKTURY SŁOWNIKOWEJ (BEZPIECZNY STAN) ---
+if "prod_dict" not in st.session_state:
+    st.session_state.prod_dict = {
+        k: {"roczna": 1200000, "utilization": 75.0} for k in FUCHS_PORTFOLIO.keys()
+    }
 
 if "confirmed_mixers" not in st.session_state:
     st.session_state.confirmed_mixers = []
@@ -102,7 +75,29 @@ if "heat_temps" not in st.session_state:
 if "filling_temps" not in st.session_state:
     st.session_state.filling_temps = {}
 
-# --- GŁÓWNA STRUKTURA KART ---
+# --- FUNKCJA CALLBACK: BEZBŁĘDNA SYNCHRONIZACJA EDYCJALNEJ TABELI ---
+def sync_production_data():
+    if "main_production_editor" in st.session_state:
+        edits = st.session_state.main_production_editor.get("edited_rows", {})
+        for idx, changes in edits.items():
+            # Identyfikacja wiersza na podstawie aktualnego przefiltrowanego widoku
+            family_name = df_view_input.iloc[idx]["1. Nazwa rodziny 🔒"]
+            if "2. Roczna produkcja [kg] 🟦" in changes:
+                st.session_state.prod_dict[family_name]["roczna"] = changes["2. Roczna Chunk"] if "2. Roczna Chunk" in changes else changes["2. Roczna produkcja [kg] 🟦"]
+            if "3. Utilization % 🟦" in changes:
+                st.session_state.prod_dict[family_name]["utilization"] = changes["3. Utilization % 🟦"]
+
+# Budujemy czysty widok wejściowy dla edytora danych
+view_rows = []
+for kat in wybrane_kategorie:
+    view_rows.append({
+        "1. Nazwa rodziny 🔒": kat,
+        "2. Roczna produkcja [kg] 🟦": st.session_state.prod_dict[kat]["roczna"],
+        "3. Utilization % 🟦": st.session_state.prod_dict[kat]["utilization"]
+    })
+df_view_input = pd.DataFrame(view_rows)
+
+# --- GŁÓWNA STRUKTURA KART (ZABEZPIECZONA) ---
 tab1, tab2, tab3, tab4 = st.tabs([
     "📊 1. Główne Zestawienie i Utylizacja", 
     "📐 2. Karta Maszyn i Reologia", 
@@ -111,46 +106,21 @@ tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 # ==========================================
-# ZAKŁADKA 1: TABELA + METRYKI GLOBALNE
+# ZAKŁADKA 1: JEDNA KOMPLETNA MATRYCA PROCESOWA
 # ==========================================
 with tab1:
     st.header(f"Zintegrowane Zestawienie Parametrów Procesowych (Baza: {godziny_dziennie:.1f}h/dzień)")
     
     if wybrane_kategorie:
-        st.markdown("""
-        * Pola oznaczone **🟦 [Edytuj]** są przeznaczone do wprowadzania założeń produkcyjnych. 
-        * Pola oznaczone kolorem **🔒 [Blokada]** przeliczają się automatycznie na podstawie pozostałych danych.
-        """)
-        
-        edited_table = st.data_editor(
-            df_current_view, 
-            hide_index=True, 
-            use_container_width=True,
-            disabled=["1. Nazwa rodziny"],
-            column_config={
-                "1. Nazwa rodziny": st.column_config.TextColumn("1. Nazwa rodziny 🔒"),
-                "2. Roczna produkcja [kg]": st.column_config.NumberColumn("2. Roczna produkcja [kg] 🟦 (Edytuj)", min_value=0, step=50000, format="%d"),
-                "3. Utilization %": st.column_config.NumberColumn("3. Utilization % 🟦 (Edytuj)", min_value=1.0, max_value=300.0, step=5.0, format="%.1f%%")
-            },
-            key="main_production_editor"
-        )
-        
-        for idx, r in edited_table.iterrows():
-            family_name = r["1. Nazwa rodziny"]
-            match_idx = st.session_state.df_base_state[st.session_state.df_base_state["1. Nazwa rodziny"] == family_name].index
-            if not match_idx.empty:
-                st.session_state.df_base_state.at[match_idx[0], "2. Roczna produkcja [kg]"] = r["2. Roczna produkcja [kg]"]
-                st.session_state.df_base_state.at[match_idx[0], "3. Utilization %"] = r["3. Utilization %"]
-
+        # Obliczamy dynamicznie wszystkie kolumny pochodne na podstawie aktualnego stanu słownika
+        calculated_matrix_rows = []
         total_annual_production = 0
         total_batches_per_month = 0
         total_calculated_volume_m3 = 0.0
-        
-        final_rows_with_calculations = []
-        for idx, row in edited_table.iterrows():
-            kat = row["1. Nazwa rodziny"]
-            m_annual = row["2. Roczna produkcja [kg]"]
-            util_val = row["3. Utilization %"]
+
+        for kat in wybrane_kategorie:
+            m_annual = st.session_state.prod_dict[kat]["roczna"]
+            util_val = st.session_state.prod_dict[kat]["utilization"]
             
             m_monthly = m_annual / 12
             util_fraction = util_val / 100.0
@@ -166,25 +136,34 @@ with tab1:
             total_batches_per_month += needed_batches
             total_calculated_volume_m3 += calculated_vol_m3
             
-            final_rows_with_calculations.append({
-                "Rodzina Produktowa": kat,
-                "Roczny tonaż [kg]": f"{int(m_annual):,}",
-                "Utylizacja linii": f"{util_val:.1f}%",
-                "Szarże [szt./miesiąc]": needed_batches,
-                "Gabaryt reaktora [m³]": f"{calculated_vol_m3:.1f} m³",
-                "Masa szarży [kg]": f"{int(batch_size_kg):,}",
+            calculated_matrix_rows.append({
+                "1. Nazwa rodziny 🔒": kat,
+                "2. Roczna produkcja [kg] 🟦": int(m_annual),
+                "3. Utilization % 🟦": float(util_val),
+                "4. Liczba szarż / miesiąc 🔒": int(needed_batches),
+                "5. Gabaryt reaktora 🔒": f"{calculated_vol_m3:.1f} m³",
+                "6. Masa szarży [kg] 🔒": int(batch_size_kg),
                 "h_vol": calculated_vol_m3, "h_batches": needed_batches, "h_kg": batch_size_kg, "h_annual": m_annual
             })
             
-        df_results_calculated = pd.DataFrame(final_rows_with_calculations)
+        df_complete_matrix = pd.DataFrame(calculated_matrix_rows)
         
-        st.markdown("##### 🔒 Wyliczone automatycznie wskaźniki operacyjne dla linii:")
-        st.dataframe(
-            df_results_calculated.drop(columns=["h_vol", "h_batches", "h_kg", "h_annual"]), 
-            hide_index=True, 
-            use_container_width=True
+        # WYŚWIETLAMY DOKŁADNIE JEDNĄ TABELĘ (Edycja + Autowyliczanie w locie)
+        edited_table = st.data_editor(
+            df_complete_matrix,
+            hide_index=True,
+            use_container_width=True,
+            disabled=["1. Nazwa rodziny 🔒", "4. Liczba szarż / miesiąc 🔒", "5. Gabaryt reaktora 🔒", "6. Masa szarży [kg] 🔒"],
+            column_config={
+                "2. Roczna produkcja [kg] 🟦": st.column_config.NumberColumn(min_value=0, step=50000, format="%d"),
+                "3. Utilization % 🟦": st.column_config.NumberColumn(min_value=1.0, max_value=300.0, step=5.0, format="%.1f%%"),
+                "h_vol": None, "h_batches": None, "h_kg": None, "h_annual": None
+            },
+            key="main_production_editor",
+            on_change=sync_production_data  # Zmiana wywołuje natychmiastowy i bezkonfliktowy zapis stanu
         )
         
+        # --- SEKCJA GLOBALNYCH METRYK SUMARYCZNYCH ---
         st.markdown("<br>", unsafe_allow_html=True)
         st.subheader("📊 Sumaryczne wskaźniki operacyjne zakładu (Łącznie):")
         
@@ -199,15 +178,15 @@ with tab1:
         st.markdown("---")
         if st.button("📥 Zatwierdź i wyślij konfigurację do kolejnych kroków", type="primary", use_container_width=True):
             confirmed_list_temp = []
-            for idx, r in df_results_calculated.iterrows():
-                kat = r["Rodzina Produktowa"]
+            for idx, r in df_complete_matrix.iterrows():
+                kat = r["1. Nazwa rodziny 🔒"]
                 confirmed_list_temp.append({
                     "tag": f"MT-{101 + idx}", "product_family": kat, "capacity_m3": max(r["h_vol"], 0.5),
                     "material": FUCHS_PORTFOLIO[kat]["material"], "batches_count": r["h_batches"],
                     "mass_per_batch": r["h_kg"], "annual_volume": r["h_annual"]
                 })
             st.session_state.confirmed_mixers = confirmed_list_temp
-            st.success("✅ Dane przesłane poprawnie! Parametry zostały zaktualizowane w pozostałych zakładkach.")
+            st.success("✅ Dane przesłane poprawnie! Parametry reaktorów zostały odświeżone.")
     else:
         st.info("Zaznacz aktywne rodziny produktów w panelu bocznym.")
 
@@ -217,7 +196,7 @@ with tab1:
 with tab2:
     st.header("Wymiarowanie Układu Mieszania pod Kątem Zmiennej Lepkości")
     if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Brak zatwierdzonych danych. Wróć do Zakładki 1 i zatwierdź tabele.")
+        st.warning("⚠️ Brak zatwierdzonych danych. Wróć do Zakładki 1 i zatwierdź strukturę przyciskiem.")
     else:
         engineering_table_data = []
         for mixer in st.session_state.confirmed_mixers:
