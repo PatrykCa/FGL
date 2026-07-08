@@ -99,14 +99,13 @@ if set(st.session_state.df_base["1. Nazwa rodziny"].tolist()) != set(wybrane_kat
         })
     st.session_state.df_base = pd.DataFrame(updated_rows)
 
-# Zmienna sesyjna zabezpieczająca przekazywanie danych po zatwierdzeniu
 if "confirmed_mixers" not in st.session_state:
     st.session_state.confirmed_mixers = []
 
 # --- PODZIAŁ NA TRZY ZAKŁADKI ---
 tab1, tab2, tab3 = st.tabs([
     "📊 1. Główne Zestawienie i Symulacja Utylizacji", 
-    "📐 2. Karta Techniczna Maszyn i Hydrodynamika", 
+    "📐 2. Karta Techniczna Maszyn i Wymiana Ciepła", 
     "📦 3. Magazyn Wyrobów Gotowych i Palety"
 ])
 
@@ -154,7 +153,6 @@ with tab1:
             
         df_display = pd.DataFrame(display_rows)
         
-        # Wizualne wyróżnienie kolumn przy użyciu nagłówków i opisów kolumn
         edited_table = st.data_editor(
             df_display,
             hide_index=True,
@@ -171,12 +169,10 @@ with tab1:
             }
         )
         
-        # Zapisanie bieżącego stanu edytora do bazy sesji
         st.session_state.df_base["2. Roczna produkcja [kg]"] = edited_table["2. Roczna produkcja [kg]"]
         st.session_state.df_base["3. Utilization %"] = edited_table["3. Utilization %"]
         
         st.markdown("<br>", unsafe_allow_html=True)
-        # WYMAGANY PRZYCISK ZATWIERDZAJĄCY PRZEKAZANIE DANYCH DALEJ
         if st.button("📥 Zatwierdź i wyślij konfigurację do Zakładek 2 i 3", type="primary", use_container_width=True):
             confirmed_list_temp = []
             for idx, r in edited_table.iterrows():
@@ -197,15 +193,16 @@ with tab1:
         st.info("Zaznacz rodziny produktów w panelu bocznym.")
 
 # ==========================================
-# ZAKŁADKA 2: KARTA MASZYN Z CZASEM GRZANIA I CHŁODZENIA
+# ZAKŁADKA 2: KARTA MASZYN Z ZAAWANSOWANYM LICZENIEM WYMIANY CIEPŁA (LMTD)
 # ==========================================
 with tab2:
-    st.header("Specyfikacja Inżynieryjna i Zużycie Energii Mieszalników")
+    st.header("Specyfikacja Inżynieryjna i Bilans Termodynamiczny (Model LMTD)")
     
     if not st.session_state.confirmed_mixers:
         st.warning("⚠️ Brak zatwierdzonych danych. Wróć do Zakładki 1 i kliknij przycisk 'Zatwierdź i wyślij konfigurację'.")
     else:
         engineering_table_data = []
+        K_coeff = 500.0  # Współczynnik przenikania ciepła K [W / (m²·K)] z Twojego algorytmu
         
         for mixer in st.session_state.confirmed_mixers:
             kat = mixer["product_family"]
@@ -213,54 +210,83 @@ with tab2:
             
             st.markdown(f"### ⚙️ Reaktor Procesowy: **{mixer['tag']}** (Dedykowany dla: *{kat}*)")
             
-            rho = prod_info["density"] * 1000.0  
+            # Parametry fizyczne reaktora i płynu
+            V_m3 = mixer["capacity_m3"]
+            rho = prod_info["density"] * 1000.0  # kg/m3
             v_kin = prod_info["visc_kin"] / 1_000_000.0  
             eta_dyn = v_kin * rho  
+            cp_j = prod_info["cp"] * 1000.0  # Konwersja kJ/(kg·K) na J/(kg·K) dla spójności jednostek SI
             
-            D_tank = round(2.2 * ((mixer["capacity_m3"] / 10.0) ** (1/3)), 2)
+            # Wyznaczanie geometrii zbiornika do obliczenia pola powierzchni wymiany ciepła F
+            D_tank = round(2.2 * ((V_m3 / 10.0) ** (1/3)), 2)
+            # Przyjęcie proporcji wysokości do średnicy płynu H/D = 1.2
+            H_tank = round((4 * V_m3) / (math.pi * (D_tank ** 2)) * 1.2, 2)
+            F_surface = math.pi * D_tank * H_tank  # Powierzchnia boczna wymiany ciepła [m²]
+            
             d_agitor = round(D_tank / 3, 2)
             n_speed = 1.5 
             
+            # Hydrodynamika mieszania
             Re = (n_speed * (d_agitor ** 2) * rho) / eta_dyn
             Ne = 50.0 / Re if Re < 10 else (2.5 if Re < 10000 else 1.5)
-                
             P_watts = Ne * (n_speed ** 3) * (d_agitor ** 5) * rho
             P_kw = P_watts / 1000.0
             
-            duration_s = prod_info["cycle_h"] * 3600
-            E_mix_mj = (P_watts * duration_s / 0.85) / 1_000_000.0
-            
+            # --- ZAAWANSOWANE OBLICZENIA CIEPLNE (ZGODNE Z TWOIM ALGORYTMEM) ---
             col_t1, col_t2 = st.columns(2)
+            
             with col_t1:
-                dt_heat = st.number_input(f"ΔT podgrzewania [°C] ({mixer['tag']}):", min_value=0, value=40, step=5, key=f"h_{mixer['tag']}")
-                # Obliczenie energii cieplnej (w MJ) oraz czasu grzania (w minutach przy założeniu mocy grzewczej miksera)
-                Q_heat_mj = (mixer["mass_per_batch"] * prod_info["cp"] * dt_heat) / 0.85 / 1000.0
-                p_heat_kw = max(P_kw * 4, 25.0)  # Symulowana moc wbudowanej wężownicy/płaszcza grzewczego
-                time_heat_min = (Q_heat_mj * 1_000_000) / (p_heat_kw * 1000) / 60 if p_heat_kw > 0 else 0
+                st.markdown("**🔥 Parametry procesu Grzania**")
+                t_init_h = st.number_input(f"Temperatura początkowa oleju [°C]:", min_value=10, max_value=100, value=20, key=f"t_ih_{mixer['tag']}")
+                t_final_h = st.number_input(f"Temperatura docelowa oleju [°C]:", min_value=30, max_value=150, value=60, key=f"t_fh_{mixer['tag']}")
+                
+                # Para/gorąca woda w płaszczu: wejście 130°C, wyjście 110°C
+                dt1_h = 130 - t_init_h
+                dt2_h = 110 - t_final_h
+                
+                if dt1_h > 0 and dt2_h > 0 and dt1_h != dt2_h:
+                    lmtd_h = (dt1_h - dt2_h) / math.log(dt1_h / dt2_h)
+                    # Wzór: Q = m * cp * dt, Czas = Q / (K * F * LMTD)
+                    Q_heat_j = mixer["mass_per_batch"] * cp_j * (t_final_h - t_init_h)
+                    time_heat_min = (Q_heat_j / (K_coeff * F_surface * lmtd_h)) / 60.0 if F_surface > 0 else 0
+                else:
+                    time_heat_min = 0.0
+                
+                st.metric(label="Wyznaczony czas grzania szarży", value=f"{time_heat_min:.1f} min")
                 
             with col_t2:
-                dt_cool = st.number_input(f"ΔT schłodzenia [°C] ({mixer['tag']}):", min_value=0, value=30, step=5, key=f"c_{mixer['tag']}")
-                Q_cool_mj = (mixer["mass_per_batch"] * prod_info["cp"] * dt_cool) / 0.85 / 1000.0
-                p_cool_kw = max(P_kw * 5, 30.0)  # Symulowana moc układu chłodzenia
-                time_cool_min = (Q_cool_mj * 1_000_000) / (p_cool_kw * 1000) / 60 if p_cool_kw > 0 else 0
+                st.markdown("**❄️ Parametry procesu Chłodzenia**")
+                t_init_c = st.number_input(f"Temperatura początkowa oleju [°C]:", min_value=40, max_value=150, value=70, key=f"t_ic_{mixer['tag']}")
+                t_final_c = st.number_input(f"Temperatura docelowa oleju [°C]:", min_value=15, max_value=80, value=30, key=f"t_fc_{mixer['tag']}")
+                
+                # Woda lodowa w płaszczu: wejście 6°C, wyjście 11°C
+                dt1_c = t_init_c - 11
+                dt2_c = t_final_c - 6
+                
+                if dt1_c > 0 and dt2_c > 0 and dt1_c != dt2_c:
+                    lmtd_c = (dt1_c - dt2_c) / math.log(dt1_c / dt2_c)
+                    Q_cool_j = mixer["mass_per_batch"] * cp_j * (t_init_c - t_final_c)
+                    time_cool_min = (Q_cool_j / (K_coeff * F_surface * lmtd_c)) / 60.0 if F_surface > 0 else 0
+                else:
+                    time_cool_min = 0.0
+                    
+                st.metric(label="Wyznaczony czas chłodzenia szarży", value=f"{time_cool_min:.1f} min")
                 
             st.markdown(f"""
-            * **Materiał konstrukcyjny:** `{prod_info['material']}` | **Wyliczona pojemność robocza miksera:** `{mixer['capacity_m3']:.2f} m³`
-            * ⚡ **Moc znamionowa napędu:** `{P_kw:.2f} kW` | **Miksowanie mechaniczne płynu:** `{E_mix_mj:.1f} MJ/szarżę`
-            * 🔥 **Ciepło technologiczne:** `{Q_heat_mj:,.1f} MJ/szarżę` ➡️ **Szacowany czas podgrzewania:** `{time_heat_min:.1f} minut`
-            * ❄️ **Zapotrzebowanie na chłód:** `{Q_cool_mj:,.1f} MJ/szarżę` ➡️ **Szacowany czas schładzania:** `{time_cool_min:.1f} minut`
+            * **Powierzchnia wymiany ciepła reaktora ($F$):** `{F_surface:.2f} m²` | **Współczynnik $K$:** `{K_coeff} W/(m²·K)`
+            * ⚡ **Moc znamionowa napędu mieszadła:** `{P_kw:.2f} kW` | **Liczba Reynoldsa ($Re$):** `{Re:,.1f}`
             """)
             
             engineering_table_data.append({
                 "Mieszalnik": mixer["tag"],
                 "Materiał": prod_info["material"],
-                "Pojemność [m³]": round(mixer["capacity_m3"], 2),
+                "Pojemność [m³]": round(V_m3, 2),
+                "Powierzchnia wymiany F [m²]": round(F_surface, 2),
                 "Wielkość szarży [kg]": int(mixer["mass_per_batch"]),
-                "Moc układu [kW]": round(P_kw, 2),
+                "Moc napędu [kW]": round(P_kw, 2),
                 "Czas grzania [min]": round(time_heat_min, 1),
                 "Czas chłodzenia [min]": round(time_cool_min, 1),
-                "Lepkość płynu": f"{prod_info['visc_kin']} cSt",
-                "Wrażliwość na mróz": prod_info["frost_sensitivity"]
+                "Klasyfikacja ATEX": prod_info["flash_point"]
             })
             st.markdown("---")
             
