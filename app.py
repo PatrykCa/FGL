@@ -163,18 +163,64 @@ with tab1:
         )
         
         # KROK 2: Sekcja Decyzji o Podziale (Checkboxy)
-        split_decisions = {}
-        if oversized_reactors:
-            st.markdown("<br>", unsafe_allow_html=True)
-            st.warning("⚠️ **Wykryto przekroczenie dopuszczalnych gabarytów transportowych / technologicznych zbiornika (> 31 m³)!**")
-            
-            # Wygodne wyświetlenie checkboxów w kolumnach, żeby zaoszczędzić miejsce
-            chk_cols = st.columns(len(oversized_reactors))
-            for idx, (kat_over, vol_over) in enumerate(oversized_reactors.items()):
-                with chk_cols[idx]:
-                    split_decisions[kat_over] = st.checkbox(
-                        f"Rozbij reaktor {kat_over} ({vol_over:.1f} m³) na 2 bliźniacze jednostki?",
-                        value=True, key=f"chk_split_{kat_over}"
+        # Sprawdzamy czy użytkownik zaznaczył podział ORAZ czy gabaryt przekracza limit
+            if split_decisions.get(kat, False) and vol_base > 31.0:
+                remaining_vol = vol_base
+                sub_letter_ascii = 65 # Kod dla litery 'A'
+                
+                # Pętla odsypuje reaktory 31.0 m³ TYLKO dopóki reszta jest WIĘKSZA niż 62.0 m³
+                # Dzięki temu gwarantujemy, że ostatnia część zostanie podzielona na dwa równe, optymalne zbiorniki
+                while remaining_vol > 62.0:
+                    weight_fraction = 31.0 / vol_base
+                    mixer_annual = total_annual * weight_fraction
+                    mixer_batches = math.ceil(total_batches * weight_fraction)
+                    mixer_mass_batch = math.ceil(r["h_kg"] * (31.0 / vol_base))
+                    
+                    tag_id = f"MT-{tag_counter}{chr(sub_letter_ascii)}"
+                    
+                    final_fleet_rows.append({
+                        "ID Urządzenia 🔒": tag_id, "Przypisana Linia FUCHS 🔒": kat,
+                        "Liczba szarż [/mies] 🔒": int(mixer_batches), "Realna Pojemność [m³] 🔒": 31.0,
+                        "Masa Szarży [kg] 🔒": int(mixer_mass_batch), "Status Gabarytowy 🔒": "🧱 Wydzielone MAX (31.0 m³)"
+                    })
+                    
+                    confirmed_mixers_blueprint.append({
+                        "tag": tag_id, "product_family": kat, "capacity_m3": 31.0,
+                        "material": FUCHS_PORTFOLIO[kat]["material"], "batches_count": mixer_batches,
+                        "mass_per_batch": mixer_mass_batch, "annual_volume": mixer_annual, "annual_tonnage": mixer_annual / 1000.0
+                    })
+                    
+                    total_calculated_volume_m3 += 31.0
+                    total_batches_per_month += mixer_batches
+                    remaining_vol -= 31.0
+                    sub_letter_ascii += 1
+                
+                # Pozostały ogon (który teraz wynosi bezpieczne 33.8 m³) dzielimy dokładnie na 2 równe reaktory
+                if remaining_vol > 0:
+                    split_tail_vol = remaining_vol / 2.0
+                    weight_fraction_tail = split_tail_vol / vol_base
+                    
+                    tail_annual = total_annual * weight_fraction_tail
+                    tail_batches = math.ceil(total_batches * weight_fraction_tail)
+                    tail_mass_batch = math.ceil(r["h_kg"] * (split_tail_vol / vol_base))
+                    
+                    for _ in range(2):
+                        tag_id = f"MT-{tag_counter}{chr(sub_letter_ascii)}"
+                        final_fleet_rows.append({
+                            "ID Urządzenia 🔒": tag_id, "Przypisana Linia FUCHS 🔒": kat,
+                            "Liczba szarż [/mies] 🔒": int(tail_batches), "Realna Pojemność [m³] 🔒": round(split_tail_vol, 1),
+                            "Masa Szarży [kg] 🔒": int(tail_mass_batch), "Status Gabarytowy 🔒": "🟢 Symetryczny Bliźniak (Optymalny)"
+                        })
+                        
+                        confirmed_mixers_blueprint.append({
+                            "tag": tag_id, "product_family": kat, "capacity_m3": max(split_tail_vol, 0.5),
+                            "material": FUCHS_PORTFOLIO[kat]["material"], "batches_count": tail_batches,
+                            "mass_per_batch": tail_mass_batch, "annual_volume": tail_annual, "annual_tonnage": tail_annual / 1000.0
+                        })
+                        
+                        total_calculated_volume_m3 += split_tail_vol
+                        total_batches_per_month += tail_batches
+                        sub_letter_ascii += 1
                     )
 
         # KROK 3: DYNAMICZNA TABELA DOCELOWEJ FLOTY (POJAWIA SIĘ OD RAZU TUTAJ)
