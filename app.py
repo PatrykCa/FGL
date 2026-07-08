@@ -416,130 +416,140 @@ with tab2:
         * **❄️ Kolumna Chłodzenia:** 🟢 **15 - 35°C** (Wydajne & Stabilne) | 🟡 **> 35°C** (Mała różnica temperatur pod koniec cyklu - powolne chłodzenie) | 🔴 **< 15°C** (Krytyczny: Szok termiczny; zbyt zimne medium spowoduje zastygnięcie lepkiej warstwy oleju na wężownicy, blokując dalszą wymianę ciepła).
         """)
 # ==========================================
-# ZAKŁADKA 3: ZINTEGROWANA LOGISTYKA OPAKOWAŃ (EDYTOWALNE UDZIAŁY PROCENTOWE %)
+# ZAKŁADKA 3: LOGISTYKA OPAKOWAŃ (JEDNA, W PEŁNI INTERAKTYWNA TABELA ZBIORCZA)
 # ==========================================
 with tab3:
     st.header("📦 Harmonogramowanie i Zbiorczy Bilans Rozlewu Opakowań")
     if not st.session_state.confirmed_mixers:
         st.warning("⚠️ Brak zatwierdzonych danych z Zakładki 1. Uruchom konfigurację i kliknij przycisk zatwierdzenia.")
     else:
-        st.markdown("### 🛠️ 1. Konfiguracja i Podział Strumieni Opakowań (Split %)")
-        st.info("💡 **Instrukcja:** W poniższych tabelach możesz ręcznie edytować kolumnę **'Udział w rozlewie %'**. Pamiętaj, aby suma udziałów dla każdego reaktora wynosiła dokładnie **100%**.")
-
-        # Przechowujemy zaktualizowane tabele udziałów w session_state, aby były edytowalne
-        for mixer in st.session_state.confirmed_mixers:
-            kat = mixer["product_family"]
-            chosen_packs = input_packs.get(kat, [])
-            
-            if mixer["annual_volume"] > 0 and chosen_packs:
-                state_key = f"pct_df_{mixer['tag']}"
-                
-                # Inicjalizacja domyślnego podziału po równo (tylko za pierwszym razem)
-                if state_key not in st.session_state:
-                    init_pct = [round(100.0 / len(chosen_packs), 1)] * len(chosen_packs)
-                    st.session_state[state_key] = pd.DataFrame({
-                        "Typ Opakowania": chosen_packs, 
-                        "Udział w rozlewie %": init_pct
-                    })
-                
-                # Wyświetlamy mały, interaktywny edytor dla każdego reaktora osobno
-                st.markdown(f"##### 🎯 Podział opakowań dla reaktora **{mixer['tag']}** ({kat}):")
-                
-                edited_pct_df = st.data_editor(
-                    st.session_state[state_key],
-                    key=f"editor_{mixer['tag']}",
-                    hide_index=True,
-                    use_container_width=False,
-                    disabled=["Typ Opakowania"], # Blokujemy edycję nazw opakowań
-                    column_config={
-                        "Udział w rozlewie %": st.column_config.NumberColumn(
-                            min_value=0.0, max_value=100.0, step=1.0, format="%.1f%%"
-                        )
-                    }
+        st.markdown("### 🛠️ 1. Parametry Sterowania Rozlewem")
+        
+        # Konfiguracja temperatur rozlewu w kolumnach
+        temp_cols = st.columns(min(len(st.session_state.confirmed_mixers), 4))
+        for idx, mixer in enumerate(st.session_state.confirmed_mixers):
+            with temp_cols[idx % min(len(st.session_state.confirmed_mixers), 4)]:
+                t_filling = st.number_input(
+                    f"Temp. rozlewu {mixer['tag']} [°C]:", 
+                    min_value=10.0, max_value=120.0, 
+                    value=float(min(30.0, st.session_state.heat_temps.get(mixer["tag"], 60.0))), 
+                    key=f"t_fill_{mixer['tag']}"
                 )
-                
-                # Zapisujemy wprowadzone zmiany do pamięci sesji
-                st.session_state[state_key] = edited_pct_df
-                
-                # Walidacja sumy 100%
-                current_sum = edited_pct_df["Udział w rozlewie %"].sum()
-                if not math.isclose(current_sum, 100.0, abs_tol=0.1):
-                    st.error(f"❌ Suma udziałów dla {mixer['tag']} wynosi **{current_sum:.1f}%**. Musi wynosić dokładnie 100%!")
+                st.session_state.filling_temps[mixer["tag"]] = t_filling
 
         st.markdown("---")
         st.markdown("### 📊 2. Zbiorcze Zestawienie Strumieni Logistycznych Zakładu")
+        st.info("💡 **Instrukcja:** Kolumna **'Zastosowany Udział % 🟦'** jest w pełni edytowalna. Możesz modyfikować udziały opakowań bezpośrednio w głównej tabeli – system natychmiast przeliczy logistykę na żywo.")
         
-        # Budujemy JEDNĄ wielką tabelę wynikową na podstawie wprowadzonych przez użytkownika procentów
-        master_logistics_data = []
-        
-        for mixer in st.session_state.confirmed_mixers:
-            kat = mixer["product_family"]
-            state_key = f"pct_df_{mixer['tag']}"
-            
-            if state_key in st.session_state:
-                m_monthly_kg = mixer["annual_volume"] / 12
-                dens = FUCHS_PORTFOLIO[kat]["density"]
-                total_volume_l = m_monthly_kg / dens
-                
-                pct_df = st.session_state[state_key]
-                
-                for _, p_row in pct_df.iterrows():
-                    p_name = p_row["Typ Opakowania"]
-                    pct = p_row["Udział w rozlewie %"] / 100.0
-                    config = PACK_CONFIGS[p_name]
-                    
-                    allocated_liters = total_volume_l * pct
-                    total_szt = math.ceil(allocated_liters / config["size_l"]) if allocated_liters > 0 else 0
-                    needed_pallets = math.ceil(total_szt / config["per_pallet"]) if total_szt > 0 else 0
-                    filling_hours = total_szt / config["rate_szt_h"] if total_szt > 0 else 0.0
-                    
-                    if allocated_liters > 0:
-                        master_logistics_data.append({
+        # KROK A: Inicjalizacja stałej bazy danych w session_state (jeśli nie istnieje)
+        if "master_logistics_df" not in st.session_state:
+            init_rows = []
+            for mixer in st.session_state.confirmed_mixers:
+                kat = mixer["product_family"]
+                chosen_packs = input_packs.get(kat, [])
+                if mixer["annual_volume"] > 0 and chosen_packs:
+                    # Domyślny równomierny podział procentowy
+                    default_pct = round(100.0 / len(chosen_packs), 1)
+                    for p_name in chosen_packs:
+                        init_rows.append({
                             "ID Reaktora 🔒": mixer["tag"],
                             "Linia Produktowa 🔒": kat,
                             "Typ Opakowania 🔒": p_name,
-                            "Zastosowany Udział % 🔒": f"{p_row['Udział w rozlewie %']:.1f}%",
-                            "Objętość Strumienia [l] 🔒": int(allocated_liters),
-                            "Zapotrzebowanie [szt./mies] 🔒": int(total_szt),
-                            "Palety [EPAL/mies] 🔒": int(needed_pallets),
-                            "Czas pracy linii rozlewu [h] 🔒": round(filling_hours, 1)
+                            "Zastosowany Udział % 🟦": default_pct
                         })
+            st.session_state.master_logistics_df = pd.DataFrame(init_rows)
+
+        # KROK B: Pobieramy dane z sesji i w locie obliczamy kolumny pochodne (szt., palety, czas)
+        df_calc = st.session_state.master_logistics_df.copy()
         
-        if master_logistics_data:
-            df_master_logistics = pd.DataFrame(master_logistics_data)
+        calculated_liters_list = []
+        calculated_szt_list = []
+        calculated_pallets_list = []
+        calculated_hours_list = []
+        
+        for _, row in df_calc.iterrows():
+            r_id = row["ID Reaktora 🔒"]
+            kat = row["Linia Produktowa 🔒"]
+            p_name = row["Typ Opakowania 🔒"]
+            pct = row["Zastosowany Udział % 🟦"] / 100.0
             
-            # Główna tabela zbiorcza fabryki
-            st.dataframe(
-                df_master_logistics,
-                hide_index=True,
-                use_container_width=True,
-                column_config={
-                    "Objętość Strumienia [l] 🔒": st.column_config.NumberColumn(format="%d"),
-                    "Zapotrzebowanie [szt./mies] 🔒": st.column_config.NumberColumn(format="%d"),
-                    "Palety [EPAL/mies] 🔒": st.column_config.NumberColumn(format="%d"),
-                    "Czas pracy linii rozlewu [h] 🔒": st.column_config.NumberColumn(format="%.1f h")
-                }
+            # Pobieramy dane wejściowe dla danego reaktora z Zakładki 1
+            mixer_meta = next((m for m in st.session_state.confirmed_mixers if m["tag"] == r_id), None)
+            if mixer_meta:
+                m_monthly_kg = mixer_meta["annual_volume"] / 12
+                dens = FUCHS_PORTFOLIO[kat]["density"]
+                total_volume_l = m_monthly_kg / dens
+                config = PACK_CONFIGS[p_name]
+                
+                allocated_liters = total_volume_l * pct
+                total_szt = math.ceil(allocated_liters / config["size_l"]) if allocated_liters > 0 else 0
+                needed_pallets = math.ceil(total_szt / config["per_pallet"]) if total_szt > 0 else 0
+                filling_hours = total_szt / config["rate_szt_h"] if total_szt > 0 else 0.0
+            else:
+                allocated_liters, total_szt, needed_pallets, filling_hours = 0, 0, 0, 0.0
+                
+            calculated_liters_list.append(int(allocated_liters))
+            calculated_szt_list.append(int(total_szt))
+            calculated_pallets_list.append(int(needed_pallets))
+            calculated_hours_list.append(round(filling_hours, 1))
+            
+        df_calc["Objętość Strumienia [l] 🔒"] = calculated_liters_list
+        df_calc["Zapotrzebowanie [szt./mies] 🔒"] = calculated_szt_list
+        df_calc["Palety [EPAL/mies] 🔒"] = calculated_pallets_list
+        df_calc["Czas pracy linii rozlewu [h] 🔒"] = calculated_hours_list
+
+        # KROK C: Renderowanie JEDNEGO, zintegrowanego edytora tabeli
+        edited_master_df = st.data_editor(
+            df_calc,
+            hide_index=True,
+            use_container_width=True,
+            disabled=[
+                "ID Reaktora 🔒", "Linia Produktowa 🔒", "Typ Opakowania 🔒", 
+                "Objętość Strumienia [l] 🔒", "Zapotrzebowanie [szt./mies] 🔒", 
+                "Palety [EPAL/mies] 🔒", "Czas pracy linii rozlewu [h] 🔒"
+            ],
+            column_config={
+                "Zastosowany Udział % 🟦": st.column_config.NumberColumn(
+                    min_value=0.0, max_value=100.0, step=1.0, format="%.1f%%"
+                ),
+                "Objętość Strumienia [l] 🔒": st.column_config.NumberColumn(format="%d"),
+                "Zapotrzebowanie [szt./mies] 🔒": st.column_config.NumberColumn(format="%d"),
+                "Palety [EPAL/mies] 🔒": st.column_config.NumberColumn(format="%d"),
+                "Czas pracy linii rozlewu [h] 🔒": st.column_config.NumberColumn(format="%.1f h")
+            },
+            key="global_logistics_data_editor"
+        )
+
+        # KROK D: Zapisujemy zaktualizowane procenty z powrotem do sesji, by nie zniknęły przy odświeżeniu
+        st.session_state.master_logistics_df["Zastosowany Udział % 🟦"] = edited_master_df["Zastosowany Udział % 🟦"]
+
+        # KROK E: Walidacja matematyczna sumy 100% dla poszczególnych maszyn
+        for mixer in st.session_state.confirmed_mixers:
+            r_id = mixer["tag"]
+            sub_df = edited_master_df[edited_master_df["ID Reaktora 🔒"] == r_id]
+            current_sum = sub_df["Zastosowany Udział % 🟦"].sum()
+            if not math.isclose(current_sum, 100.0, abs_tol=0.1):
+                st.error(f"❌ **Błąd bilansu:** Suma udziałów dla reaktora **{r_id}** wynosi **{current_sum:.1f}%**. Zmodyfikuj wiersze, aby suma wynosiła równo 100%!")
+
+        # --- SEKCJA GLOBALNYCH METRYK KPI POD TABELĄ ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        total_factory_hours = edited_master_df["Czas pracy linii rozlewu [h] 🔒"].sum()
+        total_factory_pallets = edited_master_df["Palety [EPAL/mies] 🔒"].sum()
+        total_factory_szt = edited_master_df["Zapotrzebowanie [szt./mies] 🔒"].sum()
+        
+        st.subheader("📦 Łączne podsumowanie potoku logistycznego fabryki:")
+        sum_col1, sum_col2, sum_col3 = st.columns(3)
+        with sum_col1:
+            st.metric(label="🔄 Sumaryczny wolumen opakowań", value=f"{total_factory_szt:,} szt./miesiąc")
+        with sum_col2:
+            st.metric(label="🧱 Całkowity obrót magazynowy palet", value=f"{total_factory_pallets} EPAL/miesiąc")
+        with sum_col3:
+            factory_days = total_factory_hours / godziny_dziennie if godziny_dziennie > 0 else 0
+            st.metric(
+                label="⏱ ... Globalny czas pracy konfekcji", 
+                value=f"{total_factory_hours:.1f} h/miesiąc",
+                delta=f"Obciążenie: {factory_days:.1f} dni roboczych"
             )
-            
-            # --- SEKCJA KPI POD TABELĄ ---
-            st.markdown("<br>", unsafe_allow_html=True)
-            total_factory_hours = df_master_logistics["Czas pracy linii rozlewu [h] 🔒"].sum()
-            total_factory_pallets = df_master_logistics["Palety [EPAL/mies] 🔒"].sum()
-            total_factory_szt = df_master_logistics["Zapotrzebowanie [szt./mies] 🔒"].sum()
-            
-            st.subheader("📦 Łączne podsumowanie potoku logistycznego fabryki:")
-            sum_col1, sum_col2, sum_col3 = st.columns(3)
-            with sum_col1:
-                st.metric(label="🔄 Sumaryczny wolumen opakowań", value=f"{total_factory_szt:,} szt./miesiąc")
-            with sum_col2:
-                st.metric(label="🧱 Całkowity obrót magazynowy palet", value=f"{total_factory_pallets} EPAL/miesiąc")
-            with sum_col3:
-                factory_days = total_factory_hours / godziny_dziennie if godziny_dziennie > 0 else 0
-                st.metric(
-                    label="⏱️ Globalny czas pracy konfekcji", 
-                    value=f"{total_factory_hours:.1f} h/miesiąc",
-                    delta=f"Obciążenie: {factory_days:.1f} dni roboczych"
-                )
 # ==========================================
 # ZAKŁADKA 4: FINANSE - BILANSE MOCY ELEKTRYCZNEJ
 # ==========================================
