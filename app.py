@@ -72,10 +72,15 @@ wybrane_kategorie = st.sidebar.multiselect(
 st.sidebar.markdown("---")
 st.sidebar.header("⏱️ KROK 2: Założenia Czasu Pracy")
 liczba_zmian = st.sidebar.slider("Liczba zmian produkcyjnych:", min_value=1.0, max_value=3.0, value=1.0, step=0.5)
-godziny_na_zmiane = st.sidebar.number_input("Liczba godzin na jedną zmianę:", min_value=4, max_value=12, value=8, step=1)
 
+# ZMIANA: Suwak z krokiem 0.5 umożliwiający uwzględnienie skoku półgodzinnego (np. 7.5h)
+godziny_na_zmiane = st.sidebar.slider("Liczba godzin na jedną zmianę:", min_value=4.0, max_value=12.0, value=8.0, step=0.5)
+
+# Dynamiczne przeliczanie dostępnych godzin w miesiącu
 godziny_dziennie = liczba_zmian * godziny_na_zmiane
 AVAILABLE_HOURS_MONTH = (250 * godziny_dziennie) / 12  
+
+st.sidebar.info(f"Dostępny czas nominalny węzła: **{AVAILABLE_HOURS_MONTH:.1f} h/miesiąc**")
 
 st.sidebar.markdown("---")
 st.sidebar.header("⚙️ KROK 3: Dystrybucja Opakowań")
@@ -86,19 +91,16 @@ for kat in wybrane_kategorie:
     )
     input_packs[kat] = packs
 
-# --- NAPRAWIONA INICJALIZACJA STANÓW (ELIMINACJA ATTRIBUTERROR LINIJA 90) ---
+# Stabilna inicjalizacja Session State dla tabeli
 if "df_base" not in st.session_state or st.sidebar.button("🔄 Przywróć domyślne (Rekomendacja 75%)"):
     initial_rows = []
     for kat in wybrane_kategorie:
         initial_rows.append({"1. Nazwa rodziny": kat, "2. Roczna produkcja [kg]": 1200000, "3. Utilization %": 75.0})
     st.session_state.df_base = pd.DataFrame(initial_rows)
 
-# Synchronizacja przy zmianie listy wybranych kategorii
-current_stored = st.session_state.df_base["1. Nazwa rodziny"].tolist() if not st.session_state.df_base.empty else []
-if set(current_stored) != set(wybrane_kategorie):
+if set(st.session_state.df_base["1. Nazwa rodziny"].tolist()) != set(wybrane_kategorie):
     updated_rows = []
     for kat in wybrane_kategorie:
-        # Zachowaj istniejące dane, dopisz nowe
         existing = st.session_state.df_base[st.session_state.df_base["1. Nazwa rodziny"] == kat]
         if not existing.empty:
             updated_rows.append({
@@ -120,11 +122,16 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 # ==========================================
-# ZAKŁADKA 1: TABELA PROCESOWA
+# ZAKŁADKA 1: JEDNA INTERAKTYWNA TABELA
 # ==========================================
 with tab1:
     st.header(f"Zintegrowane Zestawienie Parametrów Procesowych (Baza: {godziny_dziennie:.1f}h/dzień)")
     if wybrane_kategorie and not st.session_state.df_base.empty:
+        st.markdown("""
+        * Pola oznaczone **🟦 [Edytuj]** są przeznaczone do modyfikacji. Po zmianie tonażu lub procentu utylizacji naciśnij **Enter**.
+        * Pola oznaczone kolorem **🔒 [Blokada]** przeliczają się automatycznie na podstawie pozostałych kolumn.
+        """)
+        
         display_rows = []
         for idx, row in st.session_state.df_base.iterrows():
             kat = row["1. Nazwa rodziny"]
@@ -153,8 +160,13 @@ with tab1:
             df_display, hide_index=True, use_container_width=True,
             disabled=["1. Nazwa rodziny", "4. Liczba szarż na miesiąc", "5. Pojemność mieszalnika [m³]", "6. Wielkość pojedynczej szarży [kg]"],
             column_config={
-                "2. Roczna produkcja [kg]": st.column_config.NumberColumn("2. Roczna produkcja [kg] 🟦", min_value=0, step=50000, format="%d"),
-                "3. Utilization %": st.column_config.NumberColumn("3. Utilization % 🟦", min_value=1.0, max_value=300.0, step=5.0, format="%.1f%%")
+                "1. Nazwa rodziny": st.column_config.TextColumn("1. Nazwa rodziny 🔒"),
+                "2. Roczna produkcja [kg]": st.column_config.NumberColumn("2. Roczna produkcja [kg] 🟦 (Edytuj)", min_value=0, step=50000, format="%d"),
+                "3. Utilization %": st.column_config.NumberColumn("3. Utilization % 🟦 (Edytuj)", min_value=1.0, max_value=300.0, step=5.0, format="%.1f%%"),
+                "4. Liczba szarż na miesiąc": st.column_config.NumberColumn("4. Liczba szarż/miesiąc 🔒"),
+                "5. Pojemność mieszalnika [m³]": st.column_config.TextColumn("5. Gabaryt reaktora 🔒"),
+                "6. Wielkość pojedynczej szarży [kg]": st.column_config.NumberColumn("6. Masa szarży [kg] 🔒", format="%d"),
+                "hidden_vol_m3": None, "hidden_batches": None, "hidden_batch_kg": None
             }
         )
         
@@ -174,7 +186,7 @@ with tab1:
                     "mass_per_batch": r["hidden_batch_kg"], "annual_volume": r["2. Roczna produkcja [kg]"]
                 })
             st.session_state.confirmed_mixers = confirmed_list_temp
-            st.success("✅ Konfiguracja zatwierdzona! Przejdź do Zakładki 2.")
+            st.success("✅ Konfiguracja zatwierdzona! Parametry uaktualnione w pozostałych zakładkach.")
     else:
         st.info("Zaznacz rodziny produktów w panelu bocznym.")
 
@@ -195,6 +207,15 @@ with tab2:
             
             st.markdown(f"### ⚙️ Konfiguracja Reaktora: **{mixer['tag']}** (Dedykowany dla: *{kat}*)")
             
+            # Parametry geometryczne
+            V_m3 = mixer["capacity_m3"]
+            rho = prod_info["density"] * 1000.0  
+            D_tank = round(2.2 * ((V_m3 / 10.0) ** (1/3)), 2)
+            H_tank = round((4 * V_m3) / (math.pi * (D_tank ** 2)) * 1.2, 2)
+            suggested_F = math.pi * D_tank * H_tank  
+            d_agitor = round(D_tank / 3, 2)
+            n_speed = 1.5  
+            
             # --- INPUT PARAMETRÓW MIESZADŁA I LEPKOŚCI ---
             c_mix1, c_mix2, c_mix3 = st.columns(3)
             with c_mix1:
@@ -204,15 +225,6 @@ with tab2:
                 visc_min = st.number_input(f"Lepkość MINIMALNA (startowa) [cSt]:", min_value=1.0, value=22.0, step=5.0, key=f"v_min_{mixer['tag']}")
             with c_mix3:
                 visc_max = st.number_input(f"Lepkość MAKSYMALNA (końcowa) [cSt]:", min_value=5.0, value=220.0, step=10.0, key=f"v_max_{mixer['tag']}")
-            
-            # --- OBLICZENIA HYDRODYNAMICZNE ---
-            V_m3 = mixer["capacity_m3"]
-            rho = prod_info["density"] * 1000.0  
-            D_tank = round(2.2 * ((V_m3 / 10.0) ** (1/3)), 2)
-            H_tank = round((4 * V_m3) / (math.pi * (D_tank ** 2)) * 1.2, 2)
-            F_surface = math.pi * D_tank * H_tank  
-            d_agitor = round(D_tank / 3, 2)
-            n_speed = 1.5  
             
             cfg = AGITATOR_TYPES[agitator_choice]
             
@@ -240,7 +252,15 @@ with tab2:
                 st.write(f"🔴 **Stan końcowy szarży ({visc_max} cSt):**")
                 st.write(f"* $Re_{{max}}$: `{Re_max:,.1f}` | $Ne$: `{Ne_max:.2f}` | Moc netto: **{P_max_w/1000.0:.2f} kW**")
                 
-            st.success(f"⚡ **Rekomendowana moc silnika: {required_motor_power_kw:.2f} kW** (Uwzględnia bufor bezpieczeństwa +20%)")
+            st.success(f"⚡ **Rekomendowana moc silnika dla {mixer['tag']}: {required_motor_power_kw:.2f} kW** (Uwzględnia bufor +20%)")
+            
+            # --- EDYTYWALNA POWIERZCHNIA WYMIANY CIEPŁA ---
+            col_geom, _ = st.columns([1, 1])
+            with col_geom:
+                user_F_surface = st.number_input(
+                    f"Powierzchnia wymiany ciepła reaktora F [m²]:", 
+                    min_value=0.1, value=float(round(suggested_F, 2)), step=0.5, key=f"uf_surf_{mixer['tag']}"
+                )
             
             # --- SEKCJA CIEPLNA (LMTD) ---
             col_t1, col_t2 = st.columns(2)
@@ -253,7 +273,7 @@ with tab2:
                 
                 Q_heat_j = mixer["mass_per_batch"] * (prod_info["cp"] * 1000.0) * (t_final_h - t_init_h)
                 req_p_heat_kw = (Q_heat_j / (user_time_heat * 60.0)) / 1000.0
-                calculated_lmtd_h = Q_heat_j / (user_K_heat * F_surface * (user_time_heat * 60.0)) if (user_K_heat * F_surface * user_time_heat) > 0 else 0.0
+                calculated_lmtd_h = Q_heat_j / (user_K_heat * user_F_surface * (user_time_heat * 60.0)) if (user_K_heat * user_F_surface * user_time_heat) > 0 else 0.0
                 st.write(f"Wymagana moc grzania: **{req_p_heat_kw:.1f} kW** | Wymagane LMTD: **{calculated_lmtd_h:.1f} °C**")
                 
             with col_t2:
@@ -265,7 +285,7 @@ with tab2:
                 
                 Q_cool_j = mixer["mass_per_batch"] * (prod_info["cp"] * 1000.0) * (t_init_c - t_final_c)
                 req_p_cool_kw = (Q_cool_j / (user_time_cool * 60.0)) / 1000.0
-                calculated_lmtd_c = Q_cool_j / (user_K_cool * F_surface * (user_time_cool * 60.0)) if (user_K_cool * F_surface * user_time_cool) > 0 else 0.0
+                calculated_lmtd_c = Q_cool_j / (user_K_cool * user_F_surface * (user_time_cool * 60.0)) if (user_K_cool * user_F_surface * user_time_cool) > 0 else 0.0
                 st.write(f"Wymagana moc chłodzenia: **{req_p_cool_kw:.1f} kW** | Wymagane LMTD: **{calculated_lmtd_c:.1f} °C**")
 
             engineering_table_data.append({
