@@ -57,7 +57,7 @@ PACK_CONFIGS = {
 
 AVAILABLE_HOURS_MONTH = (250 * 16) / 12  # ~333.33 h/miesiąc (nominalny czas pracy na 2 zmiany)
 
-# --- PANEL BOCZNY (TYLKO WYBÓR I REFRESH) ---
+# --- PANEL BOCZNY ---
 st.sidebar.header("📋 KROK 1: Wybór Rodzin")
 wybrane_kategorie = st.sidebar.multiselect(
     "Wybierz aktywne linie produktowe FUCHS:",
@@ -94,11 +94,9 @@ with tab1:
     st.header("Zestawienie parametrów procesowych i optymalizacji obłożenia")
     
     if wybrane_kategorie:
-        # Inicjalizacja lub resetowanie danych po kliknięciu przycisku w sidebarze
         if st.sidebar.button("🔄 Generuj / Resetuj tabele z bazy handlowej") or st.session_state.master_df.empty or len(st.session_state.master_df) != len(wybrane_kategorie):
             raw_rows = []
             for kat in wybrane_kategorie:
-                # Domyślne wartości startowe rekomendowane przez system
                 m_annual = 1200000
                 m_monthly = m_annual / 12
                 util_init = 75.0
@@ -131,34 +129,4 @@ with tab1:
             for row_idx, changed_cols in changes.items():
                 kat = current_df.loc[row_idx, "1. Nazwa rodziny"]
                 dens = FUCHS_PORTFOLIO[kat]["density"]
-                cyc = FUCHS_PORTFOLIO[kat]["cycle_h"]
-                
-                # Pobranie wartości (obecnych lub nowo wpisanych)
-                m_annual = changed_cols.get("2. Roczna produkcja [kg]", current_df.loc[row_idx, "2. Roczna produkcja [kg]"])
-                util_val = changed_cols.get("3. Utilization %", current_df.loc[row_idx, "3. Utilization %"])
-                
-                m_monthly = m_annual / 12
-                util_fraction = util_val / 100.0
-                allocated_hours = AVAILABLE_HOURS_MONTH * util_fraction
-                
-                needed_batches = math.ceil(allocated_hours / cyc) if allocated_hours > 0 else 1
-                batch_size_kg = math.ceil(m_monthly / needed_batches) if needed_batches > 0 else 0
-                calculated_vol_m3 = batch_size_kg / (dens * 1000.0) if batch_size_kg > 0 else 0.0
-                
-                # Aktualizacja struktur danych w wierszu tabeli
-                current_df.loc[row_idx, "2. Roczna produkcja [kg]"] = int(m_annual)
-                current_df.loc[row_idx, "3. Utilization %"] = float(util_val)
-                current_df.loc[row_idx, "4. Liczba szarż na miesiąc [całkowita]"] = int(needed_batches)
-                current_df.loc[row_idx, "5. Pojemność mieszalnika [m³]"] = f"{calculated_vol_m3:.1f} m³"
-                current_df.loc[row_idx, "6. Wielkość pojedynczej szarży [kg]"] = int(batch_size_kg)
-                
-            st.session_state.master_df = current_df
-
-        # JEDYNA, WYŚWIETLANA TABELA PROCESOWA
-        edited_output = st.data_editor(
-            st.session_state.master_df,
-            key="live_editor",
-            hide_index=True,
-            use_container_width=True,
-            on_change=handle_live_recalculation,
-            disabled=
+                cyc = FUCHS_PORTFOLIO[kat]
