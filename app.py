@@ -5,7 +5,7 @@ import math
 st.set_page_config(page_title="System Projektowania FUCHS", layout="wide")
 
 st.title("🏭 Inżynieryjny Reaktor Procesowy & Logistyczny FUCHS Oil")
-st.subheader("Wymiarowanie Linii Produkcyjnych, Optymalizacja Rozlewu i Kalkulator Finansowy Odzysku Ciepła")
+st.subheader("Wymiarowanie Linii, Optymalizacja Rozlewu oraz Analiza Kosztów Produkcji i Odzysku Ciepła")
 st.markdown("---")
 
 # --- 1. BAZA DANYCH PROCESOWYCH I FIZYKOCHEMICZNYCH FUCHS ---
@@ -86,7 +86,7 @@ for kat in wybrane_kategorie:
     )
     input_packs[kat] = packs
 
-# Inicjalizacja i synchronizacja Session State
+# Inicjalizacja i synchronizacja bazy w Session State
 if "df_base" not in st.session_state or st.sidebar.button("🔄 Przywróć domyślne (Rekomendacja 75%)"):
     initial_rows = []
     for kat in wybrane_kategorie:
@@ -110,7 +110,6 @@ if set(st.session_state.df_base["1. Nazwa rodziny"].tolist()) != set(wybrane_kat
 if "confirmed_mixers" not in st.session_state:
     st.session_state.confirmed_mixers = []
 
-# Słowniki w session state do przenoszenia temperatur grzania z zakładki 2 do zakładki 3 i 4
 if "heat_temps" not in st.session_state:
     st.session_state.heat_temps = {}
 if "filling_temps" not in st.session_state:
@@ -120,11 +119,11 @@ tab1, tab2, tab3, tab4 = st.tabs([
     "📊 1. Główne Zestawienie i Utylizacja", 
     "📐 2. Karta Maszyn i Reologia", 
     "📦 3. Logistyka i Czas Rozlewu",
-    "💰 4. Analiza Finansowa i Odzysk Energii"
+    "💰 4. Analiza Finansowa i Koszty Produkcji"
 ])
 
 # ==========================================
-# ZAKŁADKA 1: TABELA PROCESOWA
+# ZAKŁADKA 1: TABELA OPERACYJNA
 # ==========================================
 with tab1:
     st.header(f"Zintegrowane Zestawienie Parametrów Procesowych (Baza: {godziny_dziennie:.1f}h/dzień)")
@@ -146,13 +145,19 @@ with tab1:
             calculated_vol_m3 = batch_size_kg / (dens * 1000.0) if batch_size_kg > 0 else 0.0
             
             display_rows.append({
-                "1. Nazwa rodziny": kat, "2. Roczna produkcja [kg]": int(m_annual), "3. Utilization %": float(util_val),
-                "4. Liczba szarż na miesiąc": int(needed_batches), "5. Pojemność mieszalnika [m³]": f"{calculated_vol_m3:.1f} m³",
+                "1. Nazwa rodziny": kat, 
+                "2. Roczna produkcja [kg]": int(m_annual), 
+                "3. Utilization %": float(util_val),
+                "4. Liczba szarż na miesiąc": int(needed_batches), 
+                "5. Pojemność mieszalnika [m³]": f"{calculated_vol_m3:.1f} m³",
                 "6. Wielkość pojedynczej szarży [kg]": int(batch_size_kg),
-                "hidden_vol_m3": calculated_vol_m3, "hidden_batches": needed_batches, "hidden_batch_kg": batch_size_kg
+                "hidden_vol_m3": calculated_vol_m3, 
+                "hidden_batches": needed_batches, 
+                "hidden_batch_kg": batch_size_kg
             })
             
         df_display = pd.DataFrame(display_rows)
+        
         edited_table = st.data_editor(
             df_display, hide_index=True, use_container_width=True,
             disabled=["1. Nazwa rodziny", "4. Liczba szarż na miesiąc", "5. Pojemność mieszalnika [m³]", "6. Wielkość pojedynczej szarży [kg]"],
@@ -162,7 +167,8 @@ with tab1:
                 "3. Utilization %": st.column_config.NumberColumn("3. Utilization % 🟦 (Edytuj)", min_value=1.0, max_value=300.0, step=5.0, format="%.1f%%"),
                 "4. Liczba szarż na miesiąc": st.column_config.NumberColumn("4. Liczba szarż/miesiąc 🔒"),
                 "5. Pojemność mieszalnika [m³]": st.column_config.TextColumn("5. Gabaryt reaktora 🔒"),
-                "6. Wielkość pojedynczej szarży [kg]": st.column_config.NumberColumn("6. Masa szarży [kg] 🔒", format="%d")
+                "6. Wielkość pojedynczej szarży [kg]": st.column_config.NumberColumn("6. Masa szarży [kg] 🔒", format="%d"),
+                "hidden_vol_m3": None, "hidden_batches": None, "hidden_batch_kg": None
             }
         )
         
@@ -187,7 +193,7 @@ with tab1:
         st.info("Zaznacz rodziny produktów w panelu bocznym.")
 
 # ==========================================
-# ZAKŁADKA 2: KARTA MASZYN - REOLOGIA I CIEPŁO
+# ZAKŁADKA 2: REOLOGIA I TERMINAL CIEPLNY
 # ==========================================
 with tab2:
     st.header("Wymiarowanie Układu Mieszania pod Kątem Zmiennej Lepkości")
@@ -240,7 +246,6 @@ with tab2:
                 t_init_h = st.number_input(f"Temp. początkowa [°C]:", value=20, key=f"t_ih_{mixer['tag']}")
                 t_final_h = st.number_input(f"Temp. końcowa (Procesowa) [°C]:", value=60, key=f"t_fh_{mixer['tag']}")
                 
-                # Zapisujemy temp. końcową grzania do sesji, by przekazać do bilansu odzysku
                 st.session_state.heat_temps[mixer["tag"]] = t_final_h
                 
                 Q_heat_j = mixer["mass_per_batch"] * (prod_info["cp"] * 1000.0) * (t_final_h - t_init_h)
@@ -267,7 +272,7 @@ with tab2:
         st.dataframe(pd.DataFrame(engineering_table_data), hide_index=True, use_container_width=True)
 
 # ==========================================
-# ZAKŁADKA 3: LOGISTYKA, PODZIAŁ % I TEMPERATURA ROZLEWU
+# ZAKŁADKA 3: LOGISTYKA OPAKOWAŃ
 # ==========================================
 with tab3:
     st.header("Harmonogramowanie Rozlewu Opakowań i Parametry Termiczne")
@@ -287,7 +292,6 @@ with tab3:
                 
                 st.markdown(f"### 🧪 Bilans i Wydajność Rozlewu dla linii: **{kat}** (Szarża miesięczna: **{int(m_monthly_kg):,} kg**)")
                 
-                # NOWE: Definiowanie temperatury rozlewu gotowego produktu
                 col_t_fill, _ = st.columns([1, 2])
                 with col_t_fill:
                     t_filling = st.number_input(
@@ -338,26 +342,32 @@ with tab3:
                 st.markdown("---")
 
 # ==========================================
-# NOWA ZAKŁADKA 4: ANALIZA FINANSOWA I ODZYSK ENERGII (REKUPERACJA)
+# ZAKŁADKA 4: INTEGRACJA KOSZTU PRODUKCJI I REKUPERACJI
 # ==========================================
 with tab4:
-    st.header("💰 Finansowa Optymalizacja Cieplna i Zwrot z Rekuperacji (ESG)")
+    st.header("💰 Finansowa Optymalizacja i Koszt Wytworzenia (Manufacturing Cost)")
     
     if not st.session_state.confirmed_mixers:
         st.warning("⚠️ Brak zatwierdzonych maszyn. Uruchom konfigurację w Zakładce 1.")
     else:
-        st.markdown("### 🏦 Koszty mediów i Waluta")
-        c_fin1, c_fin2 = st.columns(2)
+        # --- BLOK WEJŚCIOWY DLA PARAMETRÓW FINANSOWYCH ---
+        st.subheader("📊 1. Parametry wejściowe budżetu")
+        c_fin1, c_fin2, c_fin3 = st.columns(3)
         with c_fin1:
-            waluta = st.selectbox("Wybierz walutę operacyjną:", ["PLN", "EUR", "USD", "GBP"])
+            waluta = st.selectbox("Wybierz walutę operacyjną:", ["EUR", "PLN", "USD"])
         with c_fin2:
-            cena_mwh = st.number_input(f"Stawka za energię [{waluta}/MWh]:", min_value=1.0, value=450.0, step=10.0)
+            # Wartość domyślna zgrana z Twoim budżetem (0.535 EUR lub analogiczna wielokrotność dla innych walut)
+            default_cost = 0.535 if waluta == "EUR" else 2.119
+            manuf_cost_per_kg = st.number_input(f"Bazowy Manuf. Cost [za kg produktu w {waluta}]:", min_value=0.01, value=default_cost, format="%.3f")
+        with c_fin3:
+            cena_mwh = st.number_input(f"Stawka za energię technologiczną [{waluta}/MWh]:", min_value=1.0, value=450.0, step=10.0)
         
         st.markdown("---")
-        st.subheader("📊 Zestawienie Energii Możliwej do Odzyskania i Oszczędności Finansowych")
+        st.subheader("📈 2. Analiza rentowności i Odzysku Ciepła")
         
         financial_summary = []
-        total_monthly_savings = 0.0
+        total_monthly_saving = 0.0
+        total_base_manuf_cost = 0.0
         
         for mixer in st.session_state.confirmed_mixers:
             kat = mixer["product_family"]
@@ -366,53 +376,53 @@ with tab4:
             t_max_mix = st.session_state.heat_temps.get(mixer["tag"], 60.0)
             t_rozlew = st.session_state.filling_temps.get(mixer["tag"], 30.0)
             
-            # Obliczanie miesięcznej masy całej produkcji
             m_monthly_kg = mixer["annual_volume"] / 12
             
-            rekuperacja_status = "Brak (Rozlew w temp. mieszania)"
+            # 1. Wyznaczenie bazowego kosztu produkcji (Manuf. Cost = kg * stawka)
+            base_manuf_cost_monthly = m_monthly_kg * manuf_cost_per_kg
+            total_base_manuf_cost += base_manuf_cost_monthly
+            
+            # 2. Wyznaczenie profilu rekuperacji termicznej
             energia_mwh_mies = 0.0
             oszczednosc_mies = 0.0
             
-            # Jeżeli schładzamy produkt przed rozlewem, pojawia się potencjał odzysku
             if t_rozlew < t_max_mix:
-                # Q = m * cp * delta_T (wynik w kJ, bo cp jest w kJ/(kg*K))
                 delta_t_cooling = t_max_mix - t_rozlew
                 Q_recovered_kj = m_monthly_kg * prod_info["cp"] * delta_t_cooling
-                
-                # Konwersja kJ na MWh (1 kWh = 3600 kJ, 1 MWh = 3 600 000 kJ)
                 energia_mwh_mies = Q_recovered_kj / 3_600_000.0
                 oszczednosc_mies = energia_mwh_mies * cena_mwh
-                total_monthly_savings += oszczednosc_mies
-                rekuperacja_status = "🔥 POTENCJAŁ ODZYSKU"
+                total_monthly_saving += oszczednosc_mies
+            
+            # 3. Zoptymalizowany koszt produkcji dla danej linii produktowej
+            optimized_manuf_cost_monthly = base_manuf_cost_monthly - oszczednosc_mies
             
             financial_summary.append({
                 "Reaktor / Linia": mixer["tag"],
-                "Produkt": kat,
-                "Temp. Mieszania [°C]": f"{t_max_mix}°C",
-                "Temp. Rozlewu [°C]": f"{t_rozlew}°C",
-                "Status": rekuperacja_status,
-                "Energia do odzyskania [MWh/miesiąc]": round(energia_mwh_mies, 3),
-                f"Oszczędność miesięczna [{waluta}]": round(oszczednosc_mies, 2),
-                f"Oszczędność roczna [{waluta}]": round(oszczednosc_mies * 12, 2)
+                "Miesięczny tonaż [kg]": int(m_monthly_kg),
+                f"Bazowy Koszt Produkcji [{waluta}]": round(base_manuf_cost_monthly, 2),
+                "Odzysk energii [MWh]": round(energia_mwh_mies, 3),
+                f"Wartość odzysku [{waluta}]": round(oszczednosc_mies, 2),
+                f"Zoptymalizowany Koszt Produkcji [{waluta}]": round(optimized_manuf_cost_monthly, 2)
             })
             
         st.dataframe(pd.DataFrame(financial_summary), hide_index=True, use_container_width=True)
         
-        # --- TABLICE KPI DLA DYREKCJI FINANSOWEJ ---
+        # --- RAPORT KPI DLA ZARZĄDU / DYREKCJI ---
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown(f"### 🏆 Globalny Potencjał Oszczędności FUCHS")
+        st.markdown(f"### 🏁 Podsumowanie Efektywności Finansowej Zakładu (Skala Miesięczna)")
         
-        kpi1, kpi2 = st.columns(2)
-        with kpi1:
+        col_kpi1, col_kpi2, col_kpi3 = st.columns(3)
+        with col_kpi1:
+            st.metric(label=f"🔴 Całkowity bazowy koszt wytworzenia", value=f"{total_base_manuf_cost:,.2f} {waluta}")
+        with col_kpi2:
+            st.metric(label=f"🟢 Wygenerowane oszczędności (Rekuperacja)", value=f"{total_monthly_saving:,.2f} {waluta}")
+        with col_kpi3:
+            real_saving_pct = (total_monthly_saving / total_base_manuf_cost * 100) if total_base_manuf_cost > 0 else 0.0
             st.metric(
-                label=f"Łączne miesięczne redukcje kosztów energii", 
-                value=f"{total_monthly_savings:,.2f} {waluta}"
+                label=f"🔵 Zoptymalizowany realny koszt wytworzenia", 
+                value=f"{(total_base_manuf_cost - total_monthly_saving):,.2f} {waluta}",
+                delta=f"Redukcja kosztów o {real_saving_pct:.2f}%"
             )
-        with kpi2:
-            st.metric(
-                label=f"Prognozowane roczne oszczędności z rekuperacji", 
-                value=f"{total_monthly_savings * 12:,.2f} {waluta}",
-                delta="Redukcja śladu węglowego (CO₂)", delta_color="inverse"
-            )
-        
-        st.caption("💡 *Wskazówka inżynieryjna: Odzyskana energia może zostać skierowana do wstępnego podgrzewania kolejnych szarż baz olejowych lub na cele grzewcze infrastruktury zakładowej.*")
+            
+        # Zestawienie w skali makro (Rocznej)
+        st.info(f"💰 **Prognoza roczna:** Oszczędności z tytułu odzysku energii wyniosą **{total_monthly_saving * 12:,.2f} {waluta}/rok**, co bezpośrednio obniża globalny wskaźnik Manufacturing Cost fabryki.")
