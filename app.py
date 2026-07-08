@@ -107,18 +107,16 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # ==========================================
-# ZAKŁADKA 1: MATRYCA PROCESOWA I WALIDACJA CZASU CYKLU
+# ZAKŁADKA 1: MATRYCA PROCESOWA Z DYNAMICZNĄ TABELĄ FLOTY (ROZBICIE NA ŻYWO)
 # ==========================================
 with tab1:
     st.header(f"Zintegrowane Zestawienie Parametrów Procesowych (Baza: {godziny_dziennie:.1f}h/dzień)")
     
     if wybrane_kategorie:
         calculated_matrix_rows = []
-        total_annual_production = 0
-        total_batches_per_month = 0
-        total_calculated_volume_m3 = 0.0
         oversized_reactors = {}
 
+        # KROK 1: Obliczenia bazowe na podstawie danych z session_state
         for kat in wybrane_kategorie:
             m_annual = st.session_state.prod_dict[kat]["roczna"]
             util_val = st.session_state.prod_dict[kat]["utilization"]
@@ -133,10 +131,6 @@ with tab1:
             batch_size_kg = math.ceil(m_monthly / needed_batches) if needed_batches > 0 else 0
             calculated_vol_m3 = batch_size_kg / (dens * 1000.0) if batch_size_kg > 0 else 0.0
             
-            total_annual_production += m_annual
-            total_batches_per_month += needed_batches
-            total_calculated_volume_m3 += calculated_vol_m3
-            
             if calculated_vol_m3 > 31.0:
                 oversized_reactors[kat] = calculated_vol_m3
             
@@ -145,18 +139,20 @@ with tab1:
                 "2. Roczna produkcja [kg] 🟦": int(m_annual),
                 "3. Utilization % 🟦": float(util_val),
                 "4. Liczba szarż / miesiąc 🔒": int(needed_batches),
-                "5. Gabaryt reaktora 🔒": f"{calculated_vol_m3:.1f} m³",
+                "5. Wstępny gabaryt reaktora 🔒": f"{calculated_vol_m3:.1f} m³",
                 "6. Masa szarży [kg] 🔒": int(batch_size_kg),
                 "h_vol": calculated_vol_m3, "h_batches": needed_batches, "h_kg": batch_size_kg, "h_annual": m_annual
             })
             
         df_complete_matrix = pd.DataFrame(calculated_matrix_rows)
         
+        # Główny edytor planu rocznego
+        st.markdown("##### 📥 Krok A: Założenia Tonażowe i Utylizacja Czasowa Linia po Linii")
         edited_table = st.data_editor(
             df_complete_matrix,
             hide_index=True,
             use_container_width=True,
-            disabled=["1. Nazwa rodziny 🔒", "4. Liczba szarż / miesiąc 🔒", "5. Gabaryt reaktora 🔒", "6. Masa szarży [kg] 🔒"],
+            disabled=["1. Nazwa rodziny 🔒", "4. Liczba szarż / miesiąc 🔒", "5. Wstępny gabaryt reaktora 🔒", "6. Masa szarży [kg] 🔒"],
             column_config={
                 "2. Roczna produkcja [kg] 🟦": st.column_config.NumberColumn(min_value=0, step=50000, format="%d"),
                 "3. Utilization % 🟦": st.column_config.NumberColumn(min_value=1.0, max_value=300.0, step=5.0, format="%.1f%%"),
@@ -166,16 +162,87 @@ with tab1:
             on_change=sync_production_data
         )
         
+        # KROK 2: Sekcja Decyzji o Podziale (Checkboxy)
         split_decisions = {}
         if oversized_reactors:
             st.markdown("<br>", unsafe_allow_html=True)
             st.warning("⚠️ **Wykryto przekroczenie dopuszczalnych gabarytów transportowych / technologicznych zbiornika (> 31 m³)!**")
-            for kat_over, vol_over in oversized_reactors.items():
-                split_decisions[kat_over] = st.checkbox(
-                    f"Czy stworzyć dodatkową pozycję zbiornika (rozbić na 2 bliźniacze reaktory o pojemności {vol_over/2:.1f} m³) dla linii {kat_over}?",
-                    value=True, key=f"chk_split_{kat_over}"
-                )
+            
+            # Wygodne wyświetlenie checkboxów w kolumnach, żeby zaoszczędzić miejsce
+            chk_cols = st.columns(len(oversized_reactors))
+            for idx, (kat_over, vol_over) in enumerate(oversized_reactors.items()):
+                with chk_cols[idx]:
+                    split_decisions[kat_over] = st.checkbox(
+                        f"Rozbij reaktor {kat_over} ({vol_over:.1f} m³) na 2 bliźniacze jednostki?",
+                        value=True, key=f"chk_split_{kat_over}"
+                    )
 
+        # KROK 3: DYNAMICZNA TABELA DOCELOWEJ FLOTY (POJAWIA SIĘ OD RAZU TUTAJ)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("### 🏭 3. Zweryfikowana i Skorygowana Flota Mieszalników Zakładu")
+        st.info("💡 **Wynik na żywo:** Poniższa tabela reprezentuje realne aparaty produkcyjne, uwzględniając podziały na linie A i B.")
+        
+        final_fleet_rows = []
+        total_annual_production = 0
+        total_batches_per_month = 0
+        total_calculated_volume_m3 = 0.0
+        
+        tag_counter = 101
+        for idx, r in df_complete_matrix.iterrows():
+            kat = r["1. Nazwa rodziny 🔒"]
+            vol_base = r["h_vol"]
+            
+            # Jeśli użytkownik zatwierdził podział lub gabaryt wymaga wymuszenia podziału
+            if split_decisions.get(kat, False):
+                # Reaktor Bliźniaczy A
+                vol_split = max(vol_base / 2, 0.5)
+                batches_split = math.ceil(r["h_batches"] / 2)
+                mass_split = math.ceil(r["h_kg"] / 2)
+                
+                final_fleet_rows.append({
+                    "ID Urządzenia 🔒": f"MT-{tag_counter}A", "Przypisana Linia FUCHS 🔒": kat,
+                    "Liczba szarż [/mies] 🔒": int(batches_split), "Realna Pojemność [m³] 🔒": round(vol_split, 1),
+                    "Masa Szarży [kg] 🔒": int(mass_split), "Status Gabarytowy 🔒": "🟢 Rozbity (Bezpieczny)"
+                })
+                total_calculated_volume_m3 += vol_split
+                total_batches_per_month += batches_split
+                
+                # Reaktor Bliźniaczy B
+                final_fleet_rows.append({
+                    "ID Urządzenia 🔒": f"MT-{tag_counter}B", "Przypisana Linia FUCHS 🔒": kat,
+                    "Liczba szarż [/mies] 🔒": int(batches_split), "Realna Pojemność [m³] 🔒": round(vol_split, 1),
+                    "Masa Szarży [kg] 🔒": int(mass_split), "Status Gabarytowy 🔒": "🟢 Rozbity (Bezpieczny)"
+                })
+                total_calculated_volume_m3 += vol_split
+                total_batches_per_month += batches_split
+            else:
+                # Reaktor pojedynczy
+                status_txt = "🔴 Za duży (Wymaga uwagi)" if vol_base > 31.0 else "✅ Optymalny"
+                final_fleet_rows.append({
+                    "ID Urządzenia 🔒": f"MT-{tag_counter}", "Przypisana Linia FUCHS 🔒": kat,
+                    "Liczba szarż [/mies] 🔒": int(r["h_batches"]), "Realna Pojemność [m³] 🔒": round(vol_base, 1),
+                    "Masa Szarży [kg] 🔒": int(r["h_kg"]), "Status Gabarytowy 🔒": status_txt
+                })
+                total_calculated_volume_m3 += vol_base
+                total_batches_per_month += r["h_batches"]
+                
+            total_annual_production += r["h_annual"]
+            tag_counter += 1
+            
+        df_final_fleet = pd.DataFrame(final_fleet_rows)
+        
+        # Wyświetlenie zunifikowanej floty zbiorników
+        st.dataframe(
+            df_final_fleet,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "Realna Pojemność [m³] 🔒": st.column_config.NumberColumn(format="%.1f m³"),
+                "Masa Szarży [kg] 🔒": st.column_config.NumberColumn(format="%d kg")
+            }
+        )
+
+        # Sekcja globalnych sumarycznych wskaźników
         st.markdown("<br>", unsafe_allow_html=True)
         st.subheader("📊 Sumaryczne wskaźniki operacyjne zakładu (Łącznie):")
         
@@ -188,6 +255,8 @@ with tab1:
             st.metric(label="📐 Całkowita gabarytowość linii (Suma m³)", value=f"{total_calculated_volume_m3:.1f} m³")
             
         st.markdown("---")
+        
+        # Przycisk synchronizacji z pamięcią podręczną sesji
         if st.button("📥 Zatwierdź i wyślij konfigurację do kolejnych kroków", type="primary", use_container_width=True):
             confirmed_list_temp = []
             tag_counter = 101
@@ -200,63 +269,23 @@ with tab1:
                     confirmed_list_temp.append({
                         "tag": f"MT-{tag_counter}A", "product_family": kat, "capacity_m3": max(vol_base / 2, 0.5),
                         "material": FUCHS_PORTFOLIO[kat]["material"], "batches_count": math.ceil(r["h_batches"] / 2),
-                        "mass_per_batch": math.ceil(r["h_kg"] / 2), "annual_volume": r["h_annual"] / 2
+                        "mass_per_batch": math.ceil(r["h_kg"] / 2), "annual_volume": r["h_annual"] / 2, "annual_tonnage": (r["h_annual"] / 2) / 1000.0
                     })
                     confirmed_list_temp.append({
                         "tag": f"MT-{tag_counter}B", "product_family": kat, "capacity_m3": max(vol_base / 2, 0.5),
                         "material": FUCHS_PORTFOLIO[kat]["material"], "batches_count": math.ceil(r["h_batches"] / 2),
-                        "mass_per_batch": math.ceil(r["h_kg"] / 2), "annual_volume": r["h_annual"] / 2
+                        "mass_per_batch": math.ceil(r["h_kg"] / 2), "annual_volume": r["h_annual"] / 2, "annual_tonnage": (r["h_annual"] / 2) / 1000.0
                     })
                 else:
                     confirmed_list_temp.append({
                         "tag": f"MT-{tag_counter}", "product_family": kat, "capacity_m3": max(vol_base, 0.5),
                         "material": FUCHS_PORTFOLIO[kat]["material"], "batches_count": r["h_batches"],
-                        "mass_per_batch": r["h_kg"], "annual_volume": r["h_annual"]
+                        "mass_per_batch": r["h_kg"], "annual_volume": r["h_annual"], "annual_tonnage": r["h_annual"] / 1000.0
                     })
                 tag_counter += 1
                 
             st.session_state.confirmed_mixers = confirmed_list_temp
-            st.success("✅ Dane przetworzone pomyślnie! Przejdź do kolejnych zakładek.")
-
-        # --- REKAPITULACJA I WERYFIKACJA WYDAJNOŚCIOWEJ PRZEPUSTOWOŚCI MASZYN ---
-        if st.session_state.confirmed_mixers:
-            st.markdown("---")
-            st.markdown("### ⏱️ Weryfikacja Zajętości i Przepustowości Mieszalników (OEE)")
-            dni_robocze = 21
-            maks_dostepny_czas_h = dni_robocze * godziny_dziennie
-            st.info(f"📅 Nominalny fundusz czasu pracy gniazda produkcyjnego w miesiącu: **{maks_dostepny_czas_h:.1f} h** ({dni_robocze} dni roboczych)")
-            
-            capacity_check_ok = True
-            mixers_utilization_data = []
-            
-            for mixer in st.session_state.confirmed_mixers:
-                kat = mixer["product_family"]
-                prod_info = FUCHS_PORTFOLIO[kat]
-                t_process_h = prod_info["cycle_h"]
-                default_q_pump = float(max(round((mixer["capacity_m3"] / 0.75) * 1.25, 1), 5.0))
-                t_discharge_h = mixer["capacity_m3"] / default_q_pump
-                t_total_per_batch_h = t_process_h + t_discharge_h
-                total_required_mixer_hours = t_total_per_batch_h * mixer["batches_count"]
-                utilization_pct = (total_required_mixer_hours / maks_dostepny_czas_h) * 100.0 if maks_dostepny_czas_h > 0 else 0.0
-                
-                if utilization_pct > 100.0:
-                    status_msg = "🚨 PRZEKROCZONO LIMIT CZASU"
-                    capacity_check_ok = False
-                elif utilization_pct > 85.0:
-                    status_msg = "⚠️ Krytyczne obciążenie"
-                else:
-                    status_msg = "✅ Bezpieczny"
-                    
-                mixers_utilization_data.append({
-                    "ID Reaktora": mixer["tag"], "Linia Produktowa": kat, "Liczba szarż [/mies]": mixer["batches_count"],
-                    "Mieszanie [h/szarża]": round(t_process_h, 2), "Rozładunek [h/szarża]": round(t_discharge_h, 2),
-                    "Wymagany czas [h/mies]": round(total_required_mixer_hours, 1), "Obciążenie %": f"{utilization_pct:.1f}%",
-                    "Status operacyjny": status_msg
-                })
-                
-            st.dataframe(pd.DataFrame(mixers_utilization_data), hide_index=True, use_container_width=True)
-            if not capacity_check_ok:
-                st.error("❌ **BŁĄD HARMONOGRAMU:** Przynajmniej jeden mieszalnik ma przypisaną zbyt dużą liczbę szarż i nie wyrobi się w miesięcznym funduszu godzin (wliczając pełny czas rozładunku).")
+            st.success("✅ Flota zbiorników została pomyślnie zapisana! Przejdź do Zakładki 2.")
 
 # ==========================================
 # ZAKŁADKA 2: SPECYFIKACJA MASZYN, REOLOGIA I DOBÓR POMP (DEDYKOWANE KRYTERIA LMTD)
