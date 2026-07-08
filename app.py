@@ -284,7 +284,7 @@ with tab2:
             col_t1, col_t2 = st.columns(2)
             with col_t1:
                 st.markdown("**🔥 Proces Grzania**")
-                user_time_heat = st.number_input(f"Zadany czas grzania [min] ({mixer['tag']}):", min_value=1.0, value=45.0, key=f"ut_h_{mixer['tag']}")
+                user_time_heat = st.number_input(f"Zadany czas grzania [min] ({mixer['tag']}):", min_value=1.0, value=120.0, key=f"ut_h_{mixer['tag']}")
                 user_K_heat = st.number_input(f"Współczynnik K grzania ({mixer['tag']}):", min_value=10.0, value=500.0, key=f"uk_h_{mixer['tag']}")
                 t_init_h = st.number_input(f"Temp. startowa grzania [°C] ({mixer['tag']}):", value=20, key=f"t_ih_{mixer['tag']}")
                 t_final_h = st.number_input(f"Temp. docelowa [°C] ({mixer['tag']}):", value=60, key=f"t_fh_{mixer['tag']}")
