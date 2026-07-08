@@ -5,40 +5,40 @@ import math
 st.set_page_config(page_title="System Projektowania FUCHS", layout="wide")
 
 st.title("🏭 Inżynieryjny Reaktor Procesowy & Logistyczny FUCHS Oil")
-st.subheader("Uproszczone Wymiarowanie Linii Produkcyjnych na Podstawie Zadanych Parametrów")
+st.subheader("Uproszczone Wymiarowanie Linii Produkcyjnych z Pojemnością Mieszalnika")
 st.markdown("---")
 
 # --- 1. BAZA DANYCH PROCESOWYCH I FIZYKOCHEMICZNYCH FUCHS ---
 FUCHS_PORTFOLIO = {
-    "Industrial: Hydraulic Oils (RENOLIN)": {
+    "Hydraulic Oils (RENOLIN)": {
         "material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0, 
         "visc_kin": 46.0, "flash_point": "220°C", "frost_sensitivity": "Nie"
     },
-    "Industrial: Gear & Turbine Oils (RENOLIN)": {
+    "Gear & Turbine Oils (RENOLIN)": {
         "material": "Stal zwykła", "density": 0.89, "cycle_h": 5, "cp": 1.9, 
         "visc_kin": 220.0, "flash_point": "240°C", "frost_sensitivity": "Nie"
     },
-    "Industrial: Slideway & Machine Oils (RENAX)": {
+    "Slideway & Machine Oils (RENAX)": {
         "material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0, 
         "flash_point": "210°C", "visc_kin": 68.0, "frost_sensitivity": "Nie"
     },
-    "Automotive: Engine Oils (TITAN)": {
+    "Engine Oils (TITAN)": {
         "material": "Stal zwykła", "density": 0.87, "cycle_h": 5, "cp": 2.1, 
         "visc_kin": 95.0, "flash_point": "230°C", "frost_sensitivity": "Nie"
     },
-    "Automotive: Gear & Transmission Oils (TITAN)": {
+    "Gear & Transmission Oils (TITAN)": {
         "material": "Stal zwykła", "density": 0.88, "cycle_h": 5, "cp": 2.0, 
         "visc_kin": 140.0, "flash_point": "210°C", "frost_sensitivity": "Nie"
     },
-    "Metal Processing: Water-miscible (ECOCOOL)": {
+    "Water-miscible (ECOCOOL)": {
         "material": "Stal nierdzewna", "density": 0.99, "cycle_h": 6, "cp": 3.8, 
         "visc_kin": 60.0, "flash_point": "Brak", "frost_sensitivity": "TAK"
     },
-    "Metal Processing: Non-water-miscible (ECOCUT)": {
+    "Non-water-miscible (ECOCUT)": {
         "material": "Stal zwykła", "density": 0.87, "cycle_h": 4, "cp": 2.0, 
         "flash_point": "190°C", "visc_kin": 22.0, "frost_sensitivity": "Nie"
     },
-    "Metal Processing: Cleaners (RENOCLEAN)": {
+    "Cleaners (RENOCLEAN)": {
         "material": "Stal nierdzewna", "density": 1.01, "cycle_h": 4, "cp": 3.9, 
         "visc_kin": 5.0, "flash_point": "Brak", "frost_sensitivity": "TAK"
     }
@@ -55,37 +55,30 @@ PACK_CONFIGS = {
     "1000l (IBC)": {"size_l": 1000.0, "per_pallet": 1}
 }
 
-# --- PANEL BOCZNY (TYLKO WYBÓR I PODSTAWOWY WOLUMEN) ---
+# --- KROK 1: PANEL BOCZNY (WYBÓR RODZINY I OPAKOWAŃ) ---
 st.sidebar.header("📋 KROK 1: Wybór Rodzin")
 wybrane_kategorie = st.sidebar.multiselect(
     "Wybierz aktywne linie produktowe FUCHS:",
     list(FUCHS_PORTFOLIO.keys()),
-    default=["Industrial: Hydraulic Oils (RENOLIN)", "Automotive: Engine Oils (TITAN)", "Metal Processing: Water-miscible (ECOCOOL)"]
+    default=["Hydraulic Oils (RENOLIN)", "Engine Oils (TITAN)", "Water-miscible (ECOCOOL)"]
 )
 
 st.sidebar.markdown("---")
-st.sidebar.header("⚙️ KROK 2: Roczne Wolumeny & Opakowania")
-input_data = {}
-
+st.sidebar.header("⚙️ KROK 2: Dystrybucja Opakowań")
+input_packs = {}
 for kat in wybrane_kategorie:
-    short_name = kat.split(':')[-1].strip()
-    st.sidebar.markdown(f"### 🧪 {short_name}")
-    
-    vol = st.sidebar.number_input("Roczna produkcja [kg]:", min_value=0, value=1200000, step=100000, key=f"vol_{kat}")
-    
     packs = st.sidebar.multiselect(
-        "Opakowania końcowe:",
-        list(PACK_CONFIGS.keys()) + ["Bulk (Cysterna luz)"],
+        f"Opakowania dla {kat}:",
+        list(PACK_CONFIGS.keys()),
         default=["200l (Beczka)", "1000l (IBC)"],
         key=f"packs_{kat}"
     )
-    input_data[kat] = {"wolumen": vol, "opakowania": packs}
+    input_packs[kat] = packs
 
-# Inicjalizacja stanu sesji dla zachowania spójności danych między zakładkami
 if "confirmed_mixers" not in st.session_state:
     st.session_state.confirmed_mixers = []
 
-# --- KREOWANIE TRZECH ZAKŁADEK ---
+# --- PODZIAŁ NA TRZY ZAKŁADKI ---
 tab1, tab2, tab3 = st.tabs([
     "📊 1. Główne Zestawienie i Szarże", 
     "📐 2. Karta Techniczna Maszyn i Hydrodynamika", 
@@ -93,119 +86,96 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 # ==========================================
-# ZAKŁADKA 1: NOWA UPROSZCZONA STRONA GŁÓWNA
+# ZAKŁADKA 1: TABELA GŁÓWNA Z POJEMNOŚCIĄ MIESZALNIKA
 # ==========================================
 with tab1:
     st.header("Główne parametry procesowe węzła")
     
     if wybrane_kategorie:
-        # Przygotowanie danych wejściowych do interaktywnej tabeli (data_editor)
-        raw_rows = []
-        for kat in wybrane_kategorie:
-            short_name = kat.split(":")[-1].strip()
-            v_annual = input_data[kat]["wolumen"]
-            
-            # Wartości domyślne dla edytowalnych pól, pobierane z sesji lub standardowe
-            default_util = 75.0
-            default_batch_size = 8800.0 if "Water-miscible" not in kat else 9900.0 # ~10m3 na bazie gęstości
-            
-            raw_rows.append({
-                "Nazwa rodziny": short_name,
-                "Roczna produkcja [kg]": int(v_annual),
-                "Utilization %": default_util,
-                "Wielkość pojedynczej szarży [kg]": default_batch_size,
-                "full_key": kat # ukryty klucz pomocniczy
-            })
-            
-        df_to_edit = pd.DataFrame(raw_rows)
+        # Inicjalizacja lub dopasowanie ramki danych w sesji
+        if "init_df" not in st.session_state or len(st.session_state.init_df) != len(wybrane_kategorie):
+            raw_rows = []
+            for kat in wybrane_kategorie:
+                default_batch = 8800 if "Water-miscible" not in kat else 9900
+                raw_rows.append({
+                    "Nazwa rodziny": kat,
+                    "Roczna produkcja [kg]": 1200000,
+                    "Utilization %": 75,
+                    "Wielkość pojedynczej szarży [kg]": default_batch
+                })
+            st.session_state.init_df = pd.DataFrame(raw_rows)
+
+        st.markdown("💡 *Kolumny oznaczone dopiskiem **(Wpisz)** są edytowalne. Zmiana parametrów natychmiast zaktualizuje pojemność mieszalnika i liczbę szarż.*")
         
-        st.markdown("💡 *Kolumny oznaczone kolorem niebieskim są edytowalne. Zmień wartości Obłożenia lub Wielkości szarży bezpośrednio w tabeli, aby natychmiast przeliczyć proces.*")
-        
-        # Konfiguracja kolumn i wyróżnienie pól wejściowych za pomocą st.column_config
+        # Edytor danych wejściowych
         edited_df = st.data_editor(
-            df_to_edit,
+            st.session_state.init_df,
             hide_index=True,
             use_container_width=True,
-            disabled=["Nazwa rodziny"], # Blokada edycji nazw rodzin
+            disabled=["Nazwa rodziny"],
             column_config={
                 "Nazwa rodziny": st.column_config.TextColumn("1. Nazwa rodziny"),
-                "Roczna produkcja [kg]": st.column_config.NumberColumn(
-                    "2. Roczna produkcja [kg]", 
-                    help="Wartość zdefiniowana w panelu bocznym",
-                    required=True
-                ),
-                "Utilization %": st.column_config.NumberColumn(
-                    "3. Utilization % (Wpisz)", 
-                    min_value=1, max_value=100, step=5, 
-                    help="Wpisz pożądane obłożenie węzła (pole edytowalne)",
-                    required=True
-                ),
-                "Wielkość pojedynczej szarży [kg]": st.column_config.NumberColumn(
-                    "5. Wielkość pojedynczej szarży [kg] (Wpisz)", 
-                    min_value=100, max_value=50000, step=500,
-                    help="Wpisz masę jednej szarży (pole edytowalne)",
-                    required=True
-                ),
-                "full_key": None # ukrycie kolumny technicznej
+                "Roczna produkcja [kg]": st.column_config.NumberColumn("2. Roczna produkcja [kg] (Wpisz)", min_value=0, step=50000, required=True),
+                "Utilization %": st.column_config.NumberColumn("3. Utilization % (Wpisz)", min_value=1, max_value=100, step=5, required=True),
+                "Wielkość pojedynczej szarży [kg]": st.column_config.NumberColumn("5. Wielkość pojedynczej szarży [kg] (Wpisz)", min_value=100, step=500, required=True)
             }
         )
+        st.session_state.init_df = edited_df
+
+        # --- PRZELICZANIE WYNIKÓW I UTWORZENIE TABELI Z POJEMNOŚCIĄ MIESZALNIKA ---
+        st.markdown("### 📊 Wynikowe zestawienie operacyjne linii")
         
-        # --- OBLICZENIA I GENEROWANIE KOLUMNY WYLICZONEJ (LICZBA SZARŻ NA MIESIĄC) ---
-        calculated_rows = []
+        final_rows = []
         confirmed_list_temp = []
         
-        st.markdown("### 📊 Wynikowe zestawienie operacyjne")
-        
         for idx, row in edited_df.iterrows():
+            kat = row["Nazwa rodziny"]
             m_annual = row["Roczna produkcja [kg]"]
             m_monthly = m_annual / 12
             batch_size_kg = row["Wielkość pojedynczej szarży [kg]"]
+            dens = FUCHS_PORTFOLIO[kat]["density"]
             
-            # Liczba szarż wyliczona jako liczba całkowita (zaokrąglona w górę)
+            # 1. Wyliczenie pojemności roboczej mieszalnika [m³] (V = m / rho / 1000)
+            calculated_vol_m3 = batch_size_kg / (dens * 1000.0) if batch_size_kg > 0 else 0.0
+            
+            # 2. Wyliczenie całkowitej liczby szarż w miesiącu
             if batch_size_kg > 0:
                 needed_batches = math.ceil(m_monthly / batch_size_kg)
             else:
                 needed_batches = 0
                 
-            calculated_rows.append({
-                "1. Nazwa rodziny": row["Nazwa rodziny"],
+            final_rows.append({
+                "1. Nazwa rodziny": kat,
                 "2. Roczna produkcja [kg]": f"{int(m_annual):,}",
                 "3. Utilization %": f"{row['Utilization %']}%",
                 "4. Liczba szarż na miesiąc [całkowita]": int(needed_batches),
-                "5. Wielkość pojedynczej szarży [kg]": f"{int(batch_size_kg):,}"
+                "5. Pojemność mieszalnika [m³]": f"{calculated_vol_m3:.1f} m³",
+                "6. Wielkość pojedynczej szarży [kg]": f"{int(batch_size_kg):,}"
             })
             
-            # Wsteczna kalkulacja dla potrzeb hydrodynamiki w Zakładce 2
-            original_key = row["full_key"]
-            dens = FUCHS_PORTFOLIO[original_key]["density"]
-            calculated_vol_m3 = batch_size_kg / (dens * 1000.0) if batch_size_kg > 0 else 1.0
-            
+            # Zrzut konfiguracji technicznej do pamięci dla zakładki hydrodynamicznej (reaktora)
             confirmed_list_temp.append({
                 "tag": f"MT-{101 + idx}",
-                "product_family": original_key,
-                "capacity_m3": calculated_vol_m3,
-                "material": FUCHS_PORTFOLIO[original_key]["material"],
+                "product_family": kat,
+                "capacity_m3": max(calculated_vol_m3, 1.0),
+                "material": FUCHS_PORTFOLIO[kat]["material"],
                 "batches_count": needed_batches,
                 "mass_per_batch": batch_size_kg
             })
             
-        # Wyświetlenie końcowej tabeli wynikowej o czystej, czytelnej strukturze
-        st.dataframe(pd.DataFrame(calculated_rows), hide_index=True, use_container_width=True)
-        
-        # Zapisanie stanu maszyn dla Zakładki 2 i 3
+        st.dataframe(pd.DataFrame(final_rows), hide_index=True, use_container_width=True)
         st.session_state.confirmed_mixers = confirmed_list_temp
-        
     else:
-        st.warning("Wybierz przynajmniej jedną rodzinę produktów w panelu bocznym.")
+        st.info("Zaznacz rodziny produktów w panelu bocznym.")
 
 # ==========================================
-# ZAKŁADKA 2: SPECYFIKACJA URZĄDZEŃ
+# ZAKŁADKA 2: SPECYFIKACJA TECHNICZNA I ENERGETYCZNA
 # ==========================================
 with tab2:
-    st.header("Karty Charakterystyki Technicznej i Energetycznej Aparatów")
+    st.header("Specyfikacja Inżynieryjna i Zużycie Energii Mieszalników")
     
     if not st.session_state.confirmed_mixers:
-        st.info("ℹ️ Wybierz produkty na stronie głównej, aby wyświetlić parametry inżynieryjne.")
+        st.info("ℹ— Zdefiniuj dane produkcyjne w Zakładce 1, aby wyświetlić parametry inżynieryjne.")
     else:
         engineering_table_data = []
         
@@ -213,13 +183,12 @@ with tab2:
             kat = mixer["product_family"]
             prod_info = FUCHS_PORTFOLIO[kat]
             
-            st.markdown(f"### ⚙️ Profil Technologiczny: **{mixer['tag']}** (Dedykowany dla: *{mixer['1. Nazwa rodziny' if '1. Nazwa rodziny' in mixer else kat.split(':')[-1].strip()]}*)")
+            st.markdown(f"### ⚙️ Reaktor Procesowy: **{mixer['tag']}** (Dedykowany dla: *{kat}*)")
             
             rho = prod_info["density"] * 1000.0  
             v_kin = prod_info["visc_kin"] / 1_000_000.0  
             eta_dyn = v_kin * rho  
             
-            # Skalowanie mieszadła pod zmienną geometrię wynikającą ze zdefiniowanej masy szarży
             D_tank = round(2.2 * ((mixer["capacity_m3"] / 10.0) ** (1/3)), 2)
             d_agitor = round(D_tank / 3, 2)
             n_speed = 1.5 
@@ -242,7 +211,7 @@ with tab2:
                 Q_cool_mj = (mixer["mass_per_batch"] * prod_info["cp"] * dt_cool) / 0.85 / 1000.0
                 
             st.markdown(f"""
-            * **Materiał konstrukcyjny reaktora:** `{mixer['material']}` | **Wyliczona pojemność robocza miksera:** `{mixer['capacity_m3']:.2f} m³`
+            * **Materiał konstrukcyjny reaktora:** `{prod_info['material']}` | **Wyliczona pojemność robocza miksera:** `{mixer['capacity_m3']:.2f} m³`
             * **Reologia:** lepkość kinematyczna `{prod_info['visc_kin']} mm²/s` | **Liczba Reynoldsa (Re):** `{Re:,.1f}`
             * ⚡ **Moc znamionowa napędu:** `{P_kw:.2f} kW` | **Pobór energii mechanicznej:** `{E_mix_mj:.1f} MJ/szarżę`
             * 🔥 **Ciepło technologiczne:** `{Q_heat_mj:,.1f} MJ/szarżę` | ❄️ **Zapotrzebowanie na chłód:** `{Q_cool_mj:,.1f} MJ/szarżę`
@@ -250,13 +219,15 @@ with tab2:
             
             engineering_table_data.append({
                 "Mieszalnik": mixer["tag"],
-                "Materiał": mixer["material"],
+                "Materiał": prod_info["material"],
                 "Pojemność [m³]": round(mixer["capacity_m3"], 2),
                 "Wielkość szarży [kg]": int(mixer["mass_per_batch"]),
                 "Moc układu [kW]": round(P_kw, 2),
                 "Ciepło grzania [MJ]": round(Q_heat_mj, 1),
-                "Chłód procesowy [MJ]": round(Q_cool_mj, 1),
-                "Klasyfikacja zapłonu": prod_info["flash_point"]
+                "Energia chłodzenia [MJ]": round(Q_cool_mj, 1),
+                "Lepkość płynu": f"{prod_info['visc_kin']} cSt",
+                "Klasyfikacja zapłonu": prod_info["flash_point"],
+                "Wrażliwość na mróz": prod_info["frost_sensitivity"]
             })
             st.markdown("---")
             
@@ -264,7 +235,7 @@ with tab2:
         st.dataframe(pd.DataFrame(engineering_table_data), hide_index=True, use_container_width=True)
 
 # ==========================================
-# ZAKŁADKA 3: LOGISTYKA OPAKOWAŃ I PALET
+# ZAKŁADKA 3: LOGISTYKA I POWIERZCHNIA SKŁADOWANIA
 # ==========================================
 with tab3:
     st.header("Zliczanie Jednostek Opakowaniowych i Wymiarowanie Magazynu")
@@ -274,45 +245,60 @@ with tab3:
     
     for mixer in st.session_state.confirmed_mixers:
         kat = mixer["product_family"]
-        v_annual = input_data[kat]["wolumen"]
-        chosen_packs = input_data[kat]["opakowania"]
+        current_row = st.session_state.init_df[st.session_state.init_df["Nazwa rodziny"] == kat]
         
-        valid_packs = [p for p in chosen_packs if p != "Bulk (Cysterna luz)"]
-        
-        if v_annual > 0 and valid_packs:
-            m_prod_kg = v_annual / 12
-            dens = FUCHS_PORTFOLIO[kat]["density"]
-            total_volume_l = m_prod_kg / dens
+        if not current_row.empty:
+            v_annual = current_row.iloc[0]["Roczna produkcja [kg]"]
+            chosen_packs = input_packs.get(kat, [])
             
-            num_types = len(valid_packs)
-            liters_per_type = total_volume_l / num_types
-            
-            st.markdown(f"#### 🧪 Rozbicie logistyczne dla linii: *{kat.split(':')[-1].strip()}*")
-            
-            c_p_idx = st.columns(num_types)
-            for idx, p_name in enumerate(valid_packs):
-                config = PACK_CONFIGS[p_name]
+            if v_annual > 0 and chosen_packs:
+                m_prod_kg = v_annual / 12
+                dens = FUCHS_PORTFOLIO[kat]["density"]
+                total_volume_l = m_prod_kg / dens
                 
-                total_szt = math.ceil(liters_per_type / config["size_l"])
-                needed_pallets = math.ceil(total_szt / config["per_pallet"])
-                total_pallets_all += needed_pallets
+                num_types = len(chosen_packs)
+                liters_per_type = total_volume_l / num_types
                 
-                with c_p_idx[idx]:
-                    st.metric(label=f"Ilość: {p_name}", value=f"{total_szt:,} szt.")
-                    st.write(f"Wymagane palety: **{needed_pallets} epal**")
+                st.markdown(f"#### 🧪 Rozbicie logistyczne dla linii: *{kat}*")
+                
+                c_p_idx = st.columns(num_types)
+                for idx, p_name in enumerate(chosen_packs):
+                    config = PACK_CONFIGS[p_name]
                     
-                pallet_rows.append({
-                    "Linia produktowa": kat.split(":")[-1].strip(),
-                    "Typ Jednostki": p_name,
-                    "Zapotrzebowanie [szt./miesiąc]": total_szt,
-                    "Układ na palecie [szt/epal]": config["per_pallet"],
-                    "Miejsca Paletowe [epal]": needed_pallets,
-                    "Kontrola Temperatury (Frost)": FUCHS_PORTFOLIO[kat]["frost_sensitivity"]
-                })
-            st.markdown("<br>", unsafe_allow_html=True)
+                    total_szt = math.ceil(liters_per_type / config["size_l"])
+                    needed_pallets = math.ceil(total_szt / config["per_pallet"])
+                    total_pallets_all += needed_pallets
+                    
+                    with c_p_idx[idx]:
+                        st.metric(label=f"Ilość: {p_name}", value=f"{total_szt:,} szt.")
+                        st.write(f"Wymagane palety: **{needed_pallets} epal**")
+                        
+                    pallet_rows.append({
+                        "Linia produktowa": kat,
+                        "Typ Jednostki": p_name,
+                        "Zapotrzebowanie [szt./miesiąc]": total_szt,
+                        "Układ na palecie [szt/epal]": config["per_pallet"],
+                        "Miejsca Paletowe [epal]": needed_pallets,
+                        "Kontrola Temperatury (Frost)": FUCHS_PORTFOLIO[kat]["frost_sensitivity"]
+                    })
+                st.markdown("<br>", unsafe_allow_html=True)
             
     if pallet_rows:
         st.markdown("---")
         st.subheader("📋 Miesięczny Bilans Powierzchni Składowania")
         df_pallets = pd.DataFrame(pallet_rows)
         st.dataframe(df_pallets, hide_index=True, use_container_width=True)
+        
+        st.markdown("---")
+        st.subheader("📊 Podsumowanie Przestrzeni Magazynowej")
+        
+        frost_pallets = df_pallets[df_pallets["Kontrola Temperatury (Frost)"] == "TAK"]["Miejsca Paletowe [epal]"].sum()
+        ambient_pallets = total_pallets_all - frost_pallets
+        
+        col_wh1, col_wh2, col_wh3 = st.columns(3)
+        with col_wh1:
+            st.metric(label="🔵 CAŁKOWITA POJEMNOŚĆ MAGAZYNU", value=f"{total_pallets_all} epal")
+        with col_wh2:
+            st.metric(label="🌡️ Strefa Ogrzewana (Frost Protection)", value=f"{frost_pallets} epal")
+        with col_wh3:
+            st.metric(label="📦 Strefa Standardowa (Ambient)", value=f"{ambient_pallets} epal")
