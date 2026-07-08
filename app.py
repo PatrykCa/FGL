@@ -5,7 +5,7 @@ import math
 st.set_page_config(page_title="System Projektowania FUCHS", layout="wide")
 
 st.title("🏭 Inżynieryjny Reaktor Procesowy & Logistyczny FUCHS Oil")
-st.subheader("Wymiarowanie Linii, Optymalizacja Rozlewu oraz Analiza Kosztów Produkcji i Odzysku Ciepła")
+st.subheader("Stabilna Platforma Wymiarowania Linii, Reologii i Optymalizacji Kosztów Wytworzenia")
 st.markdown("---")
 
 # --- 1. BAZA DANYCH PROCESOWYCH I FIZYKOCHEMICZNYCH FUCHS ---
@@ -86,35 +86,25 @@ for kat in wybrane_kategorie:
     )
     input_packs[kat] = packs
 
-# Inicjalizacja i synchronizacja bazy w Session State
-if "df_base" not in st.session_state or st.sidebar.button("🔄 Przywróć domyślne (Rekomendacja 75%)"):
-    initial_rows = []
-    for kat in wybrane_kategorie:
-        initial_rows.append({"1. Nazwa rodziny": kat, "2. Roczna produkcja [kg]": 1200000, "3. Utilization %": 75.0})
-    st.session_state.df_base = pd.DataFrame(initial_rows)
+# Bezpieczna inicjalizacja struktury danych wejściowych bez przycisków generujących pętle re-run
+if "production_inputs" not in st.session_state:
+    st.session_state.production_inputs = {
+        kat: {"roczna": 1200000, "utilization": 75.0} for kat in FUCHS_PORTFOLIO.keys()
+    }
 
-if set(st.session_state.df_base["1. Nazwa rodziny"].tolist()) != set(wybrane_kategorie):
-    updated_rows = []
-    for kat in wybrane_kategorie:
-        existing = st.session_state.df_base[st.session_state.df_base["1. Nazwa rodziny"] == kat]
-        if not existing.empty:
-            updated_rows.append({
-                "1. Nazwa rodziny": kat,
-                "2. Roczna produkcja [kg]": int(existing.iloc[0]["2. Roczna produkcja [kg]"]),
-                "3. Utilization %": float(existing.iloc[0]["3. Utilization %"])
-            })
-        else:
-            updated_rows.append({"1. Nazwa rodziny": kat, "2. Roczna produkcja [kg]": 1200000, "3. Utilization %": 75.0})
-    st.session_state.df_base = pd.DataFrame(updated_rows)
+# Aktualizacja stanów dla nowo wybranych lub usuniętych rodzin płynów
+for kat in wybrane_kategorie:
+    if kat not in st.session_state.production_inputs:
+        st.session_state.production_inputs[kat] = {"roczna": 1200000, "utilization": 75.0}
 
 if "confirmed_mixers" not in st.session_state:
     st.session_state.confirmed_mixers = []
-
 if "heat_temps" not in st.session_state:
     st.session_state.heat_temps = {}
 if "filling_temps" not in st.session_state:
     st.session_state.filling_temps = {}
 
+# --- GŁÓWNA STRUKTURA KART INTERFEJSU ---
 tab1, tab2, tab3, tab4 = st.tabs([
     "📊 1. Główne Zestawienie i Utylizacja", 
     "📐 2. Karta Maszyn i Reologia", 
@@ -123,16 +113,23 @@ tab1, tab2, tab3, tab4 = st.tabs([
 ])
 
 # ==========================================
-# ZAKŁADKA 1: TABELA OPERACYJNA
+# ZAKŁADKA 1: JEDNA, STABILNA TABELA OPERACYJNA
 # ==========================================
 with tab1:
     st.header(f"Zintegrowane Zestawienie Parametrów Procesowych (Baza: {godziny_dziennie:.1f}h/dzień)")
-    if wybrane_kategorie and not st.session_state.df_base.empty:
-        display_rows = []
-        for idx, row in st.session_state.df_base.iterrows():
-            kat = row["1. Nazwa rodziny"]
-            m_annual = row["2. Roczna produkcja [kg]"]
-            util_val = row["3. Utilization %"]
+    
+    if wybrane_kategorie:
+        st.markdown("""
+        * Pola oznaczone **🟦 [Edytuj]** są przeznaczone do wprowadzania założeń produkcyjnych. 
+        * Pola oznaczone kolorem **🔒 [Blokada]** przeliczają się automatycznie na podstawie pozostałych danych.
+        """)
+        
+        # Budowanie tabeli na podstawie aktualnego stanu pamięci podręcznej
+        rows_list = []
+        for kat in wybrane_kategorie:
+            inputs = st.session_state.production_inputs[kat]
+            m_annual = inputs["roczna"]
+            util_val = inputs["utilization"]
             
             m_monthly = m_annual / 12
             util_fraction = util_val / 100.0
@@ -144,7 +141,7 @@ with tab1:
             batch_size_kg = math.ceil(m_monthly / needed_batches) if needed_batches > 0 else 0
             calculated_vol_m3 = batch_size_kg / (dens * 1000.0) if batch_size_kg > 0 else 0.0
             
-            display_rows.append({
+            rows_list.append({
                 "1. Nazwa rodziny": kat, 
                 "2. Roczna produkcja [kg]": int(m_annual), 
                 "3. Utilization %": float(util_val),
@@ -156,10 +153,13 @@ with tab1:
                 "hidden_batch_kg": batch_size_kg
             })
             
-        df_display = pd.DataFrame(display_rows)
+        df_display = pd.DataFrame(rows_list)
         
+        # Pojedynczy, czysty i bezpieczny edytor danych bez wywoływania wymuszonych rerunów
         edited_table = st.data_editor(
-            df_display, hide_index=True, use_container_width=True,
+            df_display, 
+            hide_index=True, 
+            use_container_width=True,
             disabled=["1. Nazwa rodziny", "4. Liczba szarż na miesiąc", "5. Pojemność mieszalnika [m³]", "6. Wielkość pojedynczej szarży [kg]"],
             column_config={
                 "1. Nazwa rodziny": st.column_config.TextColumn("1. Nazwa rodziny 🔒"),
@@ -169,13 +169,15 @@ with tab1:
                 "5. Pojemność mieszalnika [m³]": st.column_config.TextColumn("5. Gabaryt reaktora 🔒"),
                 "6. Wielkość pojedynczej szarży [kg]": st.column_config.NumberColumn("6. Masa szarży [kg] 🔒", format="%d"),
                 "hidden_vol_m3": None, "hidden_batches": None, "hidden_batch_kg": None
-            }
+            },
+            key="main_production_editor"
         )
         
-        if not edited_table.equals(df_display):
-            st.session_state.df_base["2. Roczna produkcja [kg]"] = edited_table["2. Roczna produkcja [kg]"]
-            st.session_state.df_base["3. Utilization %"] = edited_table["3. Utilization %"]
-            st.rerun()
+        # Zapisywanie wprowadzonych zmian bezpośrednio do słownika sesji przy kolejnych przebiegach pętli reaktora
+        for idx, r in edited_table.iterrows():
+            k = r["1. Nazwa rodziny"]
+            st.session_state.production_inputs[k]["roczna"] = r["2. Roczna produkcja [kg]"]
+            st.session_state.production_inputs[k]["utilization"] = r["3. Utilization %"]
         
         st.markdown("<br>", unsafe_allow_html=True)
         if st.button("📥 Zatwierdź i wyślij konfigurację do kolejnych kroków", type="primary", use_container_width=True):
@@ -188,17 +190,17 @@ with tab1:
                     "mass_per_batch": r["hidden_batch_kg"], "annual_volume": r["2. Roczna produkcja [kg]"]
                 })
             st.session_state.confirmed_mixers = confirmed_list_temp
-            st.success("✅ Konfiguracja zatwierdzona! Przejdź do Zakładki 2.")
+            st.success("✅ Dane przesłane poprawnie! Parametry zostały zaktualizowane w pozostałych zakładkach.")
     else:
-        st.info("Zaznacz rodziny produktów w panelu bocznym.")
+        st.info("Zaznacz aktywne rodziny produktów w panelu bocznym.")
 
 # ==========================================
-# ZAKŁADKA 2: REOLOGIA I TERMINAL CIEPLNY
+# ZAKŁADKA 2: KARTA MASZYN I BILANSE CIEPLNE
 # ==========================================
 with tab2:
     st.header("Wymiarowanie Układu Mieszania pod Kątem Zmiennej Lepkości")
     if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Brak zatwierdzonych danych z Zakładki 1.")
+        st.warning("⚠️ Brak zatwierdzonych danych. Wróć do Zakładki 1 i zatwierdź tabele.")
     else:
         engineering_table_data = []
         for mixer in st.session_state.confirmed_mixers:
@@ -217,11 +219,11 @@ with tab2:
             
             c_mix1, c_mix2, c_mix3 = st.columns(3)
             with c_mix1:
-                agitator_choice = st.selectbox(f"Typ wirnika:", list(AGITATOR_TYPES.keys()), key=f"agit_{mixer['tag']}", index=1)
+                agitator_choice = st.selectbox(f"Typ wirnika dla {mixer['tag']}:", list(AGITATOR_TYPES.keys()), key=f"agit_{mixer['tag']}", index=1)
             with c_mix2:
-                visc_min = st.number_input(f"Lepkość MIN [cSt]:", min_value=1.0, value=22.0, key=f"v_min_{mixer['tag']}")
+                visc_min = st.number_input(f"Lepkość MIN (startowa) [cSt] ({mixer['tag']}):", min_value=1.0, value=22.0, key=f"v_min_{mixer['tag']}")
             with c_mix3:
-                visc_max = st.number_input(f"Lepkość MAX [cSt]:", min_value=5.0, value=220.0, key=f"v_max_{mixer['tag']}")
+                visc_max = st.number_input(f"Lepkość MAKS (końcowa) [cSt] ({mixer['tag']}):", min_value=5.0, value=220.0, key=f"v_max_{mixer['tag']}")
             
             cfg = AGITATOR_TYPES[agitator_choice]
             def calculate_visc_power(v_kin_cst):
@@ -232,19 +234,19 @@ with tab2:
 
             P_max_w = calculate_visc_power(visc_max)
             required_motor_power_kw = (P_max_w / 0.85 * 1.20) / 1000.0
-            st.success(f"⚡ **Rekomendowany silnik dla {mixer['tag']}: {required_motor_power_kw:.2f} kW**")
+            st.success(f"⚡ **Rekomendowany silnik napędowy dla {mixer['tag']}: {required_motor_power_kw:.2f} kW**")
             
             col_geom, _ = st.columns([1, 1])
             with col_geom:
-                user_F_surface = st.number_input(f"Powierzchnia wymiany ciepła F [m²]:", min_value=0.1, value=float(round(suggested_F, 2)), key=f"uf_surf_{mixer['tag']}")
+                user_F_surface = st.number_input(f"Powierzchnia wymiany ciepła F [m²] ({mixer['tag']}):", min_value=0.1, value=float(round(suggested_F, 2)), key=f"uf_surf_{mixer['tag']}")
             
             col_t1, col_t2 = st.columns(2)
             with col_t1:
                 st.markdown("**🔥 Proces Grzania**")
-                user_time_heat = st.number_input(f"Zadany czas grzania [min]:", min_value=1.0, value=45.0, key=f"ut_h_{mixer['tag']}")
-                user_K_heat = st.number_input(f"Współczynnik K grzania:", min_value=10.0, value=500.0, key=f"uk_h_{mixer['tag']}")
-                t_init_h = st.number_input(f"Temp. początkowa [°C]:", value=20, key=f"t_ih_{mixer['tag']}")
-                t_final_h = st.number_input(f"Temp. końcowa (Procesowa) [°C]:", value=60, key=f"t_fh_{mixer['tag']}")
+                user_time_heat = st.number_input(f"Zadany czas grzania [min] ({mixer['tag']}):", min_value=1.0, value=45.0, key=f"ut_h_{mixer['tag']}")
+                user_K_heat = st.number_input(f"Współczynnik K grzania ({mixer['tag']}):", min_value=10.0, value=500.0, key=f"uk_h_{mixer['tag']}")
+                t_init_h = st.number_input(f"Temp. startowa grzania [°C] ({mixer['tag']}):", value=20, key=f"t_ih_{mixer['tag']}")
+                t_final_h = st.number_input(f"Temp. procesowa grzania [°C] ({mixer['tag']}):", value=60, key=f"t_fh_{mixer['tag']}")
                 
                 st.session_state.heat_temps[mixer["tag"]] = t_final_h
                 
@@ -255,10 +257,11 @@ with tab2:
                 
             with col_t2:
                 st.markdown("**❄️ Proces Chłodzenia**")
-                user_time_cool = st.number_input(f"Zadany czas chłodzenia [min]:", min_value=1.0, value=60.0, key=f"ut_c_{mixer['tag']}")
-                user_K_cool = st.number_input(f"Współczynnik K chłodzenia:", min_value=10.0, value=500.0, key=f"uk_c_{mixer['tag']}")
-                t_init_c = st.number_input(f"Temp. początkowa chłodzenia [°C]:", value=60, key=f"t_ic_{mixer['tag']}")
-                t_final_c = st.number_input(f"Temp. końcowa chłodzenia [°C]:", value=30, key=f"t_fc_{mixer['tag']}")
+                user_time_cool = st.number_input(f"Zadany czas chłodzenia [min] ({mixer['tag']}):", min_value=1.0, value=60.0, key=f"ut_c_{mixer['tag']}")
+                user_K_cool = st.number_input(f"Współczynnik K chłodzenia ({mixer['tag']}):", min_value=10.0, value=500.0, key=f"uk_c_{mixer['tag']}")
+                t_init_c = st.number_input(f"Temp. startowa chłodzenia [°C] ({mixer['tag']}):", value=60, key=f"t_ic_{mixer['tag']}")
+                t_final_c = st.number_input(f"Temp. końcowa chłodzenia [°C] ({mixer['tag']}):", value=30, key=f"t_fc_{mixer['tag']}")
+                
                 Q_cool_j = mixer["mass_per_batch"] * (prod_info["cp"] * 1000.0) * (t_init_c - t_final_c)
                 req_p_cool_kw = (Q_cool_j / (user_time_cool * 60.0)) / 1000.0
                 calculated_lmtd_c = Q_cool_j / (user_K_cool * user_F_surface * (user_time_cool * 60.0)) if (user_K_cool * user_F_surface * user_time_cool) > 0 else 0.0
@@ -272,10 +275,10 @@ with tab2:
         st.dataframe(pd.DataFrame(engineering_table_data), hide_index=True, use_container_width=True)
 
 # ==========================================
-# ZAKŁADKA 3: LOGISTYKA OPAKOWAŃ
+# ZAKŁADKA 3: LOGISTYKA OPAKOWAŃ I CZAS ROZLEWU
 # ==========================================
 with tab3:
-    st.header("Harmonogramowanie Rozlewu Opakowań i Parametry Termiczne")
+    st.header("Harmonogramowanie Rozlewu Opakowań")
     if not st.session_state.confirmed_mixers:
         st.warning("⚠️ Brak zatwierdzonych danych z Zakładki 1.")
     else:
@@ -290,32 +293,37 @@ with tab3:
                 total_volume_l = m_monthly_kg / dens
                 t_reaktor_max = st.session_state.heat_temps.get(mixer["tag"], 60.0)
                 
-                st.markdown(f"### 🧪 Bilans i Wydajność Rozlewu dla linii: **{kat}** (Szarża miesięczna: **{int(m_monthly_kg):,} kg**)")
+                st.markdown(f"### 🧪 Bilans Rozlewu: **{kat}** (Miesięczny tonaż: **{int(m_monthly_kg):,} kg**)")
                 
                 col_t_fill, _ = st.columns([1, 2])
                 with col_t_fill:
                     t_filling = st.number_input(
-                        f"Wymagana temperatura na rozlewie dla {mixer['tag']} [°C]:", 
+                        f"Temperatura na rozlewie dla {mixer['tag']} [°C]:", 
                         min_value=10.0, max_value=120.0, value=float(min(30.0, t_reaktor_max)), key=f"t_fill_{mixer['tag']}"
                     )
                     st.session_state.filling_temps[mixer["tag"]] = t_filling
                 
-                st.markdown("👇 *Wpisz procentowy podział rozlewu (Suma musi wynosić 100%):*")
+                st.markdown("👇 *Podział procentowy strumienia rozlewu (Suma = 100%):*")
                 state_key = f"pct_df_{mixer['tag']}"
+                
                 if state_key not in st.session_state:
                     init_pct = [round(100.0 / len(chosen_packs), 1)] * len(chosen_packs)
                     st.session_state[state_key] = pd.DataFrame({"Typ Opakowania": chosen_packs, "Udział w rozlewie %": init_pct})
                 
+                # Izolowany i bezpieczny edytor procentowy bez callbacków wyzwalających błędy typu rerun
                 edited_pct_df = st.data_editor(
-                    st.session_state[state_key], hide_index=True, key=f"editor_{state_key}", use_container_width=True, disabled=["Typ Opakowania"],
-                    column_config={"Udział w rozlewie %": st.column_config.NumberColumn("Udział w rozlewie % 🟦", min_value=0.0, max_value=100.0, step=5.0, format="%.1f%%")}
+                    st.session_state[state_key], 
+                    hide_index=True, 
+                    key=f"editor_widget_{mixer['tag']}", 
+                    use_container_width=True, 
+                    disabled=["Typ Opakowania"],
+                    column_config={"Udział w rozlewie %": st.column_config.NumberColumn("Udział w rozlewie % 🟦", min_value=0.0, max_value=100.0, step=1.0, format="%.1f%%")}
                 )
                 st.session_state[state_key] = edited_pct_df
                 
                 total_sum = edited_pct_df["Udział w rozlewie %"].sum()
-                if not math.isclose(total_sum, 100.0, abs_tol=0.1):
-                    st.error(f"❌ Suma udziałów wynosi {total_sum:.1f}%. Skoryguj do równego 100%.")
-                    continue
+                if not math.isclose(total_sum, 100.0, abs_tol=0.5):
+                    st.error(f"❌ Suma udziałów wynosi obecnie {total_sum:.1f}%. Skoryguj do równego 100%.")
                 
                 local_results = []
                 total_family_filling_hours = 0.0
@@ -338,7 +346,7 @@ with tab3:
                 
                 st.dataframe(pd.DataFrame(local_results), hide_index=True, use_container_width=True)
                 filling_days = total_family_filling_hours / godziny_dziennie if godziny_dziennie > 0 else 0
-                st.info(f"⏱️ **Zajętość systemów rozlewczych: {total_family_filling_hours:.1f} h/miesiąc** (~**{filling_days:.1f} dni roboczych**).")
+                st.info(f"⏱️ **Zajętość linii rozlewczych: {total_family_filling_hours:.1f} h/miesiąc** (~**{filling_days:.1f} dni roboczych**).")
                 st.markdown("---")
 
 # ==========================================
@@ -350,13 +358,11 @@ with tab4:
     if not st.session_state.confirmed_mixers:
         st.warning("⚠️ Brak zatwierdzonych maszyn. Uruchom konfigurację w Zakładce 1.")
     else:
-        # --- BLOK WEJŚCIOWY DLA PARAMETRÓW FINANSOWYCH ---
         st.subheader("📊 1. Parametry wejściowe budżetu")
         c_fin1, c_fin2, c_fin3 = st.columns(3)
         with c_fin1:
             waluta = st.selectbox("Wybierz walutę operacyjną:", ["EUR", "PLN", "USD"])
         with c_fin2:
-            # Wartość domyślna zgrana z Twoim budżetem (0.535 EUR lub analogiczna wielokrotność dla innych walut)
             default_cost = 0.535 if waluta == "EUR" else 2.119
             manuf_cost_per_kg = st.number_input(f"Bazowy Manuf. Cost [za kg produktu w {waluta}]:", min_value=0.01, value=default_cost, format="%.3f")
         with c_fin3:
@@ -375,14 +381,11 @@ with tab4:
             
             t_max_mix = st.session_state.heat_temps.get(mixer["tag"], 60.0)
             t_rozlew = st.session_state.filling_temps.get(mixer["tag"], 30.0)
-            
             m_monthly_kg = mixer["annual_volume"] / 12
             
-            # 1. Wyznaczenie bazowego kosztu produkcji (Manuf. Cost = kg * stawka)
             base_manuf_cost_monthly = m_monthly_kg * manuf_cost_per_kg
             total_base_manuf_cost += base_manuf_cost_monthly
             
-            # 2. Wyznaczenie profilu rekuperacji termicznej
             energia_mwh_mies = 0.0
             oszczednosc_mies = 0.0
             
@@ -393,7 +396,6 @@ with tab4:
                 oszczednosc_mies = energia_mwh_mies * cena_mwh
                 total_monthly_saving += oszczednosc_mies
             
-            # 3. Zoptymalizowany koszt produkcji dla danej linii produktowej
             optimized_manuf_cost_monthly = base_manuf_cost_monthly - oszczednosc_mies
             
             financial_summary.append({
@@ -407,7 +409,6 @@ with tab4:
             
         st.dataframe(pd.DataFrame(financial_summary), hide_index=True, use_container_width=True)
         
-        # --- RAPORT KPI DLA ZARZĄDU / DYREKCJI ---
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown(f"### 🏁 Podsumowanie Efektywności Finansowej Zakładu (Skala Miesięczna)")
         
@@ -415,7 +416,7 @@ with tab4:
         with col_kpi1:
             st.metric(label=f"🔴 Całkowity bazowy koszt wytworzenia", value=f"{total_base_manuf_cost:,.2f} {waluta}")
         with col_kpi2:
-            st.metric(label=f"🟢 Wygenerowane oszczędności (Rekuperacja)", value=f"{total_monthly_saving:,.2f} {waluta}")
+            st.metric(label=f"🟢 Wygenerowane oszczędności (Rekuperacja)", value=f"{total_monthly_savings:,.2f} {waluta}")
         with col_kpi3:
             real_saving_pct = (total_monthly_saving / total_base_manuf_cost * 100) if total_base_manuf_cost > 0 else 0.0
             st.metric(
@@ -424,5 +425,4 @@ with tab4:
                 delta=f"Redukcja kosztów o {real_saving_pct:.2f}%"
             )
             
-        # Zestawienie w skali makro (Rocznej)
         st.info(f"💰 **Prognoza roczna:** Oszczędności z tytułu odzysku energii wyniosą **{total_monthly_saving * 12:,.2f} {waluta}/rok**, co bezpośrednio obniża globalny wskaźnik Manufacturing Cost fabryki.")
