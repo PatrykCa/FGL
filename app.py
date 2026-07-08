@@ -220,7 +220,7 @@ with tab1:
         st.info("Zaznacz aktywne rodziny produktów w panelu bocznym.")
 
 # ==========================================
-# ZAKŁADKA 2: SPECYFIKACJA MASZYN, REOLOGIA I DOBÓR POMP (Z LMTD W PODSUMOWANIU)
+# ZAKŁADKA 2: SPECYFIKACJA MASZYN, REOLOGIA I DOBÓR POMP (KOLOROWANIE LMTD)
 # ==========================================
 with tab2:
     st.header("Wymiarowanie Układu Mieszania i Zaawansowany Dobór Hydrauliki")
@@ -313,8 +313,6 @@ with tab2:
                 
                 Q_heat_j = mixer["mass_per_batch"] * (prod_info["cp"] * 1000.0) * (t_final_h - t_init_h)
                 req_p_heat_kw = (Q_heat_j / (user_time_heat * 60.0)) / 1000.0
-                
-                # Wyliczenie analityczne LMTD dla grzania na bazie parametrów wymiany
                 calculated_lmtd_h = Q_heat_j / (user_K_heat * user_F_surface * (user_time_heat * 60.0)) if (user_K_heat * user_F_surface * user_time_heat) > 0 else 0.0
                 st.write(f"Moc grzania: **{req_p_heat_kw:.1f} kW** | LMTD grzania: **{calculated_lmtd_h:.1f} °C**")
                 
@@ -327,31 +325,41 @@ with tab2:
                 
                 Q_cool_j = mixer["mass_per_batch"] * (prod_info["cp"] * 1000.0) * (t_init_c - t_final_c)
                 req_p_cool_kw = (Q_cool_j / (user_time_cool * 60.0)) / 1000.0
-                
-                # Wyliczenie analityczne LMTD dla chłodzenia
                 calculated_lmtd_c = Q_cool_j / (user_K_cool * user_F_surface * (user_time_cool * 60.0)) if (user_K_cool * user_F_surface * user_time_cool) > 0 else 0.0
                 st.write(f"Moc chłodzenia: **{req_p_cool_kw:.1f} kW** | LMTD chłodzenia: **{calculated_lmtd_c:.1f} °C**")
 
-            # Dodajemy dane do zbiorczej tabeli (LMTD uwzględnione na końcu)
             engineering_table_data.append({
-                "Mieszalnik": mixer["tag"], 
-                "Materiał korpusu": prod_info["material"], 
-                "Pojemność [m³]": round(V_m3, 2), 
-                "Masa szarży [kg]": int(mixer["mass_per_batch"]), 
-                "Typ Mieszadła": agitator_choice,
-                "Moc Mieszadła [kW]": round(required_motor_power_kw, 2), 
-                "Typ Pompy": pump_type, 
-                "Przepływ [m³/h]": round(q_pump, 1),
-                "Moc Pompy [kW]": round(pump_power_kw, 2),
-                "Moc Grzania [kW]": round(req_p_heat_kw, 1), 
-                "LMTD Grzania [°C]": f"{calculated_lmtd_h:.1f} °C",
+                "Mieszalnik": mixer["tag"], "Materiał korpusu": prod_info["material"], "Pojemność [m³]": round(V_m3, 2), 
+                "Masa szarży [kg]": int(mixer["mass_per_batch"]), "Typ Mieszadła": agitator_choice,
+                "Moc Mieszadła [kW]": round(required_motor_power_kw, 2), "Typ Pompy": pump_type, "Przepływ [m³/h]": round(q_pump, 1),
+                "Moc Pompy [kW]": round(pump_power_kw, 2), "Moc Grzania [kW]": round(req_p_heat_kw, 1), 
+                "LMTD Grzania [°C]": round(calculated_lmtd_h, 1),
                 "Moc Chłodzenia [kW]": round(req_p_cool_kw, 1),
-                "LMTD Chłodzenia [°C]": f"{calculated_lmtd_c:.1f} °C"
+                "LMTD Chłodzenia [°C]": round(calculated_lmtd_c, 1)
             })
             st.markdown("---")
             
         st.subheader("📋 Zbiorcza Karta Techniczna Linii Mieszania, Rozładunku i Termodynamiki")
-        st.dataframe(pd.DataFrame(engineering_table_data), hide_index=True, use_container_width=True)
+        df_eng = pd.DataFrame(engineering_table_data)
+
+        # --- FUNKCJA MAPOWANIA STYLÓW DLA ZAKRESÓW LMTD ---
+        def style_lmtd(val):
+            if isinstance(val, (int, float)):
+                if val < 20.0:
+                    return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'  # Krytycznie mała siła napędowa
+                elif val <= 50.0:
+                    return 'background-color: #d4edda; color: #155724; font-weight: bold;'  # Zakres optymalny
+                else:
+                    return 'background-color: #fff3cd; color: #856404; font-weight: bold;'  # Zakres wysoki (ryzyko przegrzania)
+            return ''
+
+        # Stosujemy mapowanie kolorów wyłącznie do dwóch kolumn LMTD
+        styled_df_eng = df_eng.style.map(style_lmtd, subset=["LMTD Grzania [°C]", "LMTD Chłodzenia [°C]"])
+
+        st.dataframe(styled_df_eng, hide_index=True, use_container_width=True)
+        
+        # Szybka legenda dla operatora
+        st.caption("ℹ️ **Legenda LMTD:** 🟢 20-50°C (Optymalny) | 🟡 >50°C (Wysoki - ryzyko przegrzania medium) | 🔴 <20°C (Zbyt niski - proces będzie trwał bardzo długo)")
 
 # ==========================================
 # ZAKŁADKA 3: ZINTEGROWANA LOGISTYKA OPAKOWAŃ I CZAS ROZLEWU (JEDNA TABELA ZBIORCZA)
