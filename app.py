@@ -2,245 +2,331 @@ import streamlit as st
 import pandas as pd
 import math
 
-st.set_page_config(page_title="Kreator Linii FUCHS Portfolio", layout="wide")
+st.set_page_config(page_title="System Projektowania FUCHS", layout="wide")
 
-st.title("🏭 Kompleksowy Kreator Produkcyjny FUCHS Oil")
-st.subheader("Zarządzanie Wolumenami i Gabarytami Aparatury (Forma Tabeli Zbiorczej)")
+st.title("🏭 Inżynieryjny Reaktor Procesowy & Logistyczny FUCHS Oil")
+st.subheader("Kompleksowe Wymiarowanie Fabryki: Wolumeny ➔ Aparatura ➔ Energetyka ➔ Magazyn")
 st.markdown("---")
 
-# --- 1. BAZA DANYCH RODZIN PRODUKTOWYCH FUCHS ---
+# --- 1. BAZA DANYCH PROCESOWYCH I FIZYKOCHEMICZNYCH FUCHS ---
 FUCHS_PORTFOLIO = {
-    "Industrial: Hydraulic Oils (RENOLIN)": {"material": "Stal węglowa (Carbon Steel)", "density": 0.88, "cycle_h": 4, "cp": 2.0, "flash": "220°C", "visc": "46 mm²/s", "frost": "Nie", "pdf": "PID_Olejowy.pdf"},
-    "Industrial: Gear & Turbine Oils (RENOLIN)": {"material": "Stal węglowa (Carbon Steel)", "density": 0.89, "cycle_h": 5, "cp": 1.9, "flash": "240°C", "visc": "220 mm²/s", "frost": "Nie", "pdf": "PID_Olejowy.pdf"},
-    "Industrial: Slideway & Machine Oils (RENAX)": {"material": "Stal węglowa (Carbon Steel)", "density": 0.88, "cycle_h": 4, "cp": 2.0, "flash": "210°C", "visc": "68 mm²/s", "frost": "Nie", "pdf": "PID_Olejowy.pdf"},
-    "Automotive: Engine Oils (TITAN)": {"material": "Stal węglowa (Carbon Steel)", "density": 0.87, "cycle_h": 5, "cp": 2.1, "flash": "230°C", "visc": "11.5 mm²/s", "frost": "Nie", "pdf": "PID_Olejowy.pdf"},
-    "Automotive: Gear & Transmission Oils (TITAN)": {"material": "Stal węglowa (Carbon Steel)", "density": 0.88, "cycle_h": 5, "cp": 2.0, "flash": "210°C", "visc": "14.0 mm²/s", "frost": "Nie", "pdf": "PID_Olejowy.pdf"},
-    "Metal Processing: Water-miscible (ECOCOOL)": {"material": "Stal nierdzewna (SS316L)", "density": 0.99, "cycle_h": 6, "cp": 3.8, "flash": "Brak", "visc": "60 mm²/s", "frost": "TAK", "pdf": "PID_Wodny.pdf"},
-    "Metal Processing: Non-water-miscible (ECOCUT)": {"material": "Stal węglowa (Carbon Steel)", "density": 0.87, "cycle_h": 4, "cp": 2.0, "flash": "190°C", "visc": "22 mm²/s", "frost": "Nie", "pdf": "PID_Olejowy.pdf"},
-    "Metal Processing: Cleaners (RENOCLEAN)": {"material": "Stal nierdzewna (SS304/316L)", "density": 1.01, "cycle_h": 4, "cp": 3.9, "flash": "Brak", "visc": "5 mm²/s", "frost": "TAK", "pdf": "PID_Wodny.pdf"}
+    "Industrial: Hydraulic Oils (RENOLIN)": {
+        "material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0, 
+        "visc_kin": 46.0, "flash_point": "220°C", "frost_sensitivity": "Nie"
+    },
+    "Industrial: Gear & Turbine Oils (RENOLIN)": {
+        "material": "Stal zwykła", "density": 0.89, "cycle_h": 5, "cp": 1.9, 
+        "visc_kin": 220.0, "flash_point": "240°C", "frost_sensitivity": "Nie"
+    },
+    "Industrial: Slideway & Machine Oils (RENAX)": {
+        "material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0, 
+        "visc_kin": 68.0, "flash_point": "210°C", "frost_sensitivity": "Nie"
+    },
+    "Automotive: Engine Oils (TITAN)": {
+        "material": "Stal zwykła", "density": 0.87, "cycle_h": 5, "cp": 2.1, 
+        "visc_kin": 95.0, "flash_point": "230°C", "frost_sensitivity": "Nie"
+    },
+    "Automotive: Gear & Transmission Oils (TITAN)": {
+        "material": "Stal zwykła", "density": 0.88, "cycle_h": 5, "cp": 2.0, 
+        "visc_kin": 140.0, "flash_point": "210°C", "frost_sensitivity": "Nie"
+    },
+    "Metal Processing: Water-miscible (ECOCOOL)": {
+        "material": "Stal nierdzewna", "density": 0.99, "cycle_h": 6, "cp": 3.8, 
+        "visc_kin": 60.0, "flash_point": "Brak", "frost_sensitivity": "TAK"
+    },
+    "Metal Processing: Non-water-miscible (ECOCUT)": {
+        "material": "Stal zwykła", "density": 0.87, "cycle_h": 4, "cp": 2.0, 
+        "visc_kin": 22.0, "flash_point": "190°C", "frost_sensitivity": "Nie"
+    },
+    "Metal Processing: Cleaners (RENOCLEAN)": {
+        "material": "Stal nierdzewna", "density": 1.01, "cycle_h": 4, "cp": 3.9, 
+        "visc_kin": 5.0, "flash_point": "Brak", "frost_sensitivity": "TAK"
+    }
 }
 
-PACK_SIZES = {
-    "1l (Detal)": 1.0, "4l (Karton)": 4.0, "5l (Karton)": 5.0, 
-    "10l (Kanister)": 10.0, "20l (Kanister)": 20.0, 
-    "60l (Beczka)": 60.0, "200l (Beczka)": 200.0, "1000l (IBC)": 1000.0
+PACK_CONFIGS = {
+    "1l (Detal)": {"size_l": 1.0, "per_pallet": 480},
+    "4l (Karton)": {"size_l": 4.0, "per_pallet": 120},
+    "5l (Karton)": {"size_l": 5.0, "per_pallet": 96},
+    "10l (Kanister)": {"size_l": 10.0, "per_pallet": 40},
+    "20l (Kanister)": {"size_l": 20.0, "per_pallet": 24},
+    "60l (Beczka)": {"size_l": 60.0, "per_pallet": 9},
+    "200l (Beczka)": {"size_l": 200.0, "per_pallet": 4},
+    "1000l (IBC)": {"size_l": 1000.0, "per_pallet": 1}
 }
 
-AVAILABLE_HOURS_MONTH = (250 * 16) / 12  # ~333.33 h/miesiąc
+AVAILABLE_HOURS_MONTH = (250 * 16) / 12  # ~333.33 h przy pracy na 2 zmiany
+TARGET_UTILIZATION = 0.75
+EFFECTIVE_HOURS_MONTH = AVAILABLE_HOURS_MONTH * TARGET_UTILIZATION  # ~250h na maszynę
 
-# --- PANEL BOCZNY ---
-st.sidebar.header("📋 KROK 1: Wybór Rodzin FUCHS")
+# --- 2. PANEL BOCZNY (WPROWADZANIE DANYCH WEJŚCIOWYCH) ---
+st.sidebar.header("📋 KROK 1: Wybór Produktów")
 wybrane_kategorie = st.sidebar.multiselect(
-    "Wybierz rodziny produktowe:",
+    "Wybierz rodziny produktowe FUCHS:",
     list(FUCHS_PORTFOLIO.keys()),
     default=["Industrial: Hydraulic Oils (RENOLIN)", "Automotive: Engine Oils (TITAN)", "Metal Processing: Water-miscible (ECOCOOL)"]
 )
 
 st.sidebar.markdown("---")
-st.sidebar.header("⚙️ KROK 2: Dane wejściowe")
+st.sidebar.header("⚙️ KROK 2: Wielkości i Pakowanie")
 input_data = {}
+
 for kat in wybrane_kategorie:
-    st.sidebar.markdown(f"### 🧪 {kat}")
-    vol = st.sidebar.number_input(f"Roczna produkcja [kg]:", min_value=0, value=1200000, step=100000, key=f"vol_{kat}")
+    st.sidebar.markdown(f"### 🧪 {kat.split(':')[-1].strip()}")
+    vol = st.sidebar.number_input("Roczna produkcja [kg]:", min_value=0, value=1200000, step=100000, key=f"vol_{kat}")
     packs = st.sidebar.multiselect(
-        "Opakowania końcowe (FL):",
-        list(PACK_SIZES.keys()) + ["Bulk (Cysterna luz)"],
+        "Opakowania końcowe:",
+        list(PACK_CONFIGS.keys()) + ["Bulk (Cysterna luz)"],
         default=["200l (Beczka)", "1000l (IBC)"],
         key=f"packs_{kat}"
     )
     input_data[kat] = {"wolumen": vol, "opakowania": packs}
 
-# Inicjalizacja tabeli w pamięci Session State przy starcie aplikacji lub resecie
-if "df_table" not in st.session_state or st.sidebar.button("🔄 Odśwież tabelę z nowymi surowcami"):
-    rows = []
-    for kat in wybrane_kategorie:
-        if input_data[kat]["wolumen"] > 0:
-            m_prod = input_data[kat]["wolumen"] / 12
-            d = FUCHS_PORTFOLIO[kat]["density"]
-            c = FUCHS_PORTFOLIO[kat]["cycle_h"]
-            
-            # 75% Utylizacji bazowej (System)
-            sys_s = round((AVAILABLE_HOURS_MONTH * 0.75) / c, 1)
-            sys_v = (m_prod / sys_s) / (d * 1000)
-            sys_v = max(0.5, math.ceil(sys_v * 2) / 2)
-            
-            rows.append({
-                "Produkt": kat.split(":")[-1].strip(),
-                "Klucz_ID": kat,
-                "1. Miesięczna produkcja [kg]": int(m_prod),
-                "2. Rekomendowana Pojemność MT [m³]": float(sys_v),
-                "3. Szarże / miesiąc (Rekomendacja)": float(sys_s),
-                "4. Obłożenie % (Rekomendacja)": 75.0,
-                "5. Pojemność użytkownika [m³]": float(sys_v),
-                "6. Szarże / miesiąc użytkownika": float(sys_s),
-                "7. Obłożenie % użytkownika": 75.0,
-                "Wariant do projektu": "Rekomendowany"
-            })
-    st.session_state.df_table = pd.DataFrame(rows)
+# --- PAMIĘĆ PO ZATWIERDZENIU REKOMENDACJI ---
+if "confirmed_mixers" not in st.session_state:
+    st.session_state.confirmed_mixers = []
 
-if "confirmed_setup" not in st.session_state:
-    st.session_state.confirmed_setup = {}
+# --- 3. PODZIAŁ NA TRZY SPECJALISTYCZNE ZAKŁADKI ---
+tab1, tab2, tab3 = st.tabs([
+    "📊 1. Wymiarowanie i Rekomendacja Linii", 
+    "📐 2. Specyfikacja Urządzeń i Hydrodynamika", 
+    "📦 3. Logistyka Opakowań i Magazyn Paletowy"
+])
 
-tab1, tab2 = st.tabs(["📊 1. Logistyka Szarż i Zbiorniki", "📐 2. Specyfikacja Ciągu Technologicznego (P&ID)"])
-
+# ==========================================
+# ZAKŁADKA 1: WYMIAROWANIE I REKOMENDACJA
+# ==========================================
 with tab1:
-    st.header("Zestawienie Wolumenów i Parametrów Szarż")
-    st.caption("Wszystkie wybrane linie zebrane w jedną tabelę. Zmień dowolną wartość w kolumnach użytkownika (5, 6, 7), aby automatycznie przeliczyć wiersz.")
+    st.header("Dobór Parku Maszynowego pod założone Obłożenie 75%")
     
-    if not st.session_state.df_table.empty:
-        
-        # CENTRALNY SILNIK PRZELICZANIA DWUKIERUNKOWEGO DLA DATA_EDITOR
-        def recalculate_table_rows():
-            changes = st.session_state["main_editor"]["edited_rows"]
-            current_df = st.session_state.df_table
+    total_hours_carbon = 0.0
+    total_hours_ss = 0.0
+    active_rows = []
+    
+    for kat in wybrane_kategorie:
+        v_annual = input_data[kat]["wolumen"]
+        if v_annual == 0:
+            continue
             
-            for row_idx, changed_cols in changes.items():
-                kat_id = current_df.loc[row_idx, "Klucz_ID"]
-                m_prod = current_df.loc[row_idx, "1. Miesięczna produkcja [kg]"]
-                d = FUCHS_PORTFOLIO[kat_id]["density"]
-                c = FUCHS_PORTFOLIO[kat_id]["cycle_h"]
-                
-                v_curr = current_df.loc[row_idx, "5. Pojemność użytkownika [m³]"]
-                s_curr = current_df.loc[row_idx, "6. Szarże / miesiąc użytkownika"]
-                u_curr = current_df.loc[row_idx, "7. Obłożenie % użytkownika"]
-                
-                # Sprawdzamy która komórka została kliknięta/zmieniona
-                if "5. Pojemność użytkownika [m³]" in changed_cols:
-                    v_curr = changed_cols["5. Pojemność użytkownika [m³]"]
-                    if v_curr > 0:
-                        s_curr = round(m_prod / (v_curr * d * 1000), 1)
-                        u_curr = round((s_curr * c / AVAILABLE_HOURS_MONTH) * 100, 1)
-                elif "6. Szarże / miesiąc użytkownika" in changed_cols:
-                    s_curr = changed_cols["6. Szarże / miesiąc użytkownika"]
-                    if s_curr > 0:
-                        v_curr = round(max(0.5, math.ceil((m_prod / (s_curr * d * 1000)) * 2) / 2), 1)
-                        u_curr = round((s_curr * c / AVAILABLE_HOURS_MONTH) * 100, 1)
-                elif "7. Obłożenie % użytkownika" in changed_cols:
-                    u_curr = changed_cols["7. Obłożenie % użytkownika"]
-                    s_curr = round(((u_curr / 100) * AVAILABLE_HOURS_MONTH) / c, 1)
-                    if s_curr > 0:
-                        v_curr = round(max(0.5, math.ceil((m_prod / (s_curr * d * 1000)) * 2) / 2), 1)
-                
-                # Zapisujemy komplet wyników z powrotem do wiersza tabeli
-                current_df.loc[row_idx, "5. Pojemność użytkownika [m³]"] = float(v_curr)
-                current_df.loc[row_idx, "6. Szarże / miesiąc użytkownika"] = float(s_curr)
-                current_df.loc[row_idx, "7. Obłożenie % użytkownika"] = float(u_curr)
-                
-                if "Wariant do projektu" in changed_cols:
-                    current_df.loc[row_idx, "Wariant do projektu"] = changed_cols["Wariant do projektu"]
-                    
-            st.session_state.df_table = current_df
-
-        # WYŚWIETLENIE ZBIORCZEJ TABELI
-        edited_output = st.data_editor(
-            st.session_state.df_table,
-            key="main_editor",
-            on_change=recalculate_table_rows,
-            disabled=["Produkt", "Klucz_ID", "1. Miesięczna produkcja [kg]", "2. Rekomendowana Pojemność MT [m³]", "3. Szarże / miesiąc (Rekomendacja)", "4. Obłożenie % (Rekomendacja)"],
-            column_config={
-                "Klucz_ID": None,  # ukryta kolumna techniczna
-                "1. Miesięczna produkcja [kg]": st.column_config.NumberColumn(format="%d kg"),
-                "Wariant do projektu": st.column_config.SelectboxColumn("Wybrana Opcja", options=["Rekomendowany", "Użytkownika"])
-            },
-            hide_index=True,
-            use_container_width=True
-        )
+        m_prod_kg = v_annual / 12
+        dens = FUCHS_PORTFOLIO[kat]["density"]
+        cyc = FUCHS_PORTFOLIO[kat]["cycle_h"]
+        mat = FUCHS_PORTFOLIO[kat]["material"]
         
-        # Przycisk wysyłający całą tabelę naraz
+        # Obliczenie potrzebnych roboczogodzin w oparciu o ustandaryzowaną szarżę 10m3
+        batch_mass_10m3 = 10.0 * dens * 1000.0
+        needed_batches = m_prod_kg / batch_mass_10m3
+        needed_hours = needed_batches * cyc
+        
+        if mat == "Stal zwykła":
+            total_hours_carbon += needed_hours
+        else:
+            total_hours_ss += needed_hours
+            
+        active_rows.append({
+            "Produkt (Rodzina FUCHS)": kat.split(":")[-1].strip(),
+            "Linia Materiałowa": mat,
+            "Gęstość [g/cm³]": dens,
+            "Miesięczna Produkcja [kg]": int(m_prod_kg),
+            "Czas Cyklu Szarży [h]": cyc,
+            "Wymagane Roboczogodziny [h/miesiąc]": round(needed_hours, 1)
+        })
+        
+    if active_rows:
+        st.dataframe(pd.DataFrame(active_rows), hide_index=True, use_container_width=True)
+        
         st.markdown("---")
-        if st.button("🔒 ZATWIERDŹ I WYŚLIJ CAŁĄ TABELĘ DO DRUGIEJ ZAKŁADKI"):
-            temp_confirmed = {}
-            for idx, r in edited_output.iterrows():
-                k_key = r["Klucz_ID"]
-                if r["Wariant do projektu"] == "Rekomendowany":
-                    temp_confirmed[k_key] = {
-                        "capacity": r["2. Rekomendowana Pojemność MT [m³]"], "batches": r["3. Szarże / miesiąc (Rekomendacja)"], "utilization": r["4. Obłożenie % (Rekomendacja)"], "opakowania": input_data[k_key]["opakowania"]
-                    }
-                else:
-                    temp_confirmed[k_key] = {
-                        "capacity": r["5. Pojemność użytkownika [m³]"], "batches": r["6. Szarże / miesiąc użytkownika"], "utilization": r["7. Obłożenie % użytkownika"], "opakowania": input_data[k_key]["opakowania"]
-                    }
-            st.session_state.confirmed_setup = temp_confirmed
-            st.success("✔️ Pomyślnie zamrożono i wygenerowano listę maszyn w Zakładce 2!")
-
-        # --- SEKCJA OPAKOWAŃ POD TABELĄ ---
-        st.markdown("### 📦 Zapotrzebowanie na opakowania (Miesięcznie dla aktywnych linii)")
-        for idx, r in edited_output.iterrows():
-            k_key = r["Klucz_ID"]
-            chosen_packs = input_data[k_key]["opakowania"]
-            if chosen_packs:
-                st.markdown(f"**Dla produktu: {r['Produkt']}**")
-                num_types = len(chosen_packs)
-                mass_per_type_l = (r["1. Miesięczna produkcja [kg]"] / FUCHS_PORTFOLIO[k_key]["density"]) / num_types
+        st.subheader("Rekomendacja Liczby Mieszalników (Wymiarowanie Globalne)")
+        
+        # Wyliczenie fizycznej ilości maszyn 10m3
+        mixers_carbon = math.ceil(total_hours_carbon / EFFECTIVE_HOURS_MONTH) if total_hours_carbon > 0 else 0
+        mixers_ss = math.ceil(total_hours_ss / EFFECTIVE_HOURS_MONTH) if total_hours_ss > 0 else 0
+        
+        c_rec1, c_rec2 = st.columns(2)
+        
+        with c_rec1:
+            st.info("### 🏢 Węzeł Stali Zwykłej (Olejowy)")
+            st.metric(label="Sugerowana liczba mieszalników 10m³", value=f"{mixers_carbon} szt.")
+            if mixers_carbon > 0:
+                util = (total_hours_carbon / (mixers_carbon * AVAILABLE_HOURS_MONTH)) * 100
+                st.write(f"Prognozowane obłożenie węzła: **{util:.1f}%** (Target: 75%)")
                 
-                cols = st.columns(num_types)
-                for p_idx, p_name in enumerate(chosen_packs):
-                    with cols[p_idx]:
-                        if p_name in PACK_SIZES:
-                            size_l = PACK_SIZES[p_name]
-                            total_szt = math.ceil(mass_per_type_l / size_l)
-                            st.metric(label=p_name, value=f"{total_szt:,} szt.")
-                        else:
-                            total_trucks = round((r["1. Miesięczna produkcja [kg]"] / num_types) / 24000, 1)
-                            st.metric(label="Luz (Bulk)", value=f"{total_trucks} cystern")
+        with c_rec2:
+            st.success("### 🧪 Węzeł Stali Nierdzewnej (Wodny)")
+            st.metric(label="Sugerowana liczba mieszalników 10m³", value=f"{mixers_ss} szt.")
+            if mixers_ss > 0:
+                util = (total_hours_ss / (mixers_ss * AVAILABLE_HOURS_MONTH)) * 100
+                st.write(f"Prognozowane obłożenie węzła: **{util:.1f}%** (Target: 75%)")
+                
+        st.markdown("---")
+        if st.button("🔒 ZATWIERDŹ REKOMENDACJĘ I WYGENERUJ APARATY"):
+            confirmed_list = []
+            idx = 101
+            for _ in range(mixers_carbon):
+                confirmed_list.append({"tag": f"MT-{idx}", "material": "Stal zwykła", "capacity_m3": 10.0, "type_node": "Olejowy"})
+                idx += 1
+            idx = 201
+            for _ in range(mixers_ss):
+                confirmed_list.append({"tag": f"MT-{idx}", "material": "Stal nierdzewna", "capacity_m3": 10.0, "type_node": "Wodny"})
+                idx += 1
+            st.session_state.confirmed_mixers = confirmed_list
+            st.success(f"Pomyślnie utworzono {len(confirmed_list)} reaktorów procesowych! Przejdź do zakładki nr 2.")
     else:
-        st.info("Wybierz rodziny produktowe w panelu bocznym.")
+        st.warning("Ustaw wolumeny produkcyjne w panelu bocznym.")
 
+# ==========================================
+# ZAKŁADKA 2: SPECYFIKACJA I HYDRODYNAMIKA
+# ==========================================
 with tab2:
-    st.header("📐 Inżynieryjna Specyfikacja Ciągu Technologicznego")
+    st.header("Profil Inżynieryjny i Zapotrzebowanie Energetyczne Maszyn")
     
-    if not st.session_state.confirmed_setup:
-        st.info("ℹ️ Zatwierdź tabelę zbiorczą w Zakładce 1 za pomocą przycisku '🔒 Zatwierdź i wyślij całą tabelę'.")
+    if not st.session_state.confirmed_mixers:
+        st.info("ℹ️ Zatwierdź rekomendację w Zakładce 1, aby wygenerować specyfikacje techniczne urządzeń.")
     else:
-        rows = []
-        idx = 101
-        for kat, dane in st.session_state.confirmed_setup.items():
-            rules = FUCHS_PORTFOLIO[kat]
-            v_final = dane["capacity"]
-            
-            rows.append({
-                "Tag Mieszalnika": f"MT-{idx}",
-                "Rodzina Produktowa": kat.split(":")[-1].strip(),
-                "Pojemność [m³]": f"{v_final:.1f} m³",
-                "Szarże / miesiąc": dane["batches"],
-                "Obłożenie (%)": f"{dane['utilization']:.1f}%",
-                "Materiał (Stal)": rules["material"],
-                "Flash Point": rules["flash"],
-                "Viscosity": rules["visc"],
-                "Frost Sensitivity": rules["frost"],
-                "Masa Szarży [kg]": v_final * rules["density"] * 1000,
-                "cp": rules["cp"]
-            })
-            idx += 1
-            
-        df_ins = pd.DataFrame(rows)
+        # Wybór reprezentatywnego produktu do przypisania parametrów fizycznych do maszyn węzła
+        oil_products = [kat for kat in wybrane_kategorie if FUCHS_PORTFOLIO[kat]["material"] == "Stal zwykła" and input_data[kat]["wolumen"] > 0]
+        water_products = [kat for kat in wybrane_kategorie if FUCHS_PORTFOLIO[kat]["material"] == "Stal nierdzewna" and input_data[kat]["wolumen"] > 0]
         
-        st.markdown("#### 🌡️ Parametry Procesowe i Bilans Cieplny")
-        final_table_data = []
-        for index, row in df_ins.iterrows():
-            with st.container(border=True):
-                c1, c2, c3 = st.columns([2, 3, 3])
-                with c1:
-                    st.markdown(f"**{row['Tag Mieszalnika']}**<br><small>{row['Rodzina Produktowa']}</small>", unsafe_allowed_html=True)
-                with c2:
-                    dt_heat = st.number_input(f"ΔT grzania [°C] ({row['Tag Mieszalnika']}):", value=40, step=5, key=f"dth_{row['Tag Mieszalnika']}")
-                    total_heat_gj = (row["Masa Szarży [kg]"] * row["cp"] * dt_heat * row["Szarże / miesiąc"]) / (1_000_000 * 0.85)
-                with c3:
-                    dt_cool = st.number_input(f"ΔT chłodzenia [°C] ({row['Tag Mieszalnika']}):", value=30, step=5, key=f"dtc_{row['Tag Mieszalnika']}")
-                    total_cool_gj = (row["Masa Szarży [kg]"] * row["cp"] * dt_cool * row["Szarże / miesiąc"]) / (1_000_000 * 0.85)
+        engineering_data = []
+        
+        for mixer in st.session_state.confirmed_mixers:
+            st.markdown(f"### ⚙️ Reaktor: **{mixer['tag']}** ({mixer['material']})")
+            
+            # Dobór parametrów fizycznych w zależności od przypisanego węzła
+            if mixer["type_node"] == "Olejowy" and oil_products:
+                ref_product = oil_products[0]
+            elif mixer["type_node"] == "Wodny" and water_products:
+                ref_product = water_products[0]
+            else:
+                ref_product = wybrane_kategorie[0]
                 
-                final_table_data.append({
-                    "Tag": row["Tag Mieszalnika"],
-                    "Produkt": row["Rodzina Produktowa"],
-                    "Pojemność": row["Pojemność [m³]"],
-                    "Stal": row["Materiał (Stal)"],
-                    "Ciepło grzania [GJ/m]": f"{total_heat_gj:.2f} GJ",
-                    "Ciepło chłodzenia [GJ/m]": f"{total_cool_gj:.2f} GJ",
-                    "Flash Point": row["Flash Point"],
-                    "Lepkość": row["Viscosity"],
-                    "Wrażliwość na mróz": row["Frost Sensitivity"]
-                })
+            prod_info = FUCHS_PORTFOLIO[ref_product]
+            rho = prod_info["density"] * 1000.0  # kg/m3
+            v_kin = prod_info["visc_kin"] / 1_000_000.0  # m2/s
+            eta_dyn = v_kin * rho  # Pa*s (lepkość dynamiczna)
+            
+            max_charge_kg = mixer["capacity_m3"] * prod_info["density"] * 1000.0
+            
+            # --- MODELOWANIE HYDRODYNAMICZNE MOCY MIESZANIA ---
+            D_tank = 2.2      # m (średnica zbiornika)
+            d_agitor = 0.73   # m (średnica mieszadła płatowego)
+            n_speed = 1.5     # obr/s (prędkość obrotowa mieszadła)
+            
+            # Liczba Reynoldsa (wzór z przesłanych grafik): Re = (n * d^2 * rho) / eta
+            Re = (n_speed * (d_agitor ** 2) * rho) / eta_dyn
+            
+            # Wyznaczenie kryterium mocy (Liczby Newtona Ne) na podstawie krzywej z wykresu
+            if Re < 10:
+                Ne = 50.0 / Re  # Zakres laminarny
+            elif Re >= 10 and Re < 10000:
+                Ne = 2.5        # Zakres przejściowy (wartość uśredniona dla geometrii)
+            else:
+                Ne = 1.5        # Zakres w pełni burzliwy (stabilizacja Ne)
+                
+            # Pobór mocy efektywnej: P = Ne * n^3 * d^5 * rho [W]
+            P_watts = Ne * (n_speed ** 3) * (d_agitor ** 5) * rho
+            P_kw = P_watts / 1000.0
+            
+            # Całkowita energia mieszania na szarżę (uwzględniając sprawność napędu 85%)
+            duration_s = prod_info["cycle_h"] * 3600
+            E_mix_mj = (P_watts * duration_s / 0.85) / 1_000_000.0
+            
+            # --- INTERAKTYWNY BILANS TERMICZNY ---
+            c_term1, c_term2 = st.columns(2)
+            with c_term1:
+                dt_heat = st.number_input(f"ΔT grzania [°C] dla {mixer['tag']}:", min_value=0, value=40, step=5, key=f"h_{mixer['tag']}")
+                # Q = m * cp * dT / sprawność wymiennika 0.85
+                Q_heat_mj = (max_charge_kg * prod_info["cp"] * dt_heat) / 0.85 / 1000.0
+            with c_term2:
+                dt_cool = st.number_input(f"ΔT chłodzenia [°C] dla {mixer['tag']}:", min_value=0, value=30, step=5, key=f"c_{mixer['tag']}")
+                Q_cool_mj = (max_charge_kg * prod_info["cp"] * dt_cool) / 0.85 / 1000.0
+                
+            st.markdown(f"""
+            * **Maksymalny wkład jednostkowy (szarża):** `{max_charge_kg:,.0f} kg`
+            * **Zdefiniowana lepkość kinematyczna:** `{prod_info['visc_kin']} mm²/s` | **Liczba Reynoldsa (Re):** `{Re:,.1f}` | **Kryterium Newtona (Ne):** `{Ne:.2f}`
+            * ⚡ **Wyliczona moc na wale mieszadła:** `{P_kw:.2f} kW` | **Energia mieszania szarży:** `{E_mix_mj:.1f} MJ`
+            * 🔥 **Energia potrzebna do podgrzania szarży:** `{Q_heat_mj:,.1f} MJ`
+            * ❄️ **Energia potrzebna do schłodzenia szarży:** `{Q_cool_mj:,.1f} MJ`
+            """)
+            
+            engineering_data.append({
+                "Tag": mixer["tag"], "Materiał": mixer["material"], "Max wkład [kg]": int(max_charge_kg),
+                "Moc mieszadła [kW]": round(P_kw, 2), "Energia podgrzewania [MJ]": round(Q_heat_mj, 1), 
+                "Energia chłodzenia [MJ]": round(Q_cool_mj, 1), "Klasa lepkości": f"{prod_info['visc_kin']} cSt", 
+                "Zagrożenie ATEX (Flash Point)": prod_info["flash_point"], "Wrażliwość na mróz": prod_info["frost_sensitivity"]
+            })
+            st.markdown("---")
+            
+        st.subheader("📋 Zbiorcze Zestawienie Parametrów Technicznych Maszyn")
+        st.dataframe(pd.DataFrame(engineering_data), hide_index=True, use_container_width=True)
+
+# ==========================================
+# ZAKŁADKA 3: LOGISTYKA OPAKOWAŃ I MAGAZYN
+# ==========================================
+with tab3:
+    st.header("Zliczanie Jednostek Opakowaniowych i Wymiarowanie Magazynu")
+    
+    total_pallets_all = 0
+    pallet_rows = []
+    
+    for kat in wybrane_kategorie:
+        v_annual = input_data[kat]["wolumen"]
+        chosen_packs = input_data[kat]["opakowania"]
         
+        # Filtrujemy Bulk, ponieważ cysterny nie zajmują miejsc paletowych w magazynie
+        valid_packs = [p for p in chosen_packs if p != "Bulk (Cysterna luz)"]
+        
+        if v_annual > 0 and valid_packs:
+            m_prod_kg = v_annual / 12
+            dens = FUCHS_PORTFOLIO[kat]["density"]
+            total_volume_l = m_prod_kg / dens
+            
+            num_types = len(valid_packs)
+            liters_per_type = total_volume_l / num_types
+            
+            st.markdown(f"#### 🧪 Rozbicie logistyczne: {kat.split(':')[-1].strip()}")
+            
+            c_p_idx = st.columns(num_types)
+            for idx, p_name in enumerate(valid_packs):
+                config = PACK_CONFIGS[p_name]
+                
+                # Obliczenie fizycznej liczby sztuk opakowań
+                total_szt = math.ceil(liters_per_type / config["size_l"])
+                # Obliczenie wymaganych miejsc paletowych (zaokrąglone w górę)
+                needed_pallets = math.ceil(total_szt / config["per_pallet"])
+                total_pallets_all += needed_pallets
+                
+                with c_p_idx[idx]:
+                    st.metric(label=f"Sztuk: {p_name}", value=f"{total_szt:,} szt.")
+                    st.write(f"📦 Miejsca paletowe: **{needed_pallets} epal**")
+                    
+                pallet_rows.append({
+                    "Produkt": kat.split(":")[-1].strip(),
+                    "Typ Opakowania": p_name,
+                    "Zapotrzebowanie [szt./miesiąc]": total_szt,
+                    "Pakowanie na palecie [szt/epal]": config["per_pallet"],
+                    "Wymagane Miejsca Paletowe [epal]": needed_pallets,
+                    "Wrażliwość na temperaturę (Frost)": FUCHS_PORTFOLIO[kat]["frost_sensitivity"]
+                })
+            st.markdown("<br>", unsafe_allowed_html=True)
+            
+    if pallet_rows:
         st.markdown("---")
-        st.markdown("### 📋 Zbiorcza Tabela Technologiczna")
-        st.table(pd.DataFrame(final_table_data))
+        st.subheader("📋 Miesięczny Bilans Powierzchni Magazynowej Wyrobów Gotowych")
+        df_pallets = pd.DataFrame(pallet_rows)
+        st.dataframe(df_pallets, hide_index=True, use_container_width=True)
+        
+        # Podsumowanie stref magazynowych
+        st.markdown("---")
+        st.subheader("📊 Podsumowanie Strategiczne dla Dyrektora Logistyki")
+        
+        frost_pallets = df_pallets[df_pallets["Wrażliwość na temperaturę (Frost)"] == "TAK"]["Wymagane Miejsca Paletowe [epal]"].sum()
+        ambient_pallets = total_pallets_all - frost_pallets
+        
+        col_wh1, col_wh2, col_wh3 = st.columns(3)
+        with col_wh1:
+            st.metric(label="🔵 CAŁKOWITY WYMAGANY MAGAZYN (Miesięczny obrót)", value=f"{total_pallets_all} miejsc paletowych")
+        with col_wh2:
+            st.metric(label="🌡️ Strefa Ogrzewana (Zabezpieczenie przed mrozem)", value=f"{frost_pallets} miejsc")
+        with col_wh3:
+            st.metric(label="📦 Strefa Standardowa (Ambient)", value=f"{ambient_pallets} miejsc")
