@@ -342,25 +342,40 @@ with tab2:
         st.subheader("📋 Zbiorcza Karta Techniczna Linii Mieszania, Rozładunku i Termodynamiki")
         df_eng = pd.DataFrame(engineering_table_data)
 
-        # --- FUNKCJA MAPOWANIA STYLÓW DLA ZAKRESÓW LMTD ---
-        def style_lmtd(val):
+       # --- NOWE ROZBITO FUNKCJE MAPOWANIA STYLÓW DLA LMTD GRZANIA I CHŁODZENIA ---
+        def style_lmtd_grzanie(val):
             if isinstance(val, (int, float)):
                 if val < 20.0:
-                    return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'  # Krytycznie mała siła napędowa
-                elif val <= 50.0:
-                    return 'background-color: #d4edda; color: #155724; font-weight: bold;'  # Zakres optymalny
+                    return 'background-color: #fff3cd; color: #856404; font-weight: bold;'  # ŻÓŁTY: Niski (proces będzie powolny)
+                elif val <= 40.0:
+                    return 'background-color: #d4edda; color: #155724; font-weight: bold;'  # ZIELONY: Optymalny i bezpieczny
                 else:
-                    return 'background-color: #fff3cd; color: #856404; font-weight: bold;'  # Zakres wysoki (ryzyko przegrzania)
+                    return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'  # CZERWONY: Zbyt wysoki (ryzyko koksowania/degradacji)
             return ''
 
-        # Stosujemy mapowanie kolorów wyłącznie do dwóch kolumn LMTD
-        styled_df_eng = df_eng.style.map(style_lmtd, subset=["LMTD Grzania [°C]", "LMTD Chłodzenia [°C]"])
+        def style_lmtd_chlodzenie(val):
+            if isinstance(val, (int, float)):
+                if val < 15.0:
+                    return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'  # CZERWONY: Za niski (blokada reologiczna na ściance)
+                elif val <= 35.0:
+                    return 'background-color: #d4edda; color: #155724; font-weight: bold;'  # ZIELONY: Optymalny i wydajny
+                else:
+                    return 'background-color: #fff3cd; color: #856404; font-weight: bold;'  # ŻÓŁTY: Wysoki (powolna końcówka chłodzenia)
+            return ''
+
+        # Stosujemy niezależne style dla każdej kolumny LMTD
+        styled_df_eng = (df_eng.style
+                         .map(style_lmtd_grzanie, subset=["LMTD Grzania [°C]"])
+                         .map(style_lmtd_chlodzenie, subset=["LMTD Chłodzenia [°C]"]))
 
         st.dataframe(styled_df_eng, hide_index=True, use_container_width=True)
         
-        # Szybka legenda dla operatora
-        st.caption("ℹ️ **Legenda LMTD:** 🟢 20-50°C (Optymalny) | 🟡 >50°C (Wysoki - ryzyko przegrzania medium) | 🔴 <20°C (Zbyt niski - proces będzie trwał bardzo długo)")
-
+        # Rozbita, profesjonalna legenda dla użytkownika
+        st.markdown("""
+        ℹ️ **Profesjonalne Kryteria Interpretacji LMTD dla Olejów:**
+        * **🔥 Kolumna Grzania:** 🟢 **20-40°C** (Bezpieczny & Optymalny) | 🟡 **<20°C** (Słaba wydajność) | 🔴 **>40°C** (Krytyczny: Ryzyko degradacji termicznej dodatków i koksowania na ściance).
+        * **❄️ Kolumna Chłodzenia:** 🟢 **15-35°C** (Wydajny & Stabilny) | 🟡 **>35°C** (Mała siła napędowa pod koniec cyklu) | 🔴 **<15°C** (Krytyczny: Zbyt zimne medium chłodzące stworzy izolacyjną warstwę zastygłego oleju na wężownicy).
+        """)
 # ==========================================
 # ZAKŁADKA 3: ZINTEGROWANA LOGISTYKA OPAKOWAŃ I CZAS ROZLEWU (JEDNA TABELA ZBIORCZA)
 # ==========================================
