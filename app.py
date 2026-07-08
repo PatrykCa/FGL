@@ -28,7 +28,7 @@ FUCHS_PORTFOLIO = {
     },
     "Gear & Transmission Oils (TITAN)": {
         "material": "Stal zwykła", "density": 0.88, "cycle_h": 5, "cp": 2.0, 
-        "flash_point": "210°C", "visc_kin": 140.0, "flash_point": "210°C", "frost_sensitivity": "Nie"
+        "visc_kin": 140.0, "flash_point": "210°C", "frost_sensitivity": "Nie"
     },
     "Water-miscible (ECOCOOL)": {
         "material": "Stal nierdzewna", "density": 0.99, "cycle_h": 6, "cp": 3.8, 
@@ -57,7 +57,7 @@ PACK_CONFIGS = {
 
 AVAILABLE_HOURS_MONTH = (250 * 16) / 12  # ~333.33 h/miesiąc
 
-# --- PANEL BOCZNY (WYBÓR OPAKOWAŃ ORAZ RESET) ---
+# --- PANEL BOCZNY ---
 st.sidebar.header("📋 KROK 1: Wybór Rodzin")
 wybrane_kategorie = st.sidebar.multiselect(
     "Wybierz aktywne linie produktowe FUCHS:",
@@ -77,7 +77,7 @@ for kat in wybrane_kategorie:
     )
     input_packs[kat] = packs
 
-# Inicjalizacja lub czyszczenie tabeli bazowej w Session State
+# Inicjalizacja tabeli bazowej w Session State
 if "df_base" not in st.session_state or st.sidebar.button("🔄 Przywróć domyślne (Rekomendacja 75%)"):
     initial_rows = []
     for kat in wybrane_kategorie:
@@ -88,7 +88,7 @@ if "df_base" not in st.session_state or st.sidebar.button("🔄 Przywróć domy�
         })
     st.session_state.df_base = pd.DataFrame(initial_rows)
 
-# Synchronizacja przy zmianie liczby zaznaczonych rodzin w sidebaru
+# Synchronizacja przy zmianie liczby zaznaczonych rodzin w sidebarze
 if set(st.session_state.df_base["1. Nazwa rodziny"].tolist()) != set(wybrane_kategorie):
     updated_rows = []
     for kat in wybrane_kategorie:
@@ -99,6 +99,10 @@ if set(st.session_state.df_base["1. Nazwa rodziny"].tolist()) != set(wybrane_kat
         })
     st.session_state.df_base = pd.DataFrame(updated_rows)
 
+# Zmienna sesyjna zabezpieczająca przekazywanie danych po zatwierdzeniu
+if "confirmed_mixers" not in st.session_state:
+    st.session_state.confirmed_mixers = []
+
 # --- PODZIAŁ NA TRZY ZAKŁADKI ---
 tab1, tab2, tab3 = st.tabs([
     "📊 1. Główne Zestawienie i Symulacja Utylizacji", 
@@ -107,17 +111,19 @@ tab1, tab2, tab3 = st.tabs([
 ])
 
 # ==========================================
-# ZAKŁADKA 1: JEDNA, KOMPLETNA TABELA PROCESOWA
+# ZAKŁADKA 1: JEDNA ZBIORCZA TABELA Z BLOKADAMI I ZATWIERDZENIEM
 # ==========================================
 with tab1:
-    st.header("Wynikowa specyfikacja operacyjna linii")
+    st.header("Zintegrowane Zestawienie Parametrów Procesowych")
     
     if wybrane_kategorie and not st.session_state.df_base.empty:
-        st.markdown("💡 *Kolumny **2. Roczna produkcja [kg]** oraz **3. Utilization %** są w pełni edytowalne. Kolumny 4, 5 i 6 przeliczają się automatycznie na bieżąco.*")
+        st.markdown("""
+        💡 *Wskazówki edycji:*
+        * Pola oznaczone kolorem **🟦 [Edytuj]** są przeznaczone do wprowadzania danych wejściowych.
+        * Pola oznaczone kolorem **🔒 [Blokada]** przeliczają się automatycznie na podstawie pozostałych kolumn.
+        """)
         
         display_rows = []
-        
-        # Pętla generująca aktualne stany matematyczne przed wyrenderowaniem tabeli
         for idx, row in st.session_state.df_base.iterrows():
             kat = row["1. Nazwa rodziny"]
             m_annual = row["2. Roczna produkcja [kg]"]
@@ -148,48 +154,56 @@ with tab1:
             
         df_display = pd.DataFrame(display_rows)
         
-        # Pojedynczy, zintegrowany edytor danych
+        # Wizualne wyróżnienie kolumn przy użyciu nagłówków i opisów kolumn
         edited_table = st.data_editor(
             df_display,
             hide_index=True,
             use_container_width=True,
             disabled=["1. Nazwa rodziny", "4. Liczba szarż na miesiąc", "5. Pojemność mieszalnika [m³]", "6. Wielkość pojedynczej szarży [kg]"],
             column_config={
-                "2. Roczna produkcja [kg]": st.column_config.NumberColumn("2. Roczna produkcja [kg] (Edytuj)", min_value=0, step=50000, format="%d"),
-                "3. Utilization %": st.column_config.NumberColumn("3. Utilization % (Edytuj)", min_value=1.0, max_value=200.0, step=5.0, format="%.1f%%"),
-                "hidden_vol_m3": None, "hidden_batches": None, "hidden_batch_kg": None  # ukryte kolumny kalkulacyjne
+                "1. Nazwa rodziny": st.column_config.TextColumn("1. Nazwa rodziny 🔒"),
+                "2. Roczna produkcja [kg]": st.column_config.NumberColumn("2. Roczna produkcja [kg] 🟦 (Edytuj)", min_value=0, step=50000, format="%d"),
+                "3. Utilization %": st.column_config.NumberColumn("3. Utilization % 🟦 (Edytuj)", min_value=1.0, max_value=200.0, step=5.0, format="%.1f%%"),
+                "4. Liczba szarż na miesiąc": st.column_config.NumberColumn("4. Liczba szarż/miesiąc 🔒"),
+                "5. Pojemność mieszalnika [m³]": st.column_config.TextColumn("5. Gabaryt reaktora 🔒"),
+                "6. Wielkość pojedynczej szarży [kg]": st.column_config.NumberColumn("6. Masa szarży [kg] 🔒", format="%d"),
+                "hidden_vol_m3": None, "hidden_batches": None, "hidden_batch_kg": None
             }
         )
         
-        # Bezpieczne przepisanie zmodyfikowanych komórek do stanu sesji
+        # Zapisanie bieżącego stanu edytora do bazy sesji
         st.session_state.df_base["2. Roczna produkcja [kg]"] = edited_table["2. Roczna produkcja [kg]"]
         st.session_state.df_base["3. Utilization %"] = edited_table["3. Utilization %"]
         
-        # Przekazanie struktury technicznej aparatów do kolejnych zakładek
-        confirmed_list_temp = []
-        for idx, r in edited_table.iterrows():
-            kat = r["1. Nazwa rodziny"]
-            confirmed_list_temp.append({
-                "tag": f"MT-{101 + idx}",
-                "product_family": kat,
-                "capacity_m3": max(r["hidden_vol_m3"], 0.5),
-                "material": FUCHS_PORTFOLIO[kat]["material"],
-                "batches_count": r["hidden_batches"],
-                "mass_per_batch": r["hidden_batch_kg"],
-                "annual_volume": r["2. Roczna produkcja [kg]"]
-            })
-        st.session_state.confirmed_mixers = confirmed_list_temp
+        st.markdown("<br>", unsafe_allow_html=True)
+        # WYMAGANY PRZYCISK ZATWIERDZAJĄCY PRZEKAZANIE DANYCH DALEJ
+        if st.button("📥 Zatwierdź i wyślij konfigurację do Zakładek 2 i 3", type="primary", use_container_width=True):
+            confirmed_list_temp = []
+            for idx, r in edited_table.iterrows():
+                kat = r["1. Nazwa rodziny"]
+                confirmed_list_temp.append({
+                    "tag": f"MT-{101 + idx}",
+                    "product_family": kat,
+                    "capacity_m3": max(r["hidden_vol_m3"], 0.5),
+                    "material": FUCHS_PORTFOLIO[kat]["material"],
+                    "batches_count": r["hidden_batches"],
+                    "mass_per_batch": r["hidden_batch_kg"],
+                    "annual_volume": r["2. Roczna produkcja [kg]"]
+                })
+            st.session_state.confirmed_mixers = confirmed_list_temp
+            st.success("✅ Dane zostały pomyślnie przetworzone! Przejdź do Zakładki 2 i 3, aby zobaczyć wyniki.")
+            
     else:
         st.info("Zaznacz rodziny produktów w panelu bocznym.")
 
 # ==========================================
-# ZAKŁADKA 2: SPECYFIKACJA URZĄDZEŃ I HYDRODYNAMIKA
+# ZAKŁADKA 2: KARTA MASZYN Z CZASEM GRZANIA I CHŁODZENIA
 # ==========================================
 with tab2:
     st.header("Specyfikacja Inżynieryjna i Zużycie Energii Mieszalników")
     
-    if "confirmed_mixers" not in st.session_state or not st.session_state.confirmed_mixers:
-        st.info("ℹ️ Dane techniczne pojawią się automatycznie po wygenerowaniu parametrów w Zakładce 1.")
+    if not st.session_state.confirmed_mixers:
+        st.warning("⚠️ Brak zatwierdzonych danych. Wróć do Zakładki 1 i kliknij przycisk 'Zatwierdź i wyślij konfigurację'.")
     else:
         engineering_table_data = []
         
@@ -219,16 +233,22 @@ with tab2:
             col_t1, col_t2 = st.columns(2)
             with col_t1:
                 dt_heat = st.number_input(f"ΔT podgrzewania [°C] ({mixer['tag']}):", min_value=0, value=40, step=5, key=f"h_{mixer['tag']}")
+                # Obliczenie energii cieplnej (w MJ) oraz czasu grzania (w minutach przy założeniu mocy grzewczej miksera)
                 Q_heat_mj = (mixer["mass_per_batch"] * prod_info["cp"] * dt_heat) / 0.85 / 1000.0
+                p_heat_kw = max(P_kw * 4, 25.0)  # Symulowana moc wbudowanej wężownicy/płaszcza grzewczego
+                time_heat_min = (Q_heat_mj * 1_000_000) / (p_heat_kw * 1000) / 60 if p_heat_kw > 0 else 0
+                
             with col_t2:
                 dt_cool = st.number_input(f"ΔT schłodzenia [°C] ({mixer['tag']}):", min_value=0, value=30, step=5, key=f"c_{mixer['tag']}")
                 Q_cool_mj = (mixer["mass_per_batch"] * prod_info["cp"] * dt_cool) / 0.85 / 1000.0
+                p_cool_kw = max(P_kw * 5, 30.0)  # Symulowana moc układu chłodzenia
+                time_cool_min = (Q_cool_mj * 1_000_000) / (p_cool_kw * 1000) / 60 if p_cool_kw > 0 else 0
                 
             st.markdown(f"""
-            * **Materiał konstrukcyjny reaktora:** `{prod_info['material']}` | **Wyliczona pojemność robocza miksera:** `{mixer['capacity_m3']:.2f} m³`
-            * **Reologia:** lepkość kinematyczna `{prod_info['visc_kin']} mm²/s` | **Liczba Reynoldsa (Re):** `{Re:,.1f}`
-            * ⚡ **Moc znamionowa napędu:** `{P_kw:.2f} kW` | **Pobór energii mechanicznej:** `{E_mix_mj:.1f} MJ/szarżę`
-            * 🔥 **Ciepło technologiczne:** `{Q_heat_mj:,.1f} MJ/szarżę` | ❄️ **Zapotrzebowanie na chłód:** `{Q_cool_mj:,.1f} MJ/szarżę`
+            * **Materiał konstrukcyjny:** `{prod_info['material']}` | **Wyliczona pojemność robocza miksera:** `{mixer['capacity_m3']:.2f} m³`
+            * ⚡ **Moc znamionowa napędu:** `{P_kw:.2f} kW` | **Miksowanie mechaniczne płynu:** `{E_mix_mj:.1f} MJ/szarżę`
+            * 🔥 **Ciepło technologiczne:** `{Q_heat_mj:,.1f} MJ/szarżę` ➡️ **Szacowany czas podgrzewania:** `{time_heat_min:.1f} minut`
+            * ❄️ **Zapotrzebowanie na chłód:** `{Q_cool_mj:,.1f} MJ/szarżę` ➡️ **Szacowany czas schładzania:** `{time_cool_min:.1f} minut`
             """)
             
             engineering_table_data.append({
@@ -237,15 +257,14 @@ with tab2:
                 "Pojemność [m³]": round(mixer["capacity_m3"], 2),
                 "Wielkość szarży [kg]": int(mixer["mass_per_batch"]),
                 "Moc układu [kW]": round(P_kw, 2),
-                "Ciepło grzania [MJ]": round(Q_heat_mj, 1),
-                "Energia chłodzenia [MJ]": round(Q_cool_mj, 1),
+                "Czas grzania [min]": round(time_heat_min, 1),
+                "Czas chłodzenia [min]": round(time_cool_min, 1),
                 "Lepkość płynu": f"{prod_info['visc_kin']} cSt",
-                "Klasyfikacja zapłonu (ATEX)": prod_info["flash_point"],
                 "Wrażliwość na mróz": prod_info["frost_sensitivity"]
             })
             st.markdown("---")
             
-        st.subheader("📋 Zbiorcza Tabela Inżynieryjna Urządzeń")
+        st.subheader("📋 Zbiorcza Karta Techniczna Maszyn")
         st.dataframe(pd.DataFrame(engineering_table_data), hide_index=True, use_container_width=True)
 
 # ==========================================
@@ -254,7 +273,9 @@ with tab2:
 with tab3:
     st.header("Zliczanie Jednostek Opakowaniowych i Wymiarowanie Magazynu")
     
-    if "confirmed_mixers" in st.session_state and st.session_state.confirmed_mixers:
+    if not st.session_state.confirmed_mixers:
+        st.warning("⚠️ Brak zatwierdzonych danych. Wróć do Zakładki 1 i kliknij przycisk 'Zatwierdź i wyślij konfigurację'.")
+    else:
         total_pallets_all = 0
         pallet_rows = []
         
