@@ -231,19 +231,20 @@ with tab2:
             P_max_w = calculate_visc_power(visc_max)
             required_motor_power_kw = (P_max_w / 0.85 * 1.20) / 1000.0
             
-            # --- ZAAWANSOWANY DOBÓR POMPY ROZŁADUNKOWEJ (STRATY WG DARCY-WEISBACHA) ---
+           # --- ZAAWANSOWANY DOBÓR POMPY ROZŁADUNKOWEJ (STRATY WG DARCY-WEISBACHA) ---
             st.markdown("##### 📐 Projektowanie Układu Rozładunkowego i Strat Przepływu (Równanie Darcy-Weisbacha)")
             default_discharge_flow = round((V_m3 / 0.75) * 1.25, 1)
             
+            # Wyrównane kolumny o ujednoliconych i czytelnych etykietach
             c_pump1, c_pump2, c_pump3, c_pump4 = st.columns(4)
             with c_pump1:
-                q_pump = st.number_input(f"Wymagana wydajność pompy Q [m³/h] ({mixer['tag']}):", min_value=0.5, value=float(max(default_discharge_flow, 5.0)), key=f"q_p_{mixer['tag']}")
+                q_pump = st.number_input(f"Wydajność pompy Q [m³/h] ({mixer['tag']}):", min_value=0.5, value=float(max(default_discharge_flow, 5.0)), key=f"q_p_{mixer['tag']}")
             with c_pump2:
-                pipe_length = st.number_input(f"Długość rurociągu rozładunku L [m] ({mixer['tag']}):", min_value=1.0, value=15.0, key=f"pipe_l_{mixer['tag']}")
+                pipe_length = st.number_input(f"Długość rurociągu L [m] ({mixer['tag']}):", min_value=1.0, value=15.0, key=f"pipe_l_{mixer['tag']}")
             with c_pump3:
                 pipe_diameter_mm = st.number_input(f"Średnica rury D [mm] ({mixer['tag']}):", min_value=25, max_value=250, value=80, key=f"pipe_d_{mixer['tag']}")
             with c_pump4:
-                pump_static_head = st.number_input(f"Wysokość podnoszenia geometryczna H_stat [m] ({mixer['tag']}):", min_value=0.0, value=3.0, key=f"p_stat_{mixer['tag']}")
+                pump_static_head = st.number_input(f"Wysokość podnoszenia H_stat [m] ({mixer['tag']}):", min_value=0.0, value=3.0, key=f"p_stat_{mixer['tag']}")
 
             # Obliczenia hydrauliczne strat liniowych (Wzory Darcy-Weisbacha z literatury)
             D_m = pipe_diameter_mm / 1000.0
