@@ -475,20 +475,28 @@ with tab2:
                     with c_m2: obroty_rpm = st.number_input("Obroty [RPM]:", min_value=10, max_value=500, value=90, step=10, key=f"rpm_{tag}")
                     with c_m3: motor_efficiency = st.slider("Sprawność napędu [%]:", min_value=50, max_value=98, value=85, step=1, key=f"eff_mot_{tag}")
 
+                # ---------------------------------------------------------
+                # SUB-ZAKŁADKA 3: POMPA I RUROCIĄGI
+                # ---------------------------------------------------------
                 with sub_t3:
                     st.markdown(f"##### Wymiarowanie Linii i Zakres Reologiczny ({tag})")
                     c_p1, c_p2, c_p3 = st.columns(3)
-                    with c_p1: 
-                        # STARA, NIEBEZPIECZNA LINIA:
-# q_user_m3_h = st.number_input("Wydajność Q [m³/h]:", min_value=1.0, value=float(round(v_working / 0.75, 1)), key=f"qp_{tag}")
-
-# NOWA, BEZPIECZNA LINIA (zabezpieczona funkcją max()):
-q_user_m3_h = st.number_input(
-    "Wydajność Q [m³/h]:", 
-    min_value=1.0, 
-    value=max(1.0, float(round(v_working / 0.75, 1))), 
-    key=f"qp_{tag}"
-)
+                    with c_p1:
+                        # TUTAJ BYŁ BŁĄD WCIĘCIA - teraz linia jest idealnie wyrównana (20 spacji od brzegu)
+                        q_user_m3_h = st.number_input(
+                            "Wydajność Q [m³/h]:", 
+                            min_value=1.0, 
+                            value=max(1.0, float(round(v_working / 0.75, 1))), 
+                            key=f"qp_{tag}",
+                            help="Nominalny strumień objętościowy rozładunku."
+                        )
+                        pipe_l_m = st.number_input("Długość rury L [m]:", min_value=1.0, value=15.0, key=f"pl_{tag}")
+                    with c_p2:
+                        pipe_d_mm = st.number_input("Średnica wewn. D [mm]:", min_value=25, max_value=300, value=80, step=5, key=f"pd_{tag}")
+                        visc_max_cst = st.number_input("Lepkość MAX (Zimny) [cSt]:", min_value=10.0, max_value=5000.0, value=800.0, step=50.0, key=f"vmax_{tag}", help="Lepkość w momencie rozruchu (najwyższa).")
+                    with c_p3:
+                        h_static_m = st.number_input("Wysokość H_stat [m]:", value=3.0, key=f"ph_{tag}")
+                        visc_min_cst = st.number_input("Lepkość MIN (Ciepły) [cSt]:", min_value=1.0, max_value=1000.0, value=100.0, step=10.0, key=f"vmin_{tag}", help="Lepkość podczas ciepłego rozlewu (najniższa).")
                     with c_p2: 
                         pipe_d_mm = st.number_input("Średnica wewn. D [mm]:", min_value=25, max_value=300, value=80, step=5, key=f"pd_{tag}")
                         visc_max_cst = st.number_input("Lepkość MAX (Zimny) [cSt]:", min_value=10.0, max_value=5000.0, value=800.0, step=50.0, key=f"vmax_{tag}")
