@@ -9,18 +9,16 @@ st.subheader("Kompletna Platforma Wymiarowania Linii, Reologii, Logistyki i Suro
 st.markdown("---")
 
 # --- 1. BAZA DANYCH PROCESOWYCH I FIZYKOCHEMICZNYCH FUCHS ---
-# Rozszerzona specyfikacja fazy ciekłej w FUCHS_PORTFOLIO
 FUCHS_PORTFOLIO = {
-    "Hydraulic Oils (RENOLIN)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0},
-    "Gear & Turbine Oils (RENOLIN)": {"material": "Stal zwykła", "density": 0.89, "cycle_h": 5, "cp": 1.9, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0},
-    "Slideway & Machine Oils (RENAX)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0},
-    "Engine Oils (TITAN)": {"material": "Stal zwykła", "density": 0.87, "cycle_h": 5, "cp": 2.1, "oil_group": "Syntetyczne (Gr. III/IV)", "water_content": 0.0},
-    "Gear & Transmission Oils (TITAN)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 5, "cp": 2.0, "oil_group": "Syntetyczne (Gr. III/IV)", "water_content": 0.0},
-    "Water-miscible (ECOCOOL)": {"material": "Stal nierdzewna", "density": 0.99, "cycle_h": 6, "cp": 3.8, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.65}, # 65% wody w recepturze
-    "Non-water-miscible (ECOCUT)": {"material": "Stal zwykła", "density": 0.87, "cycle_h": 4, "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0},
-    "Cleaners (RENOCLEAN)": {"material": "Stal nierdzewna", "density": 1.01, "cycle_h": 4, "cp": 3.9, "oil_group": "Brak (Specjalistyczne)", "water_content": 0.85} # 85% wody
+    "Hydraulic Oils (RENOLIN)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0},
+    "Gear & Turbine Oils (RENOLIN)": {"material": "Stal zwykła", "density": 0.89, "cycle_h": 5, "cp": 1.9},
+    "Slideway & Machine Oils (RENAX)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0},
+    "Engine Oils (TITAN)": {"material": "Stal zwykła", "density": 0.87, "cycle_h": 5, "cp": 2.1},
+    "Gear & Transmission Oils (TITAN)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 5, "cp": 2.0},
+    "Water-miscible (ECOCOOL)": {"material": "Stal nierdzewna", "density": 0.99, "cycle_h": 6, "cp": 3.8},
+    "Non-water-miscible (ECOCUT)": {"material": "Stal zwykła", "density": 0.87, "cycle_h": 4, "cp": 2.0},
+    "Cleaners (RENOCLEAN)": {"material": "Stal nierdzewna", "density": 1.01, "cycle_h": 4, "cp": 3.9}
 }
-
 
 PACK_CONFIGS = {
     "1l (Detal)": {"size_l": 1.0, "per_pallet": 480, "rate_szt_h": 2500},
@@ -143,17 +141,15 @@ with tab1:
     TYPOSZEREG_MIKSEROW = [5, 7, 10, 15, 18, 21, 25, 31]
     
     if wybrane_kategorie:
-        # --- FUNKCJA SYNCHRONIZACJI WEWNĄTRZ BLOKU 'IF' ---
         def sync_tab1_data():
             if "tab1_editor" in st.session_state:
                 edits = st.session_state.tab1_editor.get("edited_rows", {})
                 active_families = [k for k in FUCHS_PORTFOLIO.keys() if k in wybrane_kategorie]
-                
                 for idx, changes in edits.items():
                     if idx < len(active_families):
                         family_name = active_families[idx]
                         if "2. Roczna produkcja [kg] 🟦" in changes:
-                            st.session_state.prod_dict[family_name]["roczna"] = int(changes["2. Roczna produkcja [kg] 🟦"])
+                            st.session_state.prod_dict[family_name]["roczna"] = changes["2. Roczna produkcja [kg] 🟦"]
                         if "3. Docelowa Utylizacja [%] 🟦" in changes:
                             st.session_state.prod_dict[family_name]["utilization"] = float(changes["3. Docelowa Utylizacja [%] 🟦"])
                         if "4. Liczba SKUs 🟦" in changes:
@@ -161,40 +157,59 @@ with tab1:
                         if "5. Użyj Typoszeregu 🟦" in changes:
                             st.session_state.prod_dict[family_name]["use_typoszereg"] = bool(changes["5. Użyj Typoszeregu 🟦"])
 
-        # Kontynuacja logiki Zakładki 1 (na poziomie wcięcia wewnątrz 'if wybrane_kategorie:')
-        active_families = [k for k in FUCHS_PORTFOLIO.keys() if k in wybrane_kategorie]
         calculated_matrix_rows = []
+        oversized_reactors = {}
 
-# --- POPRAWIONE WYŚWIETLANIE TABELI ---
-# Upewniamy się, że DataFrame tworzony jest dokładnie w tej samej kolejności co active_families w callbacku
-active_families = [k for k in FUCHS_PORTFOLIO.keys() if k in wybrane_kategorie]
-calculated_matrix_rows = []
+        for kat in wybrane_kategorie:
+            m_annual = st.session_state.prod_dict[kat]["roczna"]
+            util_target = st.session_state.prod_dict[kat]["utilization"]
+            skus = st.session_state.prod_dict[kat]["skus"]
+            use_typo = st.session_state.prod_dict[kat]["use_typoszereg"]
+            
+            dens = FUCHS_PORTFOLIO[kat]["density"]
+            cyc = FUCHS_PORTFOLIO[kat]["cycle_h"]
+            
+            m_monthly = m_annual / 12
+            allocated_hours = AVAILABLE_HOURS_MONTH * (util_target / 100.0)
+            
+            raw_batches = math.ceil(allocated_hours / cyc) if allocated_hours > 0 else 1
+            raw_batch_size_kg = math.ceil(m_monthly / raw_batches) if raw_batches > 0 else 0
+            calculated_vol_m3 = raw_batch_size_kg / (dens * 1000.0) if raw_batch_size_kg > 0 else 0.0
 
-# ... (tutaj zachowaj swoją dotychczasową pętlę "for kat in wybrane_kategorie:" obliczającą gabaryty) ...
+            sug_vol = 0
+            for v in TYPOSZEREG_MIKSEROW:
+                if v >= calculated_vol_m3:
+                    sug_vol = v
+                    break
+            if sug_vol == 0 and calculated_vol_m3 > 0:
+                sug_vol = 31  
 
-df_complete_matrix = pd.DataFrame(calculated_matrix_rows)
-styled_matrix = df_complete_matrix.style.apply(style_small_volumes, axis=1)
+            if use_typo and sug_vol > 0:
+                final_vol_m3 = sug_vol
+                batch_size_kg = final_vol_m3 * (dens * 1000.0)
+                needed_batches = math.ceil(m_monthly / batch_size_kg) if batch_size_kg > 0 else 1
+            else:
+                final_vol_m3 = calculated_vol_m3
+                batch_size_kg = raw_batch_size_kg
+                needed_batches = raw_batches
 
-# Wywołanie edytora z jawnym przypisaniem klucza sesji i callbacku
-st.data_editor(
-    styled_matrix,
-    hide_index=True,
-    width="stretch",
-    disabled=["1. Nazwa rodziny 🔒", "6. Wyliczony gabaryt reaktora 🔒", "7. Sugerowany Mikser (Typoszereg) 🔒"],
-    column_config={
-        "2. Roczna produkcja [kg] 🟦": st.column_config.NumberColumn(min_value=0, step=50000, format="%d"),
-        "3. Docelowa Utylizacja [%] 🟦": st.column_config.NumberColumn(min_value=1.0, max_value=100.0, step=5.0, format="%.1f%%"),
-        "4. Liczba SKUs 🟦": st.column_config.NumberColumn(min_value=1, step=1),
-        "5. Użyj Typoszeregu 🟦": st.column_config.CheckboxColumn(),
-        "6. Wyliczony gabaryt reaktora 🔒": st.column_config.NumberColumn(format="%.2f m³")
-    },
-    key="tab1_editor",
-    on_change=sync_tab1_data
-)
+            if final_vol_m3 > 31.0:
+                oversized_reactors[kat] = final_vol_m3
 
-df_complete_matrix = pd.DataFrame(calculated_matrix_rows)
+            calculated_matrix_rows.append({
+                "1. Nazwa rodziny 🔒": kat,
+                "2. Roczna produkcja [kg] 🟦": int(m_annual),
+                "3. Docelowa Utylizacja [%] 🟦": float(util_target),
+                "4. Liczba SKUs 🟦": int(skus),
+                "5. Użyj Typoszeregu 🟦": bool(use_typo),
+                "6. Wyliczony gabaryt reaktora 🔒": round(calculated_vol_m3, 2),
+                "7. Sugerowany Mikser (Typoszereg) 🔒": f"{sug_vol} m³" if sug_vol > 0 else "Poniżej minimum (<5 m³)",
+                "h_vol": final_vol_m3, "h_batches": needed_batches, "h_kg": batch_size_kg, "h_annual": m_annual
+            })
 
-st.markdown("##### 📥 Krok A: Parametryzacja Tonażu, Utylizacji oraz SKUs")
+        df_complete_matrix = pd.DataFrame(calculated_matrix_rows)
+
+        st.markdown("##### 📥 Krok A: Parametryzacja Tonażu, Utylizacji oraz SKUs")
         
         def style_small_volumes(row):
             styles = [''] * len(row)
@@ -804,99 +819,53 @@ with tab4:
 # ZAKŁADKA 5: SUROWCE & SILOSY (TANK FARM)
 # ==========================================
 with tab5:
-    st.header("🛢️ Logistyka Surowcowa i Grupy Magazynowe (Tank Farm)")
+    st.header("🛢️ Logistyka Surowcowa i Wymiarowanie Parku Zbiorników")
     if not st.session_state.confirmed_mixers:
         st.warning("⚠️ Brak danych technicznych. Uruchom konfigurację w Zakładce 1.")
     else:
         st.markdown("### ⚙️ 1. Parametry Strategii Zaopatrzenia")
         c_raw1, c_raw2 = st.columns(2)
-        with c_raw1: 
-            active_chemical_ratio = st.slider("Średni udział fazy ciekłej (baza + woda) w recepturze [%]:", min_value=50, max_value=95, value=85, step=5) / 100.0
-        with c_raw2: 
-            days_of_stock = st.number_input("Wymagany zapas bezpieczeństwa surowca [dni]:", min_value=5, max_value=60, value=14, step=1)
+        with c_raw1: base_oil_ratio = st.slider("Udział oleju bazowego w recepturze [%]:", 50, 95, 80, step=5) / 100.0
+        with c_raw2: days_of_stock = st.number_input("Wymagany zapas bezpieczeństwa surowca [dni]:", min_value=5, value=14)
             
         st.markdown("---")
-        st.markdown("### 📊 2. Dynamiczny Bilans Masowy Surowców")
+        st.markdown("### 📊 2. Bilans Zapotrzebowania na Oleje Bazowe")
         
         raw_material_summary = []
-        # Słowniki do agregacji zapotrzebowania per grupa surowcowa
-        silos_aggregation = {
-            "Mineralne (Gr. I/II)": 0.0,
-            "Syntetyczne (Gr. III/IV)": 0.0,
-            "Woda Procesowa DEMI": 0.0,
-            "Inne / Pakiety płynne": 0.0
-        }
+        total_annual_base_oil_kg = 0.0
         
         for mixer in st.session_state.confirmed_mixers:
             kat = mixer["product_family"]
-            prod_info = FUCHS_PORTFOLIO[kat]
-            
             v_annual_product_tony = mixer["annual_volume"] / 1000.0
-            total_liquid_phase_tony = v_annual_product_tony * active_chemical_ratio
+            base_oil_annual_tony = v_annual_product_tony * base_oil_ratio
+            base_oil_monthly_tony = (v_annual_product_tony / 12.0) * base_oil_ratio
+            base_oil_monthly_m3 = (base_oil_monthly_tony * 1000.0) / (0.88 * 1000.0)
+            total_annual_base_oil_kg += (base_oil_annual_tony * 1000.0)
             
-            # Obliczenie udziału wody procesowej vs oleju bazowego
-            water_pct = prod_info["water_content"]
-            water_annual_tony = total_liquid_phase_tony * water_pct
-            oil_annual_tony = total_liquid_phase_tony * (1.0 - water_pct) if prod_info["oil_group"] != "Brak (Specjalistyczne)" else 0.0
-            other_liquid_tony = total_liquid_phase_tony - water_annual_tony - oil_annual_tony
-            
-            # Agregacja do silosów
-            if water_annual_tony > 0:
-                silos_aggregation["Woda Procesowa DEMI"] += water_annual_tony
-            if oil_annual_tony > 0:
-                silos_aggregation[prod_info["oil_group"]] += oil_annual_tony
-            if other_liquid_tony > 0:
-                silos_aggregation["Inne / Pakiety płynne"] += other_liquid_tony
-
             raw_material_summary.append({
-                "ID Reaktora 🔒": mixer["tag"], 
-                "Rodzina Produktu 🔒": kat, 
-                "Typ Bazy Olejowej": prod_info["oil_group"],
-                "Produkcja [t/rok]": round(v_annual_product_tony, 1),
-                "Czysty Olej Bazowy [t/rok]": round(oil_annual_tony, 1), 
-                "Woda Procesowa [t/rok]": round(water_annual_tony, 1)
+                "ID Reaktora 🔒": mixer["tag"], "Rodzina Produktu 🔒": kat, "Produkcja [t/rok] 🔒": round(v_annual_product_tony, 1),
+                "Baza [t/rok] 🔒": round(base_oil_annual_tony, 1), "Baza [t/mies] 🔒": round(base_oil_monthly_tony, 1), "Objętość Bazy [m³/mies] 🔒": round(base_oil_monthly_m3, 1)
             })
             
         st.dataframe(pd.DataFrame(raw_material_summary), hide_index=True, use_container_width=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
-        st.subheader("🏢 3. Wymiarowanie Parku Zbiorników (Silos Tank Farm)")
+        st.subheader("🏢 3. Wymiarowanie Infrastruktury Magazynowej (Tank Farm)")
         
-        selected_tank_capacity_m3 = st.selectbox("Wybierz typową pojemność pojedynczego silosu w parku [m³]:", [30, 50, 60, 80, 100, 150, 200], index=4)
+        total_annual_base_oil_tony = total_annual_base_oil_kg / 1000.0
+        daily_base_oil_consumption_tony = total_annual_base_oil_tony / 250.0
+        required_stock_m3 = (daily_base_oil_consumption_tony * days_of_stock) / 0.88
         
-        # Generowanie zapotrzebowania na silosy per kategoria
-        silos_rows = []
-        total_tanks_global = 0
-        total_m3_global = 0.0
-        
-        for group_name, annual_tony in silos_aggregation.items():
-            if annual_tony > 0:
-                daily_consumption_tony = annual_tony / 250.0
-                density_group = 1.00 if "Woda" in group_name else 0.88
-                required_stock_m3 = (daily_consumption_tony * days_of_stock) / density_group
-                
-                # Uwzględniamy 85% napełnienia krytycznego (poduszka powietrzna/bezpieczeństwo)
-                needed_tanks = math.ceil(required_stock_m3 / (selected_tank_capacity_m3 * 0.85))
-                
-                total_tanks_global += needed_tanks
-                total_m3_global += required_stock_m3
-                
-                silos_rows.append({
-                    "Grupa Surowcowa Surowca": group_name,
-                    "Konsumpcja [t/rok]": round(annual_tony, 1),
-                    "Średnie zużycie dobowe [t/d]": round(daily_consumption_tony, 2),
-                    "Wymagany Bufor Objętości [$m^3$]": round(required_stock_m3, 1),
-                    "Liczba silosów (dedykowanych)": f"{needed_tanks} szt."
-                })
-                
-        st.dataframe(pd.DataFrame(silos_rows), hide_index=True, use_container_width=True)
-        
+        c_tank1, c_tank2 = st.columns(2)
+        with c_tank1: selected_tank_capacity_m3 = st.selectbox("Wybierz pojemność pojedynczego silosu [m³]:", [30, 50, 60, 80, 100, 150, 200], index=3)
+        with c_tank2:
+            needed_tanks_count = math.ceil(required_stock_m3 / (selected_tank_capacity_m3 * 0.85)) if required_stock_m3 > 0 else 0
+            st.metric(label="🧱 Wymagana liczba silosów surowca", value=f"{needed_tanks_count} szt.", delta=f"Zapas na {days_of_stock} dni")
+            
         st.markdown("<br>", unsafe_allow_html=True)
         raw_kpi1, raw_kpi2, raw_kpi3 = st.columns(3)
-        with raw_kpi1: st.metric(label="🧱 Całkowita flotylla silosów", value=f"{total_tanks_global} szt.")
-        with raw_kpi2: st.metric(label="📐 Całkowita pojemność magazynowa", value=f"{total_m3_global:,.1f} m³")
-        with raw_kpi3: 
-            total_annual_fluid_tony = sum(silos_aggregation.values())
-            st.metric(label="🚚 Łączny logistyczny napływ cystern", value=f"{int(total_annual_fluid_tony / 24.0)} szt./rok")
+        with raw_kpi1: st.metric(label="📈 Zapotrzebowanie całkowite na bazę", value=f"{total_annual_base_oil_tony:,.1f} t/rok")
+        with raw_kpi2: st.metric(label="🔀 Średnie zużycie dobowe", value=f"{daily_base_oil_consumption_tony:.1f} t/dzień")
+        with raw_kpi3: st.metric(label="📐 Minimalna pojemność parku zbiorników", value=f"{required_stock_m3:,.1f} m³")
         
         st.warning(f"🚚 **Logistyka:** Wymaga to dostarczenia średnio **{((total_annual_base_oil_tony / 12.0) / 24.0):.1f} cystern (24t) na miesiąc**.")
