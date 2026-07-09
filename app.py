@@ -479,8 +479,16 @@ with tab2:
                     st.markdown(f"##### Wymiarowanie Linii i Zakres Reologiczny ({tag})")
                     c_p1, c_p2, c_p3 = st.columns(3)
                     with c_p1: 
-                        q_user_m3_h = st.number_input("Wydajność Q [m³/h]:", min_value=1.0, value=float(round(v_working / 0.75, 1)), key=f"qp_{tag}")
-                        pipe_l_m = st.number_input("Długość rury L [m]:", min_value=1.0, value=15.0, key=f"pl_{tag}")
+                        # STARA, NIEBEZPIECZNA LINIA:
+# q_user_m3_h = st.number_input("Wydajność Q [m³/h]:", min_value=1.0, value=float(round(v_working / 0.75, 1)), key=f"qp_{tag}")
+
+# NOWA, BEZPIECZNA LINIA (zabezpieczona funkcją max()):
+q_user_m3_h = st.number_input(
+    "Wydajność Q [m³/h]:", 
+    min_value=1.0, 
+    value=max(1.0, float(round(v_working / 0.75, 1))), 
+    key=f"qp_{tag}"
+)
                     with c_p2: 
                         pipe_d_mm = st.number_input("Średnica wewn. D [mm]:", min_value=25, max_value=300, value=80, step=5, key=f"pd_{tag}")
                         visc_max_cst = st.number_input("Lepkość MAX (Zimny) [cSt]:", min_value=10.0, max_value=5000.0, value=800.0, step=50.0, key=f"vmax_{tag}")
