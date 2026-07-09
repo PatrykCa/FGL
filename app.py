@@ -128,7 +128,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # ==========================================
-# ZAKŁADKA 1: GŁÓWNE ZESTAWIENIE I UTYLIZACJA
+# ZAKŁADKA 1: GŁÓWNE ZESTAWIENIE I UTYLIZACJA (WERSJA STAŁA MASA SZARŻY)
 # ==========================================
 with tab1:
     st.header(f"Zintegrowane Zestawienie Parametrów Procesowych (Baza: {godziny_dziennie:.1f}h/dzień)")
@@ -250,7 +250,7 @@ with tab1:
                     key=f"tanks_input_{kat}"
                 )
 
-        # KROK 5: Obsługa przekroczenia dopuszczalnych gabarytów gabarytowych (> 31 m³)
+        # KROK 5: Obsługa przekroczenia dopuszczalnych gabarytów transportowych (> 31 m³)
         split_decisions = {}
         if oversized_reactors:
             st.warning("⚠️ **Wykryto przekroczenie dopuszczalnych gabarytów transportowych pojedynczego zbiornika (> 31 m³)!**")
@@ -262,10 +262,10 @@ with tab1:
                         value=True, key=f"chk_split_{kat_over}"
                     )
 
-        # KROK 6: Dynamiczna budowa floty z obsługą ręcznej korekty pojemności
+        # KROK 6: Dynamiczna budowa floty z obsługą ręcznej korekty pojemności geometrycznej
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("### 🏭 3. Skorygowana i Zweryfikowana Flota Mieszalników")
-        st.caption("💡 **Inżynieria Procesowa:** Kolumna 'Realna Pojemność [m³] 🟦' jest w pełni edytowalna. Możesz ręcznie dopasować wielkość każdego reaktora!")
+        st.caption("💡 **Inżynieria Procesowa:** Kolumna 'Realna Pojemność [m³] 🟦' jest w pełni edytowalna. Masa szarży pozostaje zablokowana zgodnie z bilansem tonażu.")
 
         if "custom_capacities" not in st.session_state:
             st.session_state.custom_capacities = {}
@@ -367,13 +367,11 @@ with tab1:
                     if "Realna Pojemność [m³] 🟦" in changes:
                         st.session_state.custom_capacities[device_tag] = float(changes["Realna Pojemność [m³] 🟦"])
 
-        # Nadpisywanie zapamiętanych pojemności oraz przeliczanie masy szarży na bazie gęstości
+        # Nadpisywanie zapamiętanych pojemności - MASA SZARŻY ZOSTAJE STAŁA
         for row in base_fleet_blueprint:
             tag = row["ID Urządzenia 🔒"]
             if tag in st.session_state.custom_capacities:
                 row["Realna Pojemność [m³] 🟦"] = st.session_state.custom_capacities[tag]
-                rho_product = FUCHS_PORTFOLIO[row["Przypisana Linia 🔒"]]["density"]
-                row["Masa Szarży [kg] 🔒"] = int(row["Realna Pojemność [m³] 🟦"] * rho_product * 1000)
 
         df_final_fleet = pd.DataFrame(base_fleet_blueprint)
         
@@ -416,7 +414,7 @@ with tab1:
             st.session_state.confirmed_mixers = confirmed_mixers_blueprint
             if "master_logistics_df" in st.session_state:
                 del st.session_state["master_logistics_df"]
-            st.success(f"🎉 Sukces! Zapisano stabilną strukturę floty złożoną z {len(confirmed_mixers_blueprint)} urządzeń. Pojemności zostały przekazane do kolejnych kroków.")
+            st.success(f"🎉 Sukces! Zapisano stabilną strukturę floty. Pojemności zostały przekazane do kolejnych kroków.")
             
 # ==========================================
 # ZAKŁADKA 2: KARTA MASZYN I DOBÓR POMP
