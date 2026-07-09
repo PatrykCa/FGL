@@ -192,7 +192,7 @@ st.data_editor(
     on_change=sync_tab1_data
 )
 
-        df_complete_matrix = pd.DataFrame(calculated_matrix_rows)
+df_complete_matrix = pd.DataFrame(calculated_matrix_rows)
 
         st.markdown("##### 📥 Krok A: Parametryzacja Tonażu, Utylizacji oraz SKUs")
         
