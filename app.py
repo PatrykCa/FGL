@@ -210,7 +210,7 @@ with tab1:
         st.markdown("##### 📥 Krok A: Parametryzacja Tonażu, Utylizacji oraz SKUs")
         
         # Wyświetlamy ostrzeżenia o małych pojemnościach czytelnie nad tabelą
-        for alert in alert_small_volumes:
+            for alert in alert_small_volumes:
             st.error(alert)
 
         # Otwieramy formularz blokujący natychmiastowy rerun podczas pisania
