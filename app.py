@@ -10,14 +10,14 @@ st.markdown("---")
 
 # --- 1. BAZA DANYCH PROCESOWYCH I FIZYKOCHEMICZNYCH FUCHS ---
 FUCHS_PORTFOLIO = {
-    "Hydraulic Oils (RENOLIN)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0},
-    "Gear & Turbine Oils (RENOLIN)": {"material": "Stal zwykła", "density": 0.89, "cycle_h": 5, "cp": 1.9},
-    "Slideway & Machine Oils (RENAX)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0},
-    "Engine Oils (TITAN)": {"material": "Stal zwykła", "density": 0.87, "cycle_h": 5, "cp": 2.1},
-    "Gear & Transmission Oils (TITAN)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 5, "cp": 2.0},
-    "Water-miscible (ECOCOOL)": {"material": "Stal nierdzewna", "density": 0.99, "cycle_h": 6, "cp": 3.8},
-    "Non-water-miscible (ECOCUT)": {"material": "Stal zwykła", "density": 0.87, "cycle_h": 4, "cp": 2.0},
-    "Cleaners (RENOCLEAN)": {"material": "Stal nierdzewna", "density": 1.01, "cycle_h": 4, "cp": 3.9}
+    "Hydraulic Oils (RENOLIN)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0},
+    "Gear & Turbine Oils (RENOLIN)": {"material": "Stal zwykła", "density": 0.89, "cycle_h": 5, "cp": 1.9, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0},
+    "Slideway & Machine Oils (RENAX)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0},
+    "Engine Oils (TITAN)": {"material": "Stal zwykła", "density": 0.87, "cycle_h": 5, "cp": 2.1, "oil_group": "Syntetyczne (Gr. III/IV)", "water_content": 0.0},
+    "Gear & Transmission Oils (TITAN)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 5, "cp": 2.0, "oil_group": "Syntetyczne (Gr. III/IV)", "water_content": 0.0},
+    "Water-miscible (ECOCOOL)": {"material": "Stal nierdzewna", "density": 0.99, "cycle_h": 6, "cp": 3.8, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.65},
+    "Non-water-miscible (ECOCUT)": {"material": "Stal zwykła", "density": 0.87, "cycle_h": 4, "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0},
+    "Cleaners (RENOCLEAN)": {"material": "Stal nierdzewna", "density": 1.01, "cycle_h": 4, "cp": 3.9, "oil_group": "Brak (Specjalistyczne)", "water_content": 0.85}
 }
 
 PACK_CONFIGS = {
@@ -37,17 +37,13 @@ AGITATOR_TYPES = {
     "Propelerowe (Śmigłowe)": {"laminar_C": 35.0, "turbulent_Ne": 0.8}
 }
 
-# --- BEZPIECZNA INICJALIZACJA STRUKTUR W SESJI (PRZED CALLBACKAMI) ---
+# --- 2. BEZPIECZNA INICJALIZACJA STRUKTUR W SESJI ---
 if "prod_dict" not in st.session_state:
     st.session_state.prod_dict = {}
 for k in FUCHS_PORTFOLIO.keys():
     if k not in st.session_state.prod_dict:
         st.session_state.prod_dict[k] = {
-            "roczna": 1200000, 
-            "utilization": 75.0, 
-            "skus": 1, 
-            "num_tanks": 1, 
-            "use_typoszereg": False
+            "roczna": 1200000, "utilization": 75.0, "skus": 1, "num_tanks": 1, "use_typoszereg": False
         }
 
 if "confirmed_mixers" not in st.session_state:
@@ -59,7 +55,6 @@ if "calculated_times" not in st.session_state:
 # ==========================================
 # ZINTEGROWANY PANEL BOCZNY
 # ==========================================
-
 st.sidebar.header("📋 KROK 1: Wybór Rodzin")
 wybrane_kategorie = st.sidebar.multiselect(
     "Wybierz aktywne linie produktowe FUCHS:",
@@ -123,7 +118,7 @@ for kat in wybrane_kategorie:
     
     st.sidebar.markdown("---")
 
-# --- STRUKTURA INTERFEJSU ---
+# --- STRUKTURA INTERFEJSU (TABY) ---
 tab1, tab2, tab3, tab4, tab5 = st.tabs([
     "📊 1. Główne Zestawienie i Utylizacja", 
     "📐 2. Karta Maszyn i Dobór Pomp", 
@@ -133,7 +128,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # ==========================================
-# ZAKŁADKA 1: GŁÓWNE ZESTAWIENIE
+# ZAKŁADKA 1: GŁÓWNE ZESTAWIENIE I FLOTA
 # ==========================================
 with tab1:
     st.header(f"Zintegrowane Zestawienie Parametrów Procesowych (Baza: {godziny_dziennie:.1f}h/dzień)")
@@ -149,7 +144,7 @@ with tab1:
                     if idx < len(active_families):
                         family_name = active_families[idx]
                         if "2. Roczna produkcja [kg] 🟦" in changes:
-                            st.session_state.prod_dict[family_name]["roczna"] = changes["2. Roczna produkcja [kg] 🟦"]
+                            st.session_state.prod_dict[family_name]["roczna"] = int(changes["2. Roczna produkcja [kg] 🟦"])
                         if "3. Docelowa Utylizacja [%] 🟦" in changes:
                             st.session_state.prod_dict[family_name]["utilization"] = float(changes["3. Docelowa Utylizacja [%] 🟦"])
                         if "4. Liczba SKUs 🟦" in changes:
@@ -410,7 +405,7 @@ with tab1:
             st.success(f"🎉 Sukces! Zapisano stabilną strukturę floty złożoną z {len(confirmed_mixers_blueprint)} urządzeń.")
 
 # ==========================================
-# ZAKŁADKA 2: SPECYFIKACJA MASZYN & REOLOGIA
+# ZAKŁADKA 2: KARTA MASZYN I DOBÓR POMP
 # ==========================================
 with tab2:
     st.header("📐 Specyfikacja Maszyn, Reologii i Dynamicznej Termodynamiki")
@@ -475,14 +470,10 @@ with tab2:
                     with c_m2: obroty_rpm = st.number_input("Obroty [RPM]:", min_value=10, max_value=500, value=90, step=10, key=f"rpm_{tag}")
                     with c_m3: motor_efficiency = st.slider("Sprawność napędu [%]:", min_value=50, max_value=98, value=85, step=1, key=f"eff_mot_{tag}")
 
-                # ---------------------------------------------------------
-                # SUB-ZAKŁADKA 3: POMPA I RUROCIĄGI
-                # ---------------------------------------------------------
                 with sub_t3:
                     st.markdown(f"##### Wymiarowanie Linii i Zakres Reologiczny ({tag})")
                     c_p1, c_p2, c_p3 = st.columns(3)
                     with c_p1:
-                        # TUTAJ BYŁ BŁĄD WCIĘCIA - teraz linia jest idealnie wyrównana (20 spacji od brzegu)
                         q_user_m3_h = st.number_input(
                             "Wydajność Q [m³/h]:", 
                             min_value=1.0, 
@@ -493,18 +484,12 @@ with tab2:
                         pipe_l_m = st.number_input("Długość rury L [m]:", min_value=1.0, value=15.0, key=f"pl_{tag}")
                     with c_p2:
                         pipe_d_mm = st.number_input("Średnica wewn. D [mm]:", min_value=25, max_value=300, value=80, step=5, key=f"pd_{tag}")
-                        visc_max_cst = st.number_input("Lepkość MAX (Zimny) [cSt]:", min_value=10.0, max_value=5000.0, value=800.0, step=50.0, key=f"vmax_{tag}", help="Lepkość w momencie rozruchu (najwyższa).")
+                        visc_max_cst = st.number_input("Lepkość MAX (Zimny) [cSt]:", min_value=10.0, max_value=5000.0, value=800.0, step=50.0, key=f"vmax_{tag}", help="Lepkość w momencie rozruchu.")
                     with c_p3:
                         h_static_m = st.number_input("Wysokość H_stat [m]:", value=3.0, key=f"ph_{tag}")
-                        visc_min_cst = st.number_input("Lepkość MIN (Ciepły) [cSt]:", min_value=1.0, max_value=1000.0, value=100.0, step=10.0, key=f"vmin_{tag}", help="Lepkość podczas ciepłego rozlewu (najniższa).")
-                    with c_p2: 
-                        pipe_d_mm = st.number_input("Średnica wewn. D [mm]:", min_value=25, max_value=300, value=80, step=5, key=f"pd_{tag}")
-                        visc_max_cst = st.number_input("Lepkość MAX (Zimny) [cSt]:", min_value=10.0, max_value=5000.0, value=800.0, step=50.0, key=f"vmax_{tag}")
-                    with c_p3: 
-                        h_static_m = st.number_input("Wysokość H_stat [m]:", value=3.0, key=f"ph_{tag}")
-                        visc_min_cst = st.number_input("Lepkość MIN (Ciepły) [cSt]:", min_value=1.0, max_value=1000.0, value=100.0, step=10.0, key=f"vmin_{tag}")
+                        visc_min_cst = st.number_input("Lepkość MIN (Ciepły) [cSt]:", min_value=1.0, max_value=1000.0, value=100.0, step=10.0, key=f"vmin_{tag}", help="Lepkość podczas rozlewu.")
 
-            # --- OBLICZENIA CIEPLNE ---
+            # --- OBLICZENIA CIEPLNE DLA INSTANCJI ---
             st.session_state.pump_flows[tag] = q_user_m3_h
             scaled_area_m2 = A_BASE * ((v_working / 10.0) ** (2/3))
 
@@ -552,7 +537,7 @@ with tab2:
             power_mix_kw = max((power_shaft_w / (motor_efficiency / 100.0) * 1.25) / 1000.0, 1.5)
             E_mixing_total_kwh = power_mix_kw * cyc_h
 
-            # --- OBLICZENIA POMPY ---
+            # --- OBLICZENIA SPADKÓW CIŚNIEŃ POMPY ---
             D_pipe_m = pipe_d_mm / 1000.0
             velocity_m_s = (q_user_m3_h / 3600.0) / ((math.pi * (D_pipe_m ** 2)) / 4.0)
             Re_pipe_max = (velocity_m_s * D_pipe_m) / max(visc_max_cst / 1_000_000.0, 0.00001)
@@ -569,7 +554,7 @@ with tab2:
 
             time_pumping_h = v_working / q_user_m3_h
 
-            # Sejf do session_state celem pełnej unifikacji z Zakładką 4 (Finanse/Czasy)
+            # Integracja danych czasowo-energetycznych dla Zakładki Finansowej
             st.session_state.calculated_times[tag] = {
                 "heating": total_thermal_time,
                 "pumping": time_pumping_h,
@@ -614,7 +599,7 @@ with tab2:
         )
 
 # ==========================================
-# ZAKŁADKA 3: LOGISTYKA I SPLIT OPAKOWAŃ
+# ZAKŁADKA 3: LOGISTYKA I CZAS ROZLEWU
 # ==========================================
 with tab3:
     st.header("📦 Analiza Logistyczna, Czas Rozlewu i Gospodarka Paletowa")
@@ -682,7 +667,7 @@ with tab3:
 
         st.markdown("<br>", unsafe_allow_html=True)
         c_rot1, _ = st.columns([1, 3])
-        with c_rot1: czas_skladowania_dni = st.number_input("Czas składowania palety [dni]:", min_value=1, value=14)
+        with c_rot1: czas_skladowania_dni = st.number_input("Czas składowania palety (Rotacja) [dni]:", min_value=1, value=14)
         dni_robocze_miesiac = 250.0 / 12.0
 
         st.markdown("---")
@@ -730,7 +715,7 @@ with tab3:
             st.dataframe(pd.DataFrame(real_split_rows), hide_index=True, width="stretch")
 
 # ==========================================
-# ZAKŁADKA 4: ANALIZA FINANSOWA & CYKL CZASU
+# ZAKŁADKA 4: ANALIZA FINANSOWA I KOSZTY
 # ==========================================
 with tab4:
     st.header("💰 Optymalizacja Kosztów Energii i Bilans Finansowy")
@@ -761,7 +746,6 @@ with tab4:
             m_monthly_kg = mixer["annual_volume"] / 12
             batches_per_month = mixer["batches_count"]
             
-            # Unifikacja maszynowa z Zakładki 2
             m_data = calculated_times.get(tag, {"power_mix_kw": 5.5, "power_pump_kw": 1.5, "heating": 1.5, "pumping": 0.75, "t_max_mix": 60.0, "t_rozlew": 30.0})
             
             mixing_energy_month_kwh = m_data["power_mix_kw"] * prod_info["cycle_h"] * batches_per_month
@@ -792,7 +776,6 @@ with tab4:
         final_manufacturing_cost = total_base_manuf_cost + cost_total_el - total_monthly_saving_thermal
         st.metric(label="🚀 ZOPTYMALIZOWANY REALNY KOSZT WYTWORZENIA (Miesięcznie)", value=f"{final_manufacturing_cost:,.2f} {waluta}")
 
-        # --- SEKCJA ORAZ REKOMENDACJA ZMIANOWA ---
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("### ⏱️ 2. Realna Analiza Czasu Cyklu i Optymalizacja Zmianowa")
         
@@ -832,56 +815,95 @@ with tab4:
         st.dataframe(df_time_analysis.style.apply(style_time_chains, axis=1), hide_index=True, width="stretch")
 
 # ==========================================
-# ZAKŁADKA 5: SUROWCE & SILOSY (TANK FARM)
+# ZAKŁADKA 5: LOGISTYKA SUROWCOWA (TANK FARM)
 # ==========================================
 with tab5:
-    st.header("🛢️ Logistyka Surowcowa i Wymiarowanie Parku Zbiorników")
+    st.header("🛢️ Logistyka Surowcowa i Grupy Magazynowe (Tank Farm)")
     if not st.session_state.confirmed_mixers:
         st.warning("⚠️ Brak danych technicznych. Uruchom konfigurację w Zakładce 1.")
     else:
         st.markdown("### ⚙️ 1. Parametry Strategii Zaopatrzenia")
         c_raw1, c_raw2 = st.columns(2)
-        with c_raw1: base_oil_ratio = st.slider("Udział oleju bazowego w recepturze [%]:", 50, 95, 80, step=5) / 100.0
-        with c_raw2: days_of_stock = st.number_input("Wymagany zapas bezpieczeństwa surowca [dni]:", min_value=5, value=14)
+        with c_raw1: 
+            active_chemical_ratio = st.slider("Średni udział fazy ciekłej (baza + woda) w recepturze [%]:", min_value=50, max_value=95, value=85, step=5) / 100.0
+        with c_raw2: 
+            days_of_stock = st.number_input("Wymagany zapas bezpieczeństwa surowca [dni]:", min_value=5, max_value=60, value=14, step=1)
             
         st.markdown("---")
-        st.markdown("### 📊 2. Bilans Zapotrzebowania na Oleje Bazowe")
+        st.markdown("### 📊 2. Dynamiczny Bilans Masowy Surowców")
         
         raw_material_summary = []
-        total_annual_base_oil_kg = 0.0
+        silos_aggregation = {
+            "Mineralne (Gr. I/II)": 0.0,
+            "Syntetyczne (Gr. III/IV)": 0.0,
+            "Woda Procesowa DEMI": 0.0,
+            "Inne / Pakiety płynne": 0.0
+        }
         
         for mixer in st.session_state.confirmed_mixers:
             kat = mixer["product_family"]
-            v_annual_product_tony = mixer["annual_volume"] / 1000.0
-            base_oil_annual_tony = v_annual_product_tony * base_oil_ratio
-            base_oil_monthly_tony = (v_annual_product_tony / 12.0) * base_oil_ratio
-            base_oil_monthly_m3 = (base_oil_monthly_tony * 1000.0) / (0.88 * 1000.0)
-            total_annual_base_oil_kg += (base_oil_annual_tony * 1000.0)
+            prod_info = FUCHS_PORTFOLIO[kat]
             
+            v_annual_product_tony = mixer["annual_volume"] / 1000.0
+            total_liquid_phase_tony = v_annual_product_tony * active_chemical_ratio
+            
+            water_pct = prod_info["water_content"]
+            water_annual_tony = total_liquid_phase_tony * water_pct
+            oil_annual_tony = total_liquid_phase_tony * (1.0 - water_pct) if prod_info["oil_group"] != "Brak (Specjalistyczne)" else 0.0
+            other_liquid_tony = total_liquid_phase_tony - water_annual_tony - oil_annual_tony
+            
+            if water_annual_tony > 0:
+                silos_aggregation["Woda Procesowa DEMI"] += water_annual_tony
+            if oil_annual_tony > 0:
+                silos_aggregation[prod_info["oil_group"]] += oil_annual_tony
+            if other_liquid_tony > 0:
+                silos_aggregation["Inne / Pakiety płynne"] += other_liquid_tony
+
             raw_material_summary.append({
-                "ID Reaktora 🔒": mixer["tag"], "Rodzina Produktu 🔒": kat, "Produkcja [t/rok] 🔒": round(v_annual_product_tony, 1),
-                "Baza [t/rok] 🔒": round(base_oil_annual_tony, 1), "Baza [t/mies] 🔒": round(base_oil_monthly_tony, 1), "Objętość Bazy [m³/mies] 🔒": round(base_oil_monthly_m3, 1)
+                "ID Reaktora 🔒": mixer["tag"], 
+                "Rodzina Produktu 🔒": kat, 
+                "Typ Bazy Olejowej": prod_info["oil_group"],
+                "Produkcja [t/rok]": round(v_annual_product_tony, 1),
+                "Czysty Olej Bazowy [t/rok]": round(oil_annual_tony, 1), 
+                "Woda Procesowa [t/rok]": round(water_annual_tony, 1)
             })
             
         st.dataframe(pd.DataFrame(raw_material_summary), hide_index=True, use_container_width=True)
         
         st.markdown("<br>", unsafe_allow_html=True)
-        st.subheader("🏢 3. Wymiarowanie Infrastruktury Magazynowej (Tank Farm)")
+        st.subheader("🏢 3. Wymiarowanie Parku Zbiorników (Silos Tank Farm)")
         
-        total_annual_base_oil_tony = total_annual_base_oil_kg / 1000.0
-        daily_base_oil_consumption_tony = total_annual_base_oil_tony / 250.0
-        required_stock_m3 = (daily_base_oil_consumption_tony * days_of_stock) / 0.88
+        selected_tank_capacity_m3 = st.selectbox("Wybierz typową pojemność pojedynczego silosu w parku [m³]:", [30, 50, 60, 80, 100, 150, 200], index=4)
         
-        c_tank1, c_tank2 = st.columns(2)
-        with c_tank1: selected_tank_capacity_m3 = st.selectbox("Wybierz pojemność pojedynczego silosu [m³]:", [30, 50, 60, 80, 100, 150, 200], index=3)
-        with c_tank2:
-            needed_tanks_count = math.ceil(required_stock_m3 / (selected_tank_capacity_m3 * 0.85)) if required_stock_m3 > 0 else 0
-            st.metric(label="🧱 Wymagana liczba silosów surowca", value=f"{needed_tanks_count} szt.", delta=f"Zapas na {days_of_stock} dni")
-            
+        silos_rows = []
+        total_tanks_global = 0
+        total_m3_global = 0.0
+        
+        for group_name, annual_tony in silos_aggregation.items():
+            if annual_tony > 0:
+                daily_consumption_tony = annual_tony / 250.0
+                density_group = 1.00 if "Woda" in group_name else 0.88
+                required_stock_m3 = (daily_consumption_tony * days_of_stock) / density_group
+                
+                needed_tanks = math.ceil(required_stock_m3 / (selected_tank_capacity_m3 * 0.85))
+                
+                total_tanks_global += needed_tanks
+                total_m3_global += required_stock_m3
+                
+                silos_rows.append({
+                    "Grupa Surowcowa": group_name,
+                    "Konsumpcja [t/rok]": round(annual_tony, 1),
+                    "Średnie zużycie dobowe [t/d]": round(daily_consumption_tony, 2),
+                    "Wymagany Bufor Objętości [m³]": round(required_stock_m3, 1),
+                    "Liczba silosów (dedykowanych)": f"{needed_tanks} szt."
+                })
+                
+        st.dataframe(pd.DataFrame(silos_rows), hide_index=True, use_container_width=True)
+        
         st.markdown("<br>", unsafe_allow_html=True)
         raw_kpi1, raw_kpi2, raw_kpi3 = st.columns(3)
-        with raw_kpi1: st.metric(label="📈 Zapotrzebowanie całkowite na bazę", value=f"{total_annual_base_oil_tony:,.1f} t/rok")
-        with raw_kpi2: st.metric(label="🔀 Średnie zużycie dobowe", value=f"{daily_base_oil_consumption_tony:.1f} t/dzień")
-        with raw_kpi3: st.metric(label="📐 Minimalna pojemność parku zbiorników", value=f"{required_stock_m3:,.1f} m³")
-        
-        st.warning(f"🚚 **Logistyka:** Wymaga to dostarczenia średnio **{((total_annual_base_oil_tony / 12.0) / 24.0):.1f} cystern (24t) na miesiąc**.")
+        with raw_kpi1: st.metric(label="🧱 Całkowita flotylla silosów", value=f"{total_tanks_global} szt.")
+        with raw_kpi2: st.metric(label="📐 Całkowita pojemność magazynowa", value=f"{total_m3_global:,.1f} m³")
+        with raw_kpi3: 
+            total_annual_fluid_tony = sum(silos_aggregation.values())
+            st.metric(label="🚚 Łączny logistyczny napływ cystern", value=f"{int(total_annual_fluid_tony / 24.0)} szt./rok")
