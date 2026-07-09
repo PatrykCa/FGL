@@ -156,23 +156,25 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # ==========================================
-# ZAKŁADKA 1: POWRÓT DO STANDARDU + SKUs + PODZIAŁ NA ZBIORNIKI + WALIDACJA TYPOSZEREGU
+# ZAKŁADKA 1: OPCJA AKCEPTACJI TYPOSZEREGU + SKUs + PODZIAŁ NA ZBIORNIKI
 # ==========================================
 with tab1:
     st.header(f"Zintegrowane Zestawienie Parametrów Procesowych (Baza: {godziny_dziennie:.1f}h/dzień)")
     
-    # Definicja dopuszczalnego typoszeregu pojemności mikserów
+    # Definicja dopuszczalnego typoszeregu pojemności mikserów fabryki
     TYPOSZEREG_MIKSEROW = [5, 7, 10, 15, 18, 21, 25, 31]
     
     if wybrane_kategorie:
         # Inicjalizacja struktur w session_state (zachowanie edycji użytkownika)
         for kat in wybrane_kategorie:
             if kat not in st.session_state.prod_dict:
-                st.session_state.prod_dict[kat] = {"roczna": 1200000, "utilization": 75.0, "skus": 1, "num_tanks": 1}
+                st.session_state.prod_dict[kat] = {"roczna": 1200000, "utilization": 75.0, "skus": 1, "num_tanks": 1, "use_typoszereg": False}
             if "skus" not in st.session_state.prod_dict[kat]:
                 st.session_state.prod_dict[kat]["skus"] = 1
             if "num_tanks" not in st.session_state.prod_dict[kat]:
                 st.session_state.prod_dict[kat]["num_tanks"] = 1
+            if "use_typoszereg" not in st.session_state.prod_dict[kat]:
+                st.session_state.prod_dict[kat]["use_typoszereg"] = False
 
         # Funkcja synchronizacji po edycji tabeli st.data_editor
         def sync_tab1_data():
@@ -188,6 +190,8 @@ with tab1:
                             st.session_state.prod_dict[family_name]["utilization"] = float(changes["3. Docelowa Utylizacja [%] 🟦"])
                         if "4. Liczba SKUs 🟦" in changes:
                             st.session_state.prod_dict[family_name]["skus"] = int(changes["4. Liczba SKUs 🟦"])
+                        if "5. Użyj Typoszeregu 🟦" in changes:
+                            st.session_state.prod_dict[family_name]["use_typoszereg"] = bool(changes["5. Użyj Typoszeregu 🟦"])
 
         calculated_matrix_rows = []
         oversized_reactors = {}
@@ -197,6 +201,7 @@ with tab1:
             m_annual = st.session_state.prod_dict[kat]["roczna"]
             util_target = st.session_state.prod_dict[kat]["utilization"]
             skus = st.session_state.prod_dict[kat]["skus"]
+            use_typo = st.session_state.prod_dict[kat]["use_typoszereg"]
             
             dens = FUCHS_PORTFOLIO[kat]["density"]
             cyc = FUCHS_PORTFOLIO[kat]["cycle_h"]
@@ -204,10 +209,10 @@ with tab1:
             m_monthly = m_annual / 12
             allocated_hours = AVAILABLE_HOURS_MONTH * (util_target / 100.0)
             
-            # Wyznaczenie liczby szarż i gabarytu
-            needed_batches = math.ceil(allocated_hours / cyc) if allocated_hours > 0 else 1
-            batch_size_kg = math.ceil(m_monthly / needed_batches) if needed_batches > 0 else 0
-            calculated_vol_m3 = batch_size_kg / (dens * 1000.0) if batch_size_kg > 0 else 0.0
+            # Wyznaczenie bazowego gabarytu z docelowej utylizacji czasu
+            raw_batches = math.ceil(allocated_hours / cyc) if allocated_hours > 0 else 1
+            raw_batch_size_kg = math.ceil(m_monthly / raw_batches) if raw_batches > 0 else 0
+            calculated_vol_m3 = raw_batch_size_kg / (dens * 1000.0) if raw_batch_size_kg > 0 else 0.0
 
             # Dopasowanie do najbliższego wyższego typoszeregu mikserów
             sug_vol = 0
@@ -216,19 +221,30 @@ with tab1:
                     sug_vol = v
                     break
             if sug_vol == 0 and calculated_vol_m3 > 0:
-                sug_vol = 31  # Limit górny konstrukcji
+                sug_vol = 31  # Limit górny konstrukcji transportowej
 
-            if calculated_vol_m3 > 31.0:
-                oversized_reactors[kat] = calculated_vol_m3
+            # REAKCJA NA AKCEPTACJĘ TYPOSZEREGU:
+            if use_typo and sug_vol > 0:
+                final_vol_m3 = sug_vol
+                batch_size_kg = final_vol_m3 * (dens * 1000.0)
+                needed_batches = math.ceil(m_monthly / batch_size_kg) if batch_size_kg > 0 else 1
+            else:
+                final_vol_m3 = calculated_vol_m3
+                batch_size_kg = raw_batch_size_kg
+                needed_batches = raw_batches
+
+            if final_vol_m3 > 31.0:
+                oversized_reactors[kat] = final_vol_m3
 
             calculated_matrix_rows.append({
                 "1. Nazwa rodziny 🔒": kat,
                 "2. Roczna produkcja [kg] 🟦": int(m_annual),
                 "3. Docelowa Utylizacja [%] 🟦": float(util_target),
                 "4. Liczba SKUs 🟦": int(skus),
-                "5. Wyliczony gabaryt reaktora 🔒": round(calculated_vol_m3, 2),
-                "6. Sugerowany Mikser (Typoszereg) 🔒": f"{sug_vol} m³" if sug_vol > 0 else "Poniżej minimum (<5 m³)",
-                "h_vol": calculated_vol_m3, "h_batches": needed_batches, "h_kg": batch_size_kg, "h_annual": m_annual
+                "5. Użyj Typoszeregu 🟦": bool(use_typo),
+                "6. Wyliczony gabaryt reaktora 🔒": round(calculated_vol_m3, 2),
+                "7. Sugerowany Mikser (Typoszereg) 🔒": f"{sug_vol} m³" if sug_vol > 0 else "Poniżej minimum (<5 m³)",
+                "h_vol": final_vol_m3, "h_batches": needed_batches, "h_kg": batch_size_kg, "h_annual": m_annual
             })
 
         df_complete_matrix = pd.DataFrame(calculated_matrix_rows)
@@ -238,25 +254,26 @@ with tab1:
         # Funkcja podświetlająca komórki, gdzie gabaryt jest mniejszy niż 5 m³
         def style_small_volumes(row):
             styles = [''] * len(row)
-            val = row["5. Wyliczony gabaryt reaktora 🔒"]
+            val = row["6. Wyliczony gabaryt reaktora 🔒"]
             if isinstance(val, (int, float)) and val < 5.0:
-                idx = row.index.get_loc("5. Wyliczony gabaryt reaktora 🔒")
+                idx = row.index.get_loc("6. Wyliczony gabaryt reaktora 🔒")
                 styles[idx] = 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'
             return styles
 
         styled_matrix = df_complete_matrix.style.apply(style_small_volumes, axis=1)
 
-        # Wyświetlenie tabeli edytowalnej
+        # Wyświetlenie tabeli edytowalnej w standardzie Streamlit v2026
         edited_table = st.data_editor(
             styled_matrix,
             hide_index=True,
-            use_container_width=True,
-            disabled=["1. Nazwa rodziny 🔒", "5. Wyliczony gabaryt reaktora 🔒", "6. Sugerowany Mikser (Typoszereg) 🔒"],
+            width="stretch",
+            disabled=["1. Nazwa rodziny 🔒", "6. Wyliczony gabaryt reaktora 🔒", "7. Sugerowany Mikser (Typoszereg) 🔒"],
             column_config={
                 "2. Roczna produkcja [kg] 🟦": st.column_config.NumberColumn(min_value=0, step=50000, format="%d"),
                 "3. Docelowa Utylizacja [%] 🟦": st.column_config.NumberColumn(min_value=1.0, max_value=100.0, step=5.0, format="%.1f%%"),
                 "4. Liczba SKUs 🟦": st.column_config.NumberColumn(min_value=1, step=1),
-                "5. Wyliczony gabaryt reaktora 🔒": st.column_config.NumberColumn(format="%.2f m³"),
+                "5. Użyj Typoszeregu 🟦": st.column_config.CheckboxColumn(),
+                "6. Wyliczony gabaryt reaktora 🔒": st.column_config.NumberColumn(format="%.2f m³"),
                 "h_vol": None, "h_batches": None, "h_kg": None, "h_annual": None
             },
             key="tab1_editor",
@@ -273,7 +290,6 @@ with tab1:
                     st.markdown("##### 🛢️ Krok B: Przydział zbiorników dla rodzin z wieloma SKUs")
                     any_sku_trigger = True
                 
-                # Ograniczamy maksymalną liczbę zbiorników do liczby posiadanych SKUs
                 st.session_state.prod_dict[kat]["num_tanks"] = st.number_input(
                     f"Wykryto **{current_skus} SKUs** dla linii **{kat}**. Do ilu osobnych zbiorników przypisać tę rodzinę?",
                     min_value=1,
@@ -294,9 +310,7 @@ with tab1:
                         value=True, key=f"chk_split_{kat_over}"
                     )
 
-       # ==========================================
-        # Krok D: Generowanie Końcowej Floty Mieszalników (Z UWZGLĘDNIENIEM REALNEJ UTYLIZACJI)
-        # ==========================================
+        # Krok D: Generowanie Końcowej Floty Mieszalników (z uwzględnieniem realnej utylizacji)
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("### 🏭 3. Skorygowana i Zweryfikowana Flota Mieszalników")
         
@@ -312,25 +326,18 @@ with tab1:
             vol_base = r["h_vol"]
             total_batches = r["h_batches"]
             total_annual = r["h_annual"]
-            
-            # Pobranie parametrów technologicznych z portfolio fabryki
             cyc = FUCHS_PORTFOLIO[kat]["cycle_h"]
             
-            # Pobieramy zdefiniowaną przez użytkownika liczbę fizycznych zbiorników wynikającą z SKUs
             tanks_count = st.session_state.prod_dict[kat]["num_tanks"]
-            
-            # Dzielimy parametry bazowe rodziny na liczbę dedykowanych maszyn
             vol_per_tank = vol_base / tanks_count if tanks_count > 0 else vol_base
             batches_per_tank = math.ceil(total_batches / tanks_count) if tanks_count > 0 else total_batches
             annual_per_tank = total_annual / tanks_count
 
-            # Obliczenie realnej utylizacji per zbiornik
             if AVAILABLE_HOURS_MONTH > 0:
                 real_utilization = (batches_per_tank * cyc) / AVAILABLE_HOURS_MONTH * 100.0
             else:
                 real_utilization = 0.0
 
-            # Jeśli nawet po podziale na SKUs zbiornik przekracza 31m³, wykonujemy rozbicie technologiczne
             if split_decisions.get(kat, False) and vol_per_tank > 31.0:
                 remaining_vol = vol_per_tank
                 sub_letter_ascii = 65 
@@ -340,7 +347,6 @@ with tab1:
                     mixer_batches = math.ceil(batches_per_tank * weight_fraction)
                     mixer_mass_batch = math.ceil((r["h_kg"]/tanks_count) * (31.0 / vol_per_tank))
                     
-                    # Ponowne przeliczenie utylizacji dla rozbitej jednostki maszynowej
                     if AVAILABLE_HOURS_MONTH > 0:
                         split_util = (mixer_batches * cyc) / AVAILABLE_HOURS_MONTH * 100.0
                     else:
@@ -395,7 +401,6 @@ with tab1:
                             total_batches_per_month += tail_batches
                             sub_letter_ascii += 1
             else:
-                # Scenariusz standardowy (optymalny lub wynikający bezpośrednio z podziału na zbiorniki SKUs)
                 if vol_per_tank < 5.0:
                     status_txt = "⚠️ Poniżej minimum typoszeregu"
                 elif vol_per_tank > 31.0:
@@ -428,7 +433,7 @@ with tab1:
         st.dataframe(
             df_final_fleet,
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             column_config={
                 "Realna Utylizacja [%] 🔒": st.column_config.NumberColumn(format="%.1f%%"),
                 "Realna Pojemność [m³] 🔒": st.column_config.NumberColumn(format="%.1f m³"),
@@ -436,7 +441,6 @@ with tab1:
             }
         )
 
-        # Podsumowania KPI na dole zakładki
         st.markdown("<br>", unsafe_allow_html=True)
         sum_col1, sum_col2, sum_col3 = st.columns(3)
         with sum_col1: st.metric(label="📈 Sumaryczny tonaż roczny", value=f"{total_annual_production:,} kg")
@@ -450,26 +454,25 @@ with tab1:
                 del st.session_state["master_logistics_df"]
             st.success(f"🎉 Sukces! Zapisano stabilną strukturę floty złożoną z {len(confirmed_mixers_blueprint)} urządzeń.")
 # ==========================================
-# ZAKŁADKA 2: SPECYFIKACJA MASZYN, REOLOGIA, DOBÓR POMP I ENERGIA TERMOCZYNNA
+# ZAKŁADKA 2: ZAAWANSOWANA KARTA MASZYN I SYSTEMU HYDRAULIKI (DYNAMICZNE PARAMETRY)
 # ==========================================
 with tab2:
-    st.header("📐 Specyfikacja Aparatury, Układy Pompowo-Mieszające i Termodynamika")
+    st.header("📐 Specyfikacja Maszyn, Reologia, Dynamiczny Dobór Pomp i Termodynamika")
 
     if "confirmed_mixers" not in st.session_state or not st.session_state.confirmed_mixers:
         st.info("💡 Aby wygenerować kartę maszyn, najpierw zatwierdź konfigurację floty w **Zakładce 1** (przycisk na dole strony).")
     else:
-        # --- SEKRETY INŻYNIERYJNE: DOBÓR MEDIÓW I MATERIAŁÓW ---
-        st.markdown("### ⚙️ 1. Konfiguracja Konstrukcyjna i Wybór Mediów Roboczych")
+        st.markdown("### ⚙️ 1. Konfiguracja Globalna Mediów Roboczych i Materiałów")
         
         c_mat1, c_mat2, c_mat3 = st.columns(3)
         with c_mat1:
             material_stal = st.selectbox(
-                "Materiał konstrukcyjny reaktora:",
+                "Materiał konstrukcyjny aparatów:",
                 ["Stal węglowa (zwykła / P265GH)", "Stal nierdzewna (SS304 / SS316L)"]
             )
         with c_mat2:
             medium_grzewcze = st.selectbox(
-                "Medium grzewcze (Coil):",
+                "Medium grzewcze (Coil/Jacket):",
                 ["Para wodna nasycona", "Olej termalny", "Gorąca woda procesowa"]
             )
         with c_mat3:
@@ -478,23 +481,20 @@ with tab2:
                 ["Woda chłodnicza (chiller)", "Olej chłodzący / Woda sieciowa"]
             )
 
-        # Dynamiczne dopasowanie wyjściowego współczynnika k na bazie fizyki cieplnej
-        # Para + Stal węglowa = najwyższy k, Olej + Stal nierdzewna = najniższy k
+        # Dopasowanie współczynnika przenikania k na bazie fizyki cieplnej i wybranej stali
         if "nierdzewna" in material_stal:
             base_k_grzanie = 0.55 if "Para" in medium_grzewcze else (0.30 if "Olej" in medium_grzewcze else 0.40)
             base_k_chlodzenie = 0.45 if "Woda" in medium_chlodzace else 0.25
-        else: # Stal zwykła
+        else:
             base_k_grzanie = 0.95 if "Para" in medium_grzewcze else (0.45 if "Olej" in medium_grzewcze else 0.60)
             base_k_chlodzenie = 0.75 if "Woda" in medium_chlodzace else 0.40
 
         st.sidebar.markdown("### 🌡️ Parametry Procesu Termicznego")
         tryb_procesu = st.sidebar.selectbox("Tryb pracy termicznej", ["Grzanie wkładu", "Chłodzenie wkładu"])
         
-        # Przypisanie sugerowanego k do sidebar, użytkownik może dokonać korekty ręcznej
         sug_k = base_k_grzanie if tryb_procesu == "Grzanie wkładu" else base_k_chlodzenie
         k_coefficient = st.sidebar.number_input("Współczynnik przenikania ciepła (k) [kW/(m²·K)]", value=float(sug_k), step=0.05)
 
-        # Ustawienia temperatur wejściowych
         if tryb_procesu == "Grzanie wkładu":
             T1_init = st.sidebar.number_input("Początkowa temp. produktu (T1) [°C]", value=20.0, step=5.0)
             T2_final = st.sidebar.number_input("Docelowa temp. produktu (T2) [°C]", value=70.0, step=5.0)
@@ -518,11 +518,11 @@ with tab2:
         elif tryb_procesu == "Chłodzenie wkładu" and (t1_carrier >= T1_init or t1_carrier >= T2_final or T2_final >= T1_init):
             valid_physics = False
 
-        # --- PRZETWARZANIE FLOTY MASZYN ---
+        # --- INDYWIDUALNA PARAMETRYZACJA APARATURY ---
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("### 📋 2. Zbiorcza Karta Maszynowa i Hydrauliczna Zakładu")
+        st.markdown("### 🛠️ 2. Indywidualne dostrojenie reologii i geometrii rurociągów per reaktor")
+        st.info("💡 **Instrukcja:** Rozwiń sekcję danego miksera, aby zmienić lepkość produktu lub długość i średnicę jego dedykowanej linii rozładunkowej.")
 
-        # Stałe konstrukcyjne referencyjne z reaktora T5
         V_WORKING_BASE = 10.0
         V_TOTAL_BASE = 15.17
         A_BASE = 17.0
@@ -532,22 +532,35 @@ with tab2:
         mixers_fleet = st.session_state.confirmed_mixers
 
         for m in mixers_fleet:
+            tag = m["tag"]
+            kat = m["product_family"]
             v_working = m["capacity_m3"]
             mass_batch_kg = m["mass_per_batch"]
-            kat = m["product_family"]
-            rho_olej = FUCHS_PORTFOLIO[kat]["density"] * 1000.0  # kg/m³
+            rho_olej = FUCHS_PORTFOLIO[kat]["density"] * 1000.0
             
-            # 1. Skalowanie geometrii, powierzchni wymiany i masy pustego reaktora
+            # Formularz per mieszalnik
+            with st.expander(f"⚙️ Konfiguracja szczegółowa rurociągów i reologii dla aparatu: {tag} ({kat})"):
+                c_exp1, c_exp2, c_exp3, c_exp4 = st.columns(4)
+                with c_exp1:
+                    visc_project = st.number_input(f"Lepkość obliczeniowa [cSt]:", min_value=1.0, max_value=2000.0, value=500.0, step=50.0, key=f"visc_{tag}")
+                with c_exp2:
+                    pipe_length = st.number_input(f"Długość rurociągu L [m]:", min_value=1.0, max_value=200.0, value=15.0, step=5.0, key=f"len_{tag}")
+                with c_exp3:
+                    pipe_diameter_mm = st.number_input(f"Średnica rury D [mm]:", min_value=25, max_value=300, value=80, step=10, key=f"dia_{tag}")
+                with c_exp4:
+                    pump_static_head = st.number_input(f"Wysokość podnoszenia H_stat [m]:", min_value=0.0, max_value=30.0, value=3.0, step=1.0, key=f"hstat_{tag}")
+
+            # 1. Geometria i Skalowanie gabarytów reaktora T5
             v_total = v_working * (V_TOTAL_BASE / V_WORKING_BASE)
             scaled_area = A_BASE * ((v_working / V_WORKING_BASE) ** (2/3))
             scaled_weight = W_BASE * (v_total / V_TOTAL_BASE)
             
-            # 2. Obliczenia ENERGII POTRZEBNEJ DO PROCESU (Q = m * c * deltaT)
+            # 2. Obliczenia Energii Termicznej w kWh
             delta_T_czyste = abs(T2_final - T1_init)
             Q_kilodżule = mass_batch_kg * c_product * delta_T_czyste
-            Q_kwh = Q_kilodżule / 3600.0  # Zamiana kJ -> kWh
+            Q_kwh = Q_kilodżule / 3600.0
             
-            # 3. Analityczny czas wymiany ciepła (tau) ze wzoru różniczkowo-bilansowego
+            # 3. Analityczny Czas Wymiany Ciepła (Zgodnie z Modelem Różniczkowym)
             if valid_physics and w_heat_capacity > 0:
                 efficiency_factor = 1.0 - (1.0 / math.exp((k_coefficient * scaled_area) / w_heat_capacity))
                 ln_numerator = T1_init - t1_carrier
@@ -558,38 +571,51 @@ with tab2:
             else:
                 tau_hours = 0.0
 
-            # Estymacja LMTD
+            # Wyznaczenie LMTD na wylocie strumienia nośnika
             t2_carrier_approx = t1_carrier + (mass_batch_kg * c_product * (T2_final - T1_init)) / (w_heat_capacity * max(tau_seconds, 1.0)) if tau_hours > 0 else t1_carrier
             dt1 = abs(t1_carrier - T1_init)
             dt2 = abs(t2_carrier_approx - T2_final)
             lmtd = (dt1 - dt2) / math.log(dt1 / dt2) if (dt1 > 0 and dt2 > 0 and dt1 != dt2) else dt1
 
-            # 4. WYMIAROWANIE MIESZADŁA (Kryterium Re i lepkości projektowej 500 cSt z karty T5)
+            # 4. Dynamiczne Wymiarowanie Mieszadła (Wykorzystuje wpisaną lepkość reologiczną)
             D_tank = round(2.2 * ((v_working / 10.0) ** (1/3)), 2)
             d_agiterator = round(D_tank / 3, 2)
-            n_speed = 1.5  # 90 RPM
-            visc_dynamic = (500.0 / 1_000_000.0) * rho_olej  # Zamiana cSt -> Pa·s
+            n_speed = 1.5
+            visc_dynamic = (visc_project / 1_000_000.0) * rho_olej
             
             Re_mix = (n_speed * (d_agiterator ** 2) * rho_olej) / max(visc_dynamic, 0.001)
-            Ne_power_num = 2.5 if Re_mix > 50 else (50.0 / max(Re_mix, 1.0)) # Model łapowy/płatowy
+            Ne_power_num = 2.5 if Re_mix > 50 else (50.0 / max(Re_mix, 1.0))
             P_mix_watts = Ne_power_num * (n_speed ** 3) * (d_agiterator ** 5) * rho_olej
-            required_motor_power_kw = max((P_mix_watts / 0.82 * 1.25) / 1000.0, 1.5) # uwzględnienie sprawności i zapasu
+            required_motor_power_kw = max((P_mix_watts / 0.82 * 1.25) / 1000.0, 1.5)
 
-            # 5. INTELIGENTNY DOBÓR POMPY ROZŁADUNKOWEJ
-            # Przy lepkości projektowej 500 cSt pompy odśrodkowe tracą sprawność -> system wymusza pompę wyporową
-            pump_type = "Śrubowa (Wyporowa)" if v_working >= 15.0 else "Krzywkowa (Rotacyjna)"
-            # Wydajność pompy dobrana tak, aby rozładować zbiornik w max 45 minut
-            q_pump_m3_h = round((v_working / 0.75), 1)
-            # Założone ciśnienie tłoczenia na instalacji Fuchs (straty na rurach + filtracja) = 4.0 bar
-            pump_power_kw = max((q_pump_m3_h * 4.0) / (36.0 * 0.65) * 1.20, 0.75)
+            # 5. Dynamiczny Dobór Układu Pompowego (Równanie Darcy-Weisbacha)
+            q_pump_m3_h = round((v_working / 0.75), 1) # Nominalne 45min rozładunku
+            D_m = pipe_diameter_mm / 1000.0
+            pipe_area = (math.pi * (D_m ** 2)) / 4.0
+            velocity_m_s = (q_pump_m3_h / 3600.0) / pipe_area
+            
+            Re_pipe = (velocity_m_s * D_m * rho_olej) / max(visc_dynamic, 0.001)
+            if Re_pipe < 2100:
+                lambda_friction = 64.0 / max(Re_pipe, 1.0)
+            else:
+                lambda_friction = 0.3164 / (Re_pipe ** 0.25)
+                
+            g_gravity = 9.81
+            head_loss_m = lambda_friction * (pipe_length / D_m) * ((velocity_m_s ** 2) / (2.0 * g_gravity))
+            total_required_head_m = pump_static_head + head_loss_m
+            required_pressure_bar = (rho_olej * g_gravity * total_required_head_m) / 100000.0
+            
+            # Automatyczny dobór typu pompy ze względu na granicę reologiczną lepkości kinematycznej
+            pump_type = "Śrubowa (Wyporowa)" if visc_project > 150 else ("Krzywkowa (Rotacyjna)" if visc_project > 50 else "Odśrodkowa")
+            pump_power_kw = max((q_pump_m3_h * required_pressure_bar) / (36.0 * 0.65) * 1.20, 0.75)
 
             spec_rows.append({
-                "Tag urządzenia 🔒": m["tag"],
+                "Tag urządzenia 🔒": tag,
                 "Pojemność robocza [m³]": round(v_working, 1),
-                "Typ Mieszadła": "Łapowe (Viscous Fluid)",
+                "Wpisana Lepkość [cSt]": int(visc_project),
                 "Moc Mieszadła [kW] ⚙️": round(required_motor_power_kw, 1),
                 "Typ Pompy": pump_type,
-                "Przepływ pompy [m³/h]": q_pump_m3_h,
+                "Wymagane Ciśnienie [bar]": round(required_pressure_bar, 2),
                 "Moc Pompy [kW] 🔄": round(pump_power_kw, 1),
                 "Energia szarży [kWh] ⚡": int(Q_kwh),
                 "Średnia delta LMTD [°C]": round(lmtd, 1),
@@ -598,31 +624,35 @@ with tab2:
 
         df_spec = pd.DataFrame(spec_rows)
 
-        # Stosowanie bezpiecznego inżynieryjnego podświetlania LMTD (zabezpieczenie przed koksowaniem/szokiem)
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("### 📊 3. Zbiorcza Karta Wynikowa i Dynamiczny Bilans Maszynowy")
+
+        # Inżynieryjne kryteria podświetlania LMTD
         def style_lmtd_cells(row):
             styles = [''] * len(row)
             val = row["Średnia delta LMTD [°C]"]
             if isinstance(val, (int, float)):
                 idx = row.index.get_loc("Średnia delta LMTD [°C]")
                 if val < 15.0:
-                    styles[idx] = 'background-color: #fff2cc; color: #b78103; font-weight: bold;' # Zbyt powolny proces
+                    styles[idx] = 'background-color: #fff2cc; color: #b78103; font-weight: bold;'
                 elif val > 55.0:
-                    styles[idx] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;' # Ryzyko przypalenia oleju
+                    styles[idx] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;'
                 else:
-                    styles[idx] = 'background-color: #e6f4ea; color: #137333; font-weight: bold;' # Przedział optymalny
+                    styles[idx] = 'background-color: #e6f4ea; color: #137333; font-weight: bold;'
             return styles
 
         styled_df_spec = df_spec.style.apply(style_lmtd_cells, axis=1)
 
-        # Wyświetlenie tabeli z nowym standardem szerokości Streamlita v2026
+        # Renderowanie tabeli w standardzie stretch (v2026)
         st.dataframe(
             styled_df_spec,
             hide_index=True,
             width="stretch",
             column_config={
                 "Pojemność robocza [m³]": st.column_config.NumberColumn(format="%.1f m³"),
+                "Wpisana Lepkość [cSt]": st.column_config.NumberColumn(format="%d cSt"),
                 "Moc Mieszadła [kW] ⚙️": st.column_config.NumberColumn(format="%.1f kW"),
-                "Przepływ pompy [m³/h]": st.column_config.NumberColumn(format="%.1f m³/h"),
+                "Wymagane Ciśnienie [bar]": st.column_config.NumberColumn(format="%.2f bar"),
                 "Moc Pompy [kW] 🔄": st.column_config.NumberColumn(format="%.1f kW"),
                 "Energia szarży [kWh] ⚡": st.column_config.NumberColumn(format="%d kWh"),
                 "Średnia delta LMTD [°C]": st.column_config.NumberColumn(format="%.1f °C"),
@@ -631,27 +661,7 @@ with tab2:
         )
 
         if not valid_physics:
-            st.error("🚨 **Błąd założeń temperaturowych!** Nośnik energii w panelu bocznym musi mieć temperaturę umożliwiającą realizację procesu (Wyższa dla grzania, niższa dla chłodzenia).")
-
-        # --- LEGENDA I KRYTERIA INŻYNIERYJNE ---
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("### 🏭 3. Założenia reologiczne i konstrukcyjne (Model T5 Design)")
-        
-        inf_col1, inf_col2 = st.columns(2)
-        with inf_col1:
-            st.info(f"""
-            **⚙️ Układ Mechaniczny (Mieszanie i Hydraulika):**
-            * **Lepkość obliczeniowa:** Zablokowana na poziomie `500 cSt` (zgodnie z najtrudniejszym scenariuszem rozruchu zimnego reaktora).
-            * **Typ pompy wyporowej:** Śrubowa/Krzywkowa. Generuje stałe natężenie przepływu i potrafi przetłoczyć lepkie oleje bazowe bez zjawiska kawitacji.
-            * **Założone ciśnienie robocze pomp:** `4.0 bar` (uwzględnia opory liniowe oraz opór filtrów workowych na instalacji nalewczej).
-            """)
-        with inf_col2:
-            st.info(f"""
-            **🔥 Układ Termodynamiczny i Przenikanie Ciepła:**
-            * **Materiał korpusu:** `{material_stal}`.
-            * **Sugerowana charakterystyka k:** Wyznaczona automatycznie na poziomie `{sug_k} kW/(m²·K)`.
-            * **Interpretacja LMTD:** 🟢 **15 - 55°C** (Optimum) | 🟡 **< 15°C** (Mała wydajność, proces potrwa zbyt długo) | 🔴 **> 55°C** (Ryzyko lokalnego koksowania oleju na ściance wężownicy i degradacji dodatków uszlachetniających FUCHS).
-            """)
+            st.error("🚨 **Błąd założeń temperaturowych!** Nośnik energii w panelu bocznym musi mieć temperaturę umożliwiającą realizację procesu.")
 # ==========================================
 # ZAKŁADKA 3: LOGISTYKA, CZAS ROZLEWU I GOSPODARKA PALETOWA
 # ==========================================
