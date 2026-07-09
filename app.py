@@ -128,7 +128,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # ==========================================
-# ZAKŁADKA 1: GŁÓWNE ZESTAWIENIE I FLOTA (WERSJA STABILNA)
+# ZAKŁADKA 1: GŁÓWNE ZESTAWIENIE I UTYLIZACJA (PEŁNY STABILNY KOD)
 # ==========================================
 with tab1:
     st.header(f"Zintegrowane Zestawienie Parametrów Procesowych (Baza: {godziny_dziennie:.1f}h/dzień)")
@@ -136,12 +136,10 @@ with tab1:
     TYPOSZEREG_MIKSEROW = [5, 7, 10, 15, 18, 21, 25, 31]
     
     if wybrane_kategorie:
-        # --- KROK 1: BEZPIECZNA SYNCHRONIZACJA PRZED RENDEROWANIEM ---
-        # Sprawdzamy czy edytor zapisał jakieś zmiany w sesji i nanosimy je na prod_dict
-        if "tab1_editor" in st.session_state and st.session_state.tab1_editor.get("edited_rows"):
+        # --- KROK 1: SYNCHRONIZACJA STANU PO ZATWIERDZENIU FORMULARZA ---
+        if "tab1_editor" in st.session_state and "edited_rows" in st.session_state.tab1_editor:
             edits = st.session_state.tab1_editor["edited_rows"]
             active_families = [k for k in FUCHS_PORTFOLIO.keys() if k in wybrane_kategorie]
-            
             for idx, changes in edits.items():
                 if int(idx) < len(active_families):
                     family_name = active_families[int(idx)]
@@ -154,9 +152,10 @@ with tab1:
                     if "5. Użyj Typoszeregu 🟦" in changes:
                         st.session_state.prod_dict[family_name]["use_typoszereg"] = bool(changes["5. Użyj Typoszeregu 🟦"])
 
-        # --- KROK 2: PRZETWARZANIE MATEMATYCZNE ---
+        # --- KROK 2: KALKULACJE MATEMATYCZNO-PROCESOWE GABARYTÓW ---
         calculated_matrix_rows = []
         oversized_reactors = {}
+        alert_small_volumes = []
 
         for kat in wybrane_kategorie:
             m_annual = st.session_state.prod_dict[kat]["roczna"]
@@ -193,6 +192,8 @@ with tab1:
 
             if final_vol_m3 > 31.0:
                 oversized_reactors[kat] = final_vol_m3
+            if calculated_vol_m3 < 5.0 and calculated_vol_m3 > 0:
+                alert_small_volumes.append(f"⚠️ **{kat}**: Wyliczony gabaryt ({calculated_vol_m3:.2f} m³) poniżej minimum typoszeregu fabryki (< 5 m³).")
 
             calculated_matrix_rows.append({
                 "1. Nazwa rodziny 🔒": kat,
@@ -209,14 +210,13 @@ with tab1:
 
         st.markdown("##### 📥 Krok A: Parametryzacja Tonażu, Utylizacji oraz SKUs")
         
-        # Wyświetlamy ostrzeżenia o małych pojemnościach czytelnie nad tabelą
-            for alert in alert_small_volumes:
+        for alert in alert_small_volumes:
             st.error(alert)
 
-        # Otwieramy formularz blokujący natychmiastowy rerun podczas pisania
+        # --- KROK 3: BLOK FORMULARZA ZABEZPIECZAJĄCEGO PRZED EDYCJĄ NA ŻYWO ---
         with st.form("form_tabela_glowna"):
             edited_table = st.data_editor(
-                df_complete_matrix,  # Przekazujemy czysty, stabilny DataFrame
+                df_complete_matrix,
                 hide_index=True,
                 width="stretch",
                 disabled=["1. Nazwa rodziny 🔒", "6. Wyliczony gabaryt reaktora 🔒", "7. Sugerowany Mikser (Typoszereg) 🔒"],
@@ -231,27 +231,9 @@ with tab1:
                 key="tab1_editor"
             )
             
-            # Przycisk, który jako jedyny wywoła przeliczenie danych po zakończeniu edycji
             potwierdzenie = st.form_submit_button("💾 Zapisz zmiany w tabeli i przelicz instalację", type="primary", use_container_width=True)
 
-        # --- KROK 3: CZYSTY EDYTOR BEZ PARAMETRU ON_CHANGE ---
-        # Edycja jest teraz w 100% płynna, a stany zapisują się stabilnie w tle
-        edited_table = st.data_editor(
-            styled_matrix,
-            hide_index=True,
-            width="stretch",
-            disabled=["1. Nazwa rodziny 🔒", "6. Wyliczony gabaryt reaktora 🔒", "7. Sugerowany Mikser (Typoszereg) 🔒"],
-            column_config={
-                "2. Roczna produkcja [kg] 🟦": st.column_config.NumberColumn(min_value=0, step=50000, format="%d"),
-                "3. Docelowa Utylizacja [%] 🟦": st.column_config.NumberColumn(min_value=1.0, max_value=100.0, step=5.0, format="%.1f%%"),
-                "4. Liczba SKUs 🟦": st.column_config.NumberColumn(min_value=1, step=1),
-                "5. Użyj Typoszeregu 🟦": st.column_config.CheckboxColumn(),
-                "6. Wyliczony gabaryt reaktora 🔒": st.column_config.NumberColumn(format="%.2f m³"),
-                "h_vol": None, "h_batches": None, "h_kg": None, "h_annual": None
-            },
-            key="tab1_editor"
-        )
-
+        # --- KROK 4: DYNAMICZNY PRZYDZIAŁ ZBIORNIKÓW (SKUs > 1) ---
         st.markdown("<br>", unsafe_allow_html=True)
         any_sku_trigger = False
         for kat in wybrane_kategorie:
@@ -269,6 +251,7 @@ with tab1:
                     key=f"tanks_input_{kat}"
                 )
 
+        # --- KROK 5: OBSŁUGA OVERSIZINGU (>31 m³) ---
         split_decisions = {}
         if oversized_reactors:
             st.warning("⚠️ **Wykryto przekroczenie dopuszczalnych gabarytów transportowych pojedynczego zbiornika (> 31 m³)!**")
@@ -280,6 +263,7 @@ with tab1:
                         value=True, key=f"chk_split_{kat_over}"
                     )
 
+        # --- KROK 6: GENEROWANIE KOŃCOWEJ FLOTY URZĄDZEŃ ---
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("### 🏭 3. Skorygowana i Zweryfikowana Flota Mieszalników")
         
@@ -324,105 +308,7 @@ with tab1:
                     for t_idx in range(tanks_count):
                         tag_id = f"MT-{tag_counter}{chr(sub_letter_ascii)}" + (f"-Z{t_idx+1}" if tanks_count > 1 else "")
                         final_fleet_rows.append({
-                            "ID Urządzenia 🔒": tag_id, "Przypisana Linia 🔒": kat,
-                            "Liczba szarż [/mies] 🔒": int(mixer_batches), "Realna Utylizacja [%] 🔒": round(split_util, 1),
-                            "Realna Pojemność [m³] 🔒": 31.0, "Masa Szarży [kg] 🔒": int(mixer_mass_batch), 
-                            "Status 🔒": "🧱 Max Gabaryt (31.0 m³)"
-                        })
-                        confirmed_mixers_blueprint.append({
-                            "tag": tag_id, "product_family": kat, "capacity_m3": 31.0,
-                            "material": FUCHS_PORTFOLIO[kat]["material"], "batches_count": mixer_batches,
-                            "mass_per_batch": mixer_mass_batch, "annual_volume": mixer_annual
-                        })
-                        total_calculated_volume_m3 += 31.0
-                        total_batches_per_month += mixer_batches
-                    
-                    remaining_vol -= 31.0
-                    sub_letter_ascii += 1
-                
-                if remaining_vol > 0:
-                    split_tail_vol = remaining_vol / 2.0
-                    weight_fraction_tail = split_tail_vol / vol_per_tank
-                    tail_annual = annual_per_tank * weight_fraction_tail
-                    tail_batches = math.ceil(batches_per_tank * weight_fraction_tail)
-                    tail_mass_batch = math.ceil((r["h_kg"]/tanks_count) * (split_tail_vol / vol_per_tank))
-                    
-                    if AVAILABLE_HOURS_MONTH > 0:
-                        tail_util = (tail_batches * cyc) / AVAILABLE_HOURS_MONTH * 100.0
-                    else:
-                        tail_util = 0.0
-                    
-                    for t_idx in range(tanks_count):
-                        for _ in range(2):
-                            tag_id = f"MT-{tag_counter}{chr(sub_letter_ascii)}" + (f"-Z{t_idx+1}" if tanks_count > 1 else "")
-                            final_fleet_rows.append({
-                                "ID Urządzenia 🔒": tag_id, "Przypisana Linia 🔒": kat,
-                                "Liczba szarż [/mies] 🔒": int(tail_batches), "Realna Utylizacja [%] 🔒": round(tail_util, 1),
-                                "Realna Pojemność [m³] 🔒": round(split_tail_vol, 1), "Masa Szarży [kg] 🔒": int(tail_mass_batch), 
-                                "Status 🔒": "🟢 Bliźniak Konstrukcyjny"
-                            })
-                            confirmed_mixers_blueprint.append({
-                                "tag": tag_id, "product_family": kat, "capacity_m3": max(split_tail_vol, 0.5),
-                                "material": FUCHS_PORTFOLIO[kat]["material"], "batches_count": tail_batches,
-                                "mass_per_batch": tail_mass_batch, "annual_volume": tail_annual
-                            })
-                            total_calculated_volume_m3 += split_tail_vol
-                            total_batches_per_month += tail_batches
-                            sub_letter_ascii += 1
-            else:
-                if vol_per_tank < 5.0:
-                    status_txt = "⚠️ Poniżej minimum typoszeregu"
-                elif vol_per_tank > 31.0:
-                    status_txt = "🔴 Za duży (>31 m³)"
-                else:
-                    status_txt = "✅ Przydział SKUs" if tanks_count > 1 else "✅ Optymalny"
-                
-                for t_idx in range(tanks_count):
-                    tag_id = f"MT-{tag_counter}" + (f"-Z{t_idx+1}" if tanks_count > 1 else "")
-                    mass_batch = math.ceil(r["h_kg"] / tanks_count)
-                    
-                    final_fleet_rows.append({
-                        "ID Urządzenia 🔒": tag_id, "Przypisana Linia 🔒": kat,
-                        "Liczba szarż [/mies] 🔒": int(batches_per_tank), "Realna Utylizacja [%] 🔒": round(real_utilization, 1),
-                        "Realna Pojemność [m³] 🔒": round(vol_per_tank, 1), "Masa Szarży [kg] 🔒": int(mass_batch), 
-                        "Status 🔒": status_txt
-                    })
-                    confirmed_mixers_blueprint.append({
-                        "tag": tag_id, "product_family": kat, "capacity_m3": max(vol_per_tank, 0.5),
-                        "material": FUCHS_PORTFOLIO[kat]["material"], "batches_count": batches_per_tank,
-                        "mass_per_batch": mass_batch, "annual_volume": annual_per_tank
-                    })
-                    total_calculated_volume_m3 += vol_per_tank
-                    total_batches_per_month += batches_per_tank
-
-            total_annual_production += total_annual
-            tag_counter += 1
-
-        df_final_fleet = pd.DataFrame(final_fleet_rows)
-        st.dataframe(
-            df_final_fleet,
-            hide_index=True,
-            width="stretch",
-            column_config={
-                "Realna Utylizacja [%] 🔒": st.column_config.NumberColumn(format="%.1f%%"),
-                "Realna Pojemność [m³] 🔒": st.column_config.NumberColumn(format="%.1f m³"),
-                "Masa Szarży [kg] 🔒": st.column_config.NumberColumn(format="%d kg")
-            }
-        )
-
-        st.markdown("<br>", unsafe_allow_html=True)
-        sum_col1, sum_col2, sum_col3 = st.columns(3)
-        with sum_col1: st.metric(label="📈 Sumaryczny tonaż roczny", value=f"{total_annual_production:,} kg")
-        with sum_col2: st.metric(label="🔄 Całkowita liczba szarż / miesiąc", value=f"{total_batches_per_month} szarż")
-        with sum_col3: st.metric(label="📐 Sumaryczna pojemność floty", value=f"{total_calculated_volume_m3:.1f} m³")
-            
-        st.markdown("---")
-        if st.button("📥 Zatwierdź i wyślij konfigurację do kolejnych kroków", type="primary", use_container_width=True):
-            st.session_state.confirmed_mixers = confirmed_mixers_blueprint
-            if "master_logistics_df" in st.session_state:
-                del st.session_state["master_logistics_df"]
-            st.success(f"🎉 Sukces! Zapisano stabilną strukturę floty złożoną z {len(confirmed_mixers_blueprint)} urządzeń.")
-            
+                            "ID
 # ==========================================
 # ZAKŁADKA 2: KARTA MASZYN I DOBÓR POMP
 # ==========================================
