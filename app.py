@@ -637,140 +637,148 @@ with tab2:
             }
         )
 # ==========================================
-# ZAKŁADKA 3: LOGISTYKA OPAKOWAŃ (JEDNA, W PEŁNI INTERAKTYWNA TABELA ZBIORCZA)
+# ZAKŁADKA 3: LOGISTYKA, CZAS ROZLEWU I SYMULACJE OPAKOWAŃ (REALNA + 100%)
 # ==========================================
 with tab3:
-    st.header("📦 Harmonogramowanie i Zbiorczy Bilans Rozlewu Opakowań")
-    if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Brak zatwierdzonych danych z Zakładki 1. Uruchom konfigurację i kliknij przycisk zatwierdzenia.")
+    st.header("📦 Analiza Logistyczna, Czas Rozlewu i Przechowywanie")
+
+    if "confirmed_mixers" not in st.session_state or not st.session_state.confirmed_mixers:
+        st.info("💡 Aby przeprowadzić analizę logistyczną, najpierw zatwierdź konfigurację floty w **Zakładce 1**.")
     else:
-        st.markdown("### 🛠️ 1. Parametry Sterowania Rozlewem")
+        # Pobranie danych o produkcji z floty mieszalników
+        mixers_fleet = st.session_state.confirmed_mixers
+        opakowania_podzial = st.session_state.get("opakowania_podzial", {})
         
-        # Konfiguracja temperatur rozlewu w kolumnach
-        temp_cols = st.columns(min(len(st.session_state.confirmed_mixers), 4))
-        for idx, mixer in enumerate(st.session_state.confirmed_mixers):
-            with temp_cols[idx % min(len(st.session_state.confirmed_mixers), 4)]:
-                t_filling = st.number_input(
-                    f"Temp. rozlewu {mixer['tag']} [°C]:", 
-                    min_value=10.0, max_value=120.0, 
-                    value=float(min(30.0, st.session_state.heat_temps.get(mixer["tag"], 60.0))), 
-                    key=f"t_fill_{mixer['tag']}"
-                )
-                st.session_state.filling_temps[mixer["tag"]] = t_filling
+        # Wyznaczenie sumarycznego tonażu miesięcznego per rodzina
+        tonaz_miesieczny_per_rodzina = {}
+        for m in mixers_fleet:
+            kat = m["product_family"]
+            # szarże/miesiąc * masa_szarży
+            masa_miesieczna = m["batches_count"] * m["mass_per_batch"]
+            tonaz_miesieczny_per_rodzina[kat] = tonaz_miesieczny_per_rodzina.get(kat, 0) + masa_miesieczna
 
-        st.markdown("---")
-        st.markdown("### 📊 2. Zbiorcze Zestawienie Strumieni Logistycznych Zakładu")
-        st.info("💡 **Instrukcja:** Kolumna **'Zastosowany Udział % 🟦'** jest w pełni edytowalna. Możesz modyfikować udziały opakowań bezpośrednio w głównej tabeli – system natychmiast przeliczy logistykę na żywo.")
-        
-        # KROK A: Inicjalizacja stałej bazy danych w session_state (jeśli nie istnieje)
-        if "master_logistics_df" not in st.session_state:
-            init_rows = []
-            for mixer in st.session_state.confirmed_mixers:
-                kat = mixer["product_family"]
-                chosen_packs = input_packs.get(kat, [])
-                if mixer["annual_volume"] > 0 and chosen_packs:
-                    # Domyślny równomierny podział procentowy
-                    default_pct = round(100.0 / len(chosen_packs), 1)
-                    for p_name in chosen_packs:
-                        init_rows.append({
-                            "ID Reaktora 🔒": mixer["tag"],
-                            "Linia Produktowa 🔒": kat,
-                            "Typ Opakowania 🔒": p_name,
-                            "Zastosowany Udział % 🟦": default_pct
-                        })
-            st.session_state.master_logistics_df = pd.DataFrame(init_rows)
+        # ==========================================
+        # SEKCJA 1: SYMULACJA MIESZANA (REALNY SPLIT PRODUKCJI)
+        # ==========================================
+        st.markdown("### 🔀 1. Symulacja Mieszana (Na podstawie struktury % z panelu bocznego)")
+        st.caption("Wyliczenia logistyczne odzwierciedlające zadeklarowany podział strumienia produkcyjnego.")
 
-        # KROK B: Pobieramy dane z sesji i w locie obliczamy kolumny pochodne (szt., palety, czas)
-        df_calc = st.session_state.master_logistics_df.copy()
-        
-        calculated_liters_list = []
-        calculated_szt_list = []
-        calculated_pallets_list = []
-        calculated_hours_list = []
-        
-        for _, row in df_calc.iterrows():
-            r_id = row["ID Reaktora 🔒"]
-            kat = row["Linia Produktowa 🔒"]
-            p_name = row["Typ Opakowania 🔒"]
-            pct = row["Zastosowany Udział % 🟦"] / 100.0
+        real_split_rows = []
+
+        for kat, total_mass_month in tonaz_miesieczny_per_rodzina.items():
+            # Pobieramy opakowania przypisane w Kroku 3 dla tej konkretnej rodziny
+            wybrane_dla_linii = st.session_state.get(f"packs_{kat}", [])
             
-            # Pobieramy dane wejściowe dla danego reaktora z Zakładki 1
-            mixer_meta = next((m for m in st.session_state.confirmed_mixers if m["tag"] == r_id), None)
-            if mixer_meta:
-                m_monthly_kg = mixer_meta["annual_volume"] / 12
-                dens = FUCHS_PORTFOLIO[kat]["density"]
-                total_volume_l = m_monthly_kg / dens
-                config = PACK_CONFIGS[p_name]
-                
-                allocated_liters = total_volume_l * pct
-                total_szt = math.ceil(allocated_liters / config["size_l"]) if allocated_liters > 0 else 0
-                needed_pallets = math.ceil(total_szt / config["per_pallet"]) if total_szt > 0 else 0
-                filling_hours = total_szt / config["rate_szt_h"] if total_szt > 0 else 0.0
+            # Wymagania magazynowe / przechowywania na bazie właściwości rodziny
+            if "Water-miscible" in kat or "ECOCOOL" in kat:
+                storage_req = "❄️ Frost Sensitive (Min +5°C), Wymaga ogrzewanego magazynu"
+            elif "Engine Oils" in kat:
+                storage_req = "🔥 Klasa pożarowa III, Standard"
             else:
-                allocated_liters, total_szt, needed_pallets, filling_hours = 0, 0, 0, 0.0
-                
-            calculated_liters_list.append(int(allocated_liters))
-            calculated_szt_list.append(int(total_szt))
-            calculated_pallets_list.append(int(needed_pallets))
-            calculated_hours_list.append(round(filling_hours, 1))
-            
-        df_calc["Objętość Strumienia [l] 🔒"] = calculated_liters_list
-        df_calc["Zapotrzebowanie [szt./mies] 🔒"] = calculated_szt_list
-        df_calc["Palety [EPAL/mies] 🔒"] = calculated_pallets_list
-        df_calc["Czas pracy linii rozlewu [h] 🔒"] = calculated_hours_list
+                storage_req = "🟢 Standard, Brak specjalnych obostrzeń"
 
-        # KROK C: Renderowanie JEDNEGO, zintegrowanego edytora tabeli
-        edited_master_df = st.data_editor(
-            df_calc,
+            for p in wybrane_dla_linii:
+                key_id = f"pct_{kat}_{p}"
+                udzial_pct = opakowania_podzial.get(key_id, 0.0)
+                
+                if udzial_pct > 0:
+                    # Masa dedykowana na to opakowanie
+                    masa_opakowania_month = total_mass_month * (udzial_pct / 100.0)
+                    
+                    # Pobranie pojemności opakowania w kg (zakładamy gęstość ~0.9 dla uproszczenia w PACK_CONFIGS)
+                    pack_capacity_kg = PACK_CONFIGS[p]["capacity_l"] * FUCHS_PORTFOLIO[kat]["density"]
+                    liczba_sztuk_month = math.ceil(masa_opakowania_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
+                    
+                    # Wyznaczenie czasu rozlewu (liczba sztuk / wydajność maszyny w szt/h)
+                    wydajnosc_h = PACK_CONFIGS[p]["filling_speed_l_h"] / PACK_CONFIGS[p]["capacity_l"]
+                    czas_rozlewu_h = liczba_sztuk_month / wydajnosc_h if wydajnosc_h > 0 else 0.0
+                    
+                    real_split_rows.append({
+                        "Linia produktowa 🔒": kat,
+                        "Typ Opakowania 📦": p,
+                        "Udział [%]": f"{udzial_pct:.1f}%",
+                        "Masa miesięczna [kg]": int(masa_opakowania_month),
+                        "Liczba opakowań [/mies]": int(liczba_sztuk_month),
+                        "Czas pracy linii rozlewu [h] ⏱️": round(czas_rozlewu_h, 1),
+                        "Wymagania Przechowywania ⚠️": storage_req
+                    })
+
+        if real_split_rows:
+            df_real_split = pd.DataFrame(real_split_rows)
+            st.dataframe(
+                df_real_split,
+                hide_index=True,
+                use_container_width=True,
+                column_config={
+                    "Masa miesięczna [kg]": st.column_config.NumberColumn(format="%d kg"),
+                    "Liczba opakowań [/mies]": st.column_config.NumberColumn(format="%d szt."),
+                    "Czas pracy linii rozlewu [h] ⏱️": st.column_config.NumberColumn(format="%.1f h")
+                }
+            )
+        else:
+            st.warning("⚠️ Brak zdefiniowanych udziałów procentowych w panelu bocznym lub nie wybrano opakowań.")
+
+
+        # ==========================================
+        # SEKCJA 2: SYMULACJA STRUKTURY 100% (SCENARIUSZE SKRAJNE)
+        # ==========================================
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("### 📊 2. Symulacja Scenariuszy 100% (Analiza obciążenia krytycznego)")
+        st.caption("Symulacja pokazująca wymogi logistyczne, gdyby **cały miesięczny tonaż danej rodziny** został skierowany wyłącznie do jednego typu opakowania.")
+
+        simulation_100_rows = []
+
+        for kat, total_mass_month in tonaz_miesieczny_per_rodzina.items():
+            # Dostępne wszystkie globalne typy opakowań z systemu fabryki
+            for p_type in PACK_CONFIGS.keys():
+                pack_capacity_kg = PACK_CONFIGS[p_type]["capacity_l"] * FUCHS_PORTFOLIO[kat]["density"]
+                
+                # Całość (100%) tonażu idzie w to jedno opakowanie
+                liczba_sztuk_100 = math.ceil(total_mass_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
+                
+                # Czas rozlewu dla wariantu 100%
+                wydajnosc_h = PACK_CONFIGS[p_type]["filling_speed_l_h"] / PACK_CONFIGS[p_type]["capacity_l"]
+                czas_rozlewu_100_h = liczba_sztuk_100 / wydajnosc_h if wydajnosc_h > 0 else 0.0
+                
+                simulation_100_rows.append({
+                    "Linia produktowa 🔒": kat,
+                    "Wariant opakowania (100%) 📦": p_type,
+                    "Całkowity tonaż [kg]": int(total_mass_month),
+                    "Wymagana liczba sztuk przy 100%": int(liczba_sztuk_100),
+                    "Skrajny czas rozlewu [h] ⏱️": round(czas_rozlewu_100_h, 1),
+                    "Obciążenie etatu rozlewaczy": f"{round(czas_rozlewu_100_h / 160.0 * 100, 1)}% etatu"
+                })
+
+        df_sim_100 = pd.DataFrame(simulation_100_rows)
+        
+        # Wyświetlenie tabeli z filtrem na linię produktową, aby ułatwić analizę
+        wybrana_linia_filtr = st.selectbox("Filtruj scenariusze 100% dla linii:", ["Wszystkie"] + list(tonaz_miesieczny_per_rodzina.keys()))
+        
+        if wybrana_linia_filtr != "Wszystkie":
+            df_sim_100_filtered = df_sim_100[df_sim_100["Linia produktowa 🔒"] == wybrana_linia_filtr]
+        else:
+            df_sim_100_filtered = df_sim_100
+
+        st.dataframe(
+            df_sim_100_filtered,
             hide_index=True,
             use_container_width=True,
-            disabled=[
-                "ID Reaktora 🔒", "Linia Produktowa 🔒", "Typ Opakowania 🔒", 
-                "Objętość Strumienia [l] 🔒", "Zapotrzebowanie [szt./mies] 🔒", 
-                "Palety [EPAL/mies] 🔒", "Czas pracy linii rozlewu [h] 🔒"
-            ],
             column_config={
-                "Zastosowany Udział % 🟦": st.column_config.NumberColumn(
-                    min_value=0.0, max_value=100.0, step=1.0, format="%.1f%%"
-                ),
-                "Objętość Strumienia [l] 🔒": st.column_config.NumberColumn(format="%d"),
-                "Zapotrzebowanie [szt./mies] 🔒": st.column_config.NumberColumn(format="%d"),
-                "Palety [EPAL/mies] 🔒": st.column_config.NumberColumn(format="%d"),
-                "Czas pracy linii rozlewu [h] 🔒": st.column_config.NumberColumn(format="%.1f h")
-            },
-            key="global_logistics_data_editor"
+                "Całkowity tonaż [kg]": st.column_config.NumberColumn(format="%d kg"),
+                "Wymagana liczba sztuk przy 100%": st.column_config.NumberColumn(format="%d szt."),
+                "Skrajny czas rozlewu [h] ⏱️": st.column_config.NumberColumn(format="%.1f h")
+            }
         )
 
-        # KROK D: Zapisujemy zaktualizowane procenty z powrotem do sesji, by nie zniknęły przy odświeżeniu
-        st.session_state.master_logistics_df["Zastosowany Udział % 🟦"] = edited_master_df["Zastosowany Udział % 🟦"]
-
-        # KROK E: Walidacja matematyczna sumy 100% dla poszczególnych maszyn
-        for mixer in st.session_state.confirmed_mixers:
-            r_id = mixer["tag"]
-            sub_df = edited_master_df[edited_master_df["ID Reaktora 🔒"] == r_id]
-            current_sum = sub_df["Zastosowany Udział % 🟦"].sum()
-            if not math.isclose(current_sum, 100.0, abs_tol=0.1):
-                st.error(f"❌ **Błąd bilansu:** Suma udziałów dla reaktora **{r_id}** wynosi **{current_sum:.1f}%**. Zmodyfikuj wiersze, aby suma wynosiła równo 100%!")
-
-        # --- SEKCJA GLOBALNYCH METRYK KPI POD TABELĄ ---
+        # ==========================================
+        # PODSUMOWANIE KROKU LOGISTYCZNEGO
+        # ==========================================
         st.markdown("<br>", unsafe_allow_html=True)
-        total_factory_hours = edited_master_df["Czas pracy linii rozlewu [h] 🔒"].sum()
-        total_factory_pallets = edited_master_df["Palety [EPAL/mies] 🔒"].sum()
-        total_factory_szt = edited_master_df["Zapotrzebowanie [szt./mies] 🔒"].sum()
-        
-        st.subheader("📦 Łączne podsumowanie potoku logistycznego fabryki:")
-        sum_col1, sum_col2, sum_col3 = st.columns(3)
-        with sum_col1:
-            st.metric(label="🔄 Sumaryczny wolumen opakowań", value=f"{total_factory_szt:,} szt./miesiąc")
-        with sum_col2:
-            st.metric(label="🧱 Całkowity obrót magazynowy palet", value=f"{total_factory_pallets} EPAL/miesiąc")
-        with sum_col3:
-            factory_days = total_factory_hours / godziny_dziennie if godziny_dziennie > 0 else 0
-            st.metric(
-                label="⏱ ... Globalny czas pracy konfekcji", 
-                value=f"{total_factory_hours:.1f} h/miesiąc",
-                delta=f"Obciążenie: {factory_days:.1f} dni roboczych"
-            )
+        st.info("""
+        **💡 Wnioski z analizy magazynowej i logistycznej:**
+        * **Frost Sensitive (Wrażliwe na mróz):** Linia wodorozcieńczalna (np. oleje obróbcze ECOCOOL) zawiera wodę strukturalną. Spadek temperatury poniżej 0°C powoduje nieodwracalne rozwarstwienie emulsji. Przechowywanie bezwzględnie w strefie o temperaturze kontrolowanej (temperatura optymalna: +5°C do +30°C).
+        * **Wydajność operacyjna:** Porównanie czasu rozlewu w symulacji mieszanej z symulacją 100% pozwala zidentyfikować tzw. *wąskie gardła* (bottlenecks) na liniach małych konfekcji (małe butelki drastycznie wydłużają czas pracy rozlewaczy).
+        """)
 # ==========================================
 # ZAKŁADKA 4: FINANSE - BILANSE MOCY ELEKTRYCZNEJ
 # ==========================================
