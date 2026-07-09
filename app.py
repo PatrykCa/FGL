@@ -143,26 +143,27 @@ with tab1:
     TYPOSZEREG_MIKSEROW = [5, 7, 10, 15, 18, 21, 25, 31]
     
     if wybrane_kategorie:
-        # --- POPRAWIONA FUNKCJA SYNCHRONIZACJI (ZAKŁADKA 1) ---
-def sync_tab1_data():
-    if "tab1_editor" in st.session_state:
-        # Streamlit zwraca słownik zmian, gdzie kluczem jest indeks wiersza
-        edits = st.session_state.tab1_editor.get("edited_rows", {})
-        active_families = [k for k in FUCHS_PORTFOLIO.keys() if k in wybrane_kategorie]
-        
-        for idx, changes in edits.items():
-            if idx < len(active_families):
-                # Mapujemy indeks bezpośrednio na sztywną nazwę rodziny
-                family_name = active_families[idx]
+        # --- FUNKCJA SYNCHRONIZACJI WEWNĄTRZ BLOKU 'IF' ---
+        def sync_tab1_data():
+            if "tab1_editor" in st.session_state:
+                edits = st.session_state.tab1_editor.get("edited_rows", {})
+                active_families = [k for k in FUCHS_PORTFOLIO.keys() if k in wybrane_kategorie]
                 
-                if "2. Roczna produkcja [kg] 🟦" in changes:
-                    st.session_state.prod_dict[family_name]["roczna"] = int(changes["2. Roczna produkcja [kg] 🟦"])
-                if "3. Docelowa Utylizacja [%] 🟦" in changes:
-                    st.session_state.prod_dict[family_name]["utilization"] = float(changes["3. Docelowa Utylizacja [%] 🟦"])
-                if "4. Liczba SKUs 🟦" in changes:
-                    st.session_state.prod_dict[family_name]["skus"] = int(changes["4. Liczba SKUs 🟦"])
-                if "5. Użyj Typoszeregu 🟦" in changes:
-                    st.session_state.prod_dict[family_name]["use_typoszereg"] = bool(changes["5. Użyj Typoszeregu 🟦"])
+                for idx, changes in edits.items():
+                    if idx < len(active_families):
+                        family_name = active_families[idx]
+                        if "2. Roczna produkcja [kg] 🟦" in changes:
+                            st.session_state.prod_dict[family_name]["roczna"] = int(changes["2. Roczna produkcja [kg] 🟦"])
+                        if "3. Docelowa Utylizacja [%] 🟦" in changes:
+                            st.session_state.prod_dict[family_name]["utilization"] = float(changes["3. Docelowa Utylizacja [%] 🟦"])
+                        if "4. Liczba SKUs 🟦" in changes:
+                            st.session_state.prod_dict[family_name]["skus"] = int(changes["4. Liczba SKUs 🟦"])
+                        if "5. Użyj Typoszeregu 🟦" in changes:
+                            st.session_state.prod_dict[family_name]["use_typoszereg"] = bool(changes["5. Użyj Typoszeregu 🟦"])
+
+        # Kontynuacja logiki Zakładki 1 (na poziomie wcięcia wewnątrz 'if wybrane_kategorie:')
+        active_families = [k for k in FUCHS_PORTFOLIO.keys() if k in wybrane_kategorie]
+        calculated_matrix_rows = []
 
 # --- POPRAWIONE WYŚWIETLANIE TABELI ---
 # Upewniamy się, że DataFrame tworzony jest dokładnie w tej samej kolejności co active_families w callbacku
