@@ -454,241 +454,174 @@ with tab1:
                 del st.session_state["master_logistics_df"]
             st.success(f"🎉 Sukces! Zapisano stabilną strukturę floty złożoną z {len(confirmed_mixers_blueprint)} urządzeń.")
 # ==========================================
-# ZAKŁADKA 2: ZAAWANSOWANE DEDYKOWANE KONFIGURATORY PROCESOWE PER REAKTOR
+# ZAKŁADKA 2: SPECYFIKACJA MASZYN, DYNAMICZNA REOLOGIA I ENERGETYKA PROCESOWA
 # ==========================================
 with tab2:
-    st.header("📐 Specyfikacja Maszyn i Zaawansowane Konfiguratory Układów")
+    st.header("📐 Zaawansowana Karta Maszyn, Hydrauliki i Energetyki")
 
     if "confirmed_mixers" not in st.session_state or not st.session_state.confirmed_mixers:
-        st.info("💡 Aby wygenerować specyfikację, najpierw zatwierdź konfigurację floty w **Zakładce 1**.")
+        st.info("💡 Aby wygenerować specyfikację, najpierw zatwierdź konfigurację floty w **Zakładce 1** (przycisk na dole strony).")
     else:
-        st.markdown("### ⚙️ Interaktywne Wymiarowanie i Dostrajanie Floty Maszynowej")
-        st.caption("Poniższe sekcje pozwalają na niezależne symulowanie i optymalizację parametrów termodynamicznych, mieszania i rozładunku dla każdego zbiornika osobno.")
+        st.markdown("### ⚙️ 1. Indywidualna parametryzacja reologii, rurociągów i mediów")
+        st.caption("Dostosuj lepkość produktu oraz geometrię instalacji rozładunkowej dla każdego mieszalnika niezależnie.")
 
-        mixers_fleet = st.session_state.confirmed_mixers
+        # --- GLOBALNY WYBÓR MATERIAŁÓW I MEDIÓW GRZEWCZYCH ---
+        c_glob1, c_glob2 = st.columns(2)
+        with c_glob1:
+            material_stal = st.selectbox("Materiał konstrukcyjny aparatów:", ["Stal węglowa (zwykła)", "Stal nierdzewna (SS316L)"])
+            medium_grzewcze = st.selectbox("Medium grzewcze (Coil/Jacket):", ["Para wodna nasycona", "Olej termalny", "Gorąca woda procesowa"])
+        with c_glob2:
+            tryb_procesu = st.selectbox("Dominujący tryb pracy termicznej zbiorników:", ["Grzanie wkładu", "Chłodzenie wkładu"])
+            v_flow_rate = st.number_input("Strumień objętościowy nośnika ciepła/chłodu [l/min]:", value=410.0, step=10.0)
+
+        # Dobór bazowego współczynnika k
+        if "nierdzewna" in material_stal:
+            k_coefficient = 0.55 if "Para" in medium_grzewcze else (0.30 if "Olej" in medium_grzewcze else 0.40)
+        else:
+            k_coefficient = 0.95 if "Para" in medium_grzewcze else (0.45 if "Olej" in medium_grzewcze else 0.60)
+
+        # Referencyjne dane konstrukcyjne T5
+        V_WORKING_BASE = 10.0
+        A_BASE = 17.0
+
         spec_rows = []
+        mixers_fleet = st.session_state.confirmed_mixers
 
-        # Pętla generuje niezależny, pełny konfigurator inżynieryjny dla każdego zatwierdzonego reaktora
+        # Dynamiczne generowanie konfiguratorów per reaktor
         for m in mixers_fleet:
             tag = m["tag"]
             kat = m["product_family"]
             v_working = m["capacity_m3"]
             mass_batch_kg = m["mass_per_batch"]
-            
-            # Pobranie wyjściowej gęstości z bazy globalnej FUCHS
+            cyc_h = FUCHS_PORTFOLIO[kat]["cycle_h"]
             rho_product = FUCHS_PORTFOLIO[kat]["density"] * 1000.0  # kg/m³
-            default_material = FUCHS_PORTFOLIO[kat]["material"]
+            c_p_product = float(FUCHS_PORTFOLIO[kat]["cp"])
 
-            st.markdown(f"---")
-            st.markdown(f"### 🔮 Zaawansowany Konfigurator Instancji: **{tag}** ({kat})")
-
-            # GŁÓWNY PODZIAŁ NA TRZY SPECJALISTYCZNE BLOKI KONFIGURACYJNE
-            tab_grzanie, tab_mieszadlo, tab_pompa = st.tabs([
-                "🔥 1. Układ Termiczny i Grzanie", 
-                "⚙️ 2. Kinematyka i Moc Mieszadła", 
-                "🔄 3. Układ Hydrauliczny i Pompa"
-            ])
-
-            # ------------------------------------------------------------------
-            # CONFIGURATOR 1: UKŁAD TERMICZNY (GRZANIE / CHŁODZENIE)
-            # ------------------------------------------------------------------
-            with tab_grzanie:
-                st.markdown("##### Parametryzacja Bilansu Cieplnego i Mediów Energetycznych")
-                
-                col_h1, col_h2, col_h3 = st.columns(3)
-                with col_h1:
-                    mat_reaktora = st.selectbox(f"Materiał korpusu ({tag}):", ["Stal węglowa (zwykła)", "Stal nierdzewna (SS316L)"], index=0 if "zwykła" in default_material else 1, key=f"mat_{tag}")
-                    medium_term = st.selectbox(f"Typ nośnika energii ({tag}):", ["Para wodna nasycona", "Olej termalny", "Gorąca woda procesowa"], key=f"med_{tag}")
-                with col_h2:
-                    T_in_prod = st.number_input(f"Temp. początkowa oleju T1 [°C] ({tag}):", value=20.0, step=5.0, key=f"t1_{tag}")
-                    T_out_prod = st.number_input(f"Temp. docelowa oleju T2 [°C] ({tag}):", value=70.0, step=5.0, key=f"t2_{tag}")
-                with col_h3:
-                    t_in_carrier = st.number_input(f"Temp. wlotowa nośnika t1 [°C] ({tag}):", value=120.0, step=5.0, key=f"t_car_{tag}")
-                    fouling_factor = st.slider(f"Współczynnik zabrudzenia wężownicy (Fouling) [%]:", min_value=0, max_value=40, value=15, step=5, key=f"foul_{tag}")
-
-                # Dobór fizycznego współczynnika k na bazie dobranych materiałów
-                if "nierdzewna" in mat_reaktora:
-                    k_base = 0.55 if "Para" in medium_term else (0.30 if "Olej" in medium_term else 0.40)
-                else:
-                    k_base = 0.95 if "Para" in medium_term else (0.45 if "Olej" in medium_term else 0.60)
-                
-                # Korekta k o naddatek zabrudzenia (fouling)
-                k_actual = k_base * (1.0 - (fouling_factor / 100.0))
-                
-                # Dodatkowe zaawansowane parametry wejściowe strumienia mediów
-                col_h4, col_h5 = st.columns(2)
-                with col_h4:
-                    v_flow_l_min = st.number_input(f"Strumień objętościowy nośnika [l/min] ({tag}):", min_value=10.0, max_value=2000.0, value=410.0, step=10.0, key=f"vflow_{tag}")
-                with col_h5:
-                    c_p_product = st.number_input(f"Ciepło właściwe produktu [kJ/(kg·K)] ({tag}):", value=float(FUCHS_PORTFOLIO[kat]["cp"]), step=0.1, key=f"cpprod_{tag}")
-
-                # Geometria: Automatyczne nieliniowe skalowanie powierzchni wymiany ciepła na bazie T5 (A=17m2 dla 10m3)
-                scaled_area_m2 = 17.0 * ((v_working / 10.0) ** (2/3))
-                
-                # --- MATEMATYCZNY RYGORSTYCZNY MODEL PROFILU TEMPERATUR (Prawa Fizyki) ---
-                c_p_carrier = 4.184 if "woda" in medium_term.lower() else (2.1 if "olej" in medium_term.lower() else 4.2)
-                w_mass_flow = (v_flow_l_min / 60.0) * 1.0  # kg/s (założenie gęstości wody)
-                w_heat_cap_kw_k = w_mass_flow * c_p_carrier  # Pojemność cieplna strumienia
-
-                # NTU układu wężownicy
-                if w_heat_cap_kw_k > 0:
-                    ntu = (k_actual * scaled_area_m2) / w_heat_cap_kw_k
-                    # Współczynnik sprawności dynamicznej wężownicy (Dynamic Exhaust Factor)
-                    # Zapobiega błędom matematycznym i odzwierciedla spadek temp nośnika na wylocie
-                    coil_efficiency = (1.0 - math.exp(-ntu)) / ntu if ntu > 0 else 1.0
-                else:
-                    coil_efficiency = 0.0
-
-                # Wyznaczenie realnych, fizycznych sił napędowych na starcie i końcu procesu szarży
-                dT_start = abs(t_in_carrier - T_in_prod) * coil_efficiency
-                dT_final = abs(t_in_carrier - T_out_prod) * coil_efficiency
-
-                # Obliczenie poprawnego LMTD
-                if dT_start == dT_final:
-                    lmtd_real = dT_start
-                elif dT_start > 0 and dT_final > 0:
-                    lmtd_real = (dT_start - dT_final) / math.log(dT_start / dT_final)
-                else:
-                    lmtd_real = 0.1
-
-                # Bilans energii i czasu
-                Q_total_kj = mass_batch_kg * c_p_product * abs(T_out_prod - T_in_prod)
-                Q_total_kwh = Q_total_kj / 3600.0
-                
-                power_transfer_kw = k_actual * scaled_area_m2 * lmtd_real
-                time_heat_h = (Q_total_kj / power_transfer_kw / 3600.0) if power_transfer_kw > 0 else 0.0
-
-                st.metric("Wyliczone zapotrzebowanie na energię cieplną szarży", f"{int(Q_total_kwh):,} kWh", delta=f"Czas operacji: {time_heat_h:.2f} h")
+            with st.expander(f"🛠️ Konfigurator szczegółowy: {tag} (Linia: {kat})"):
+                c_conf1, c_conf2, c_conf3 = st.columns(3)
+                with c_conf1:
+                    # Oczekiwana dynamiczna lepkość w procesie podana przez użytkownika
+                    visc_user_cst = st.number_input(f"Lepkość produktu [cSt] ({tag}):", min_value=1.0, max_value=3000.0, value=220.0, step=20.0, key=f"visc_{tag}")
+                    pipe_length_m = st.number_input(f"Długość rurociągu tłocznego L [m] ({tag}):", min_value=1.0, value=20.0, key=f"len_{tag}")
+                with c_conf2:
+                    pipe_dia_mm = st.number_input(f"Średnica wewnętrzna rury D [mm] ({tag}):", min_value=25, max_value=300, value=80, step=5, key=f"dia_{tag}")
+                    h_stat_m = st.number_input(f"Wysokość podnoszenia H_stat [m] ({tag}):", value=3.0, key=f"hstat_{tag}")
+                with c_conf3:
+                    q_pump_m3h = st.number_input(f"Wydajność pompy rozładunkowej Q [m³/h] ({tag}):", min_value=1.0, value=float(round(v_working / 0.75, 1)), key=f"qp_{tag}")
+                    delta_T_target = st.number_input(f"Zakładany skok temperatury ΔT [°C] ({tag}):", min_value=5.0, value=50.0, step=5.0, key=f"dt_{tag}")
 
             # ------------------------------------------------------------------
-            # CONFIGURATOR 2: UKŁAD MECHANICZNEGO MIESZANIA (AGITATOR)
+            # OBLICZENIA ENERGETYCZNE I CIEPLNE (Grzanie szarży)
             # ------------------------------------------------------------------
-            with tab_mieszadlo:
-                st.markdown("##### Specyfikacja Hydrodynamiczna i Kinematyka Wirnika")
-                
-                col_m1, col_m2, col_m3 = st.columns(3)
-                with col_m1:
-                    typ_wirnika = st.selectbox(f"Geometria wirnika ({tag}):", list(AGITATOR_TYPES.keys()), index=1, key=f"agit_type_{tag}")
-                with col_m2:
-                    obroty_rpm = st.number_input(f"Obroty mieszadła n [RPM] ({tag}):", min_value=10, max_value=500, value=90, step=10, key=f"rpm_{tag}")
-                with col_m3:
-                    motor_efficiency = st.slider(f"Sprawność przekładni i silnika [%] ({tag}):", min_value=50, max_value=98, value=85, step=1, key=f"eff_mot_{tag}")
-
-                # Modelowanie średnicy wirnika (1/3 średnicy zbiornika wyznaczonej z gabarytu)
-                D_vessel = 2.2 * ((v_working / 10.0) ** (1/3))
-                d_impeller = D_vessel / 3.0
-                n_rps = obroty_rpm / 60.0
-
-                # Obliczenie Liczby Reynoldsa dla mieszania przy lepkości projektowej 500 cSt
-                visc_dyn_pas = (500.0 / 1_000_000.0) * rho_product
-                Re_mixing = (n_rps * (d_impeller ** 2) * rho_product) / max(visc_dyn_pas, 0.0001)
-                
-                cfg_mix = AGITATOR_TYPES[typ_wirnika]
-                Ne_power = cfg_mix["laminar_C"] / Re_mixing if Re_mixing < 50 else cfg_mix["turbulent_Ne"]
-                
-                # Wyznaczenie mocy na wale i poboru mocy z sieci (z zapasem inżynieryjnym 25%)
-                power_shaft_w = Ne_power * (n_rps ** 3) * (d_impeller ** 5) * rho_product
-                power_electric_kw = (power_shaft_w / (motor_efficiency / 100.0) * 1.25) / 1000.0
-                power_electric_kw = max(power_electric_kw, 1.5)  # Minimalny silnik strukturalny
-
-                st.success(f"⚙️ **Rekomendowany napęd:** Silnik asynchroniczny o mocy min. **{power_electric_kw:.1f} kW** (Liczba Reynoldsa Re: {int(Re_mixing)})")
+            # Ciepło potrzebne do podgrzania wkładu: Q = m * cp * deltaT [kJ] -> zamiana na [kWh]
+            Q_heating_kwh = (mass_batch_kg * c_p_product * delta_T_target) / 3600.0
 
             # ------------------------------------------------------------------
-            # CONFIGURATOR 3: UKŁAD HYDRAULICZNEGO ROZŁADUNKU (POMPA)
+            # OBLICZENIA MIESZANIA (Energia zużyta przez mieszadło w cyklu)
             # ------------------------------------------------------------------
-            with tab_pompa:
-                st.markdown("##### Wymiarowanie Linii Rurowej i Strat Ciśnienia (Darcy-Weisbach)")
-                
-                col_p1, col_p2, col_p3 = st.columns(3)
-                with col_p1:
-                    q_user_m3_h = st.number_input(f"Wydajność pompy Q [m³/h] ({tag}):", min_value=1.0, value=float(round(v_working / 0.75, 1)), key=f"qp_{tag}")
-                    pipe_l_m = st.number_input(f"Długość rurociągu tłocznego L [m] ({tag}):", min_value=1.0, value=15.0, key=f"pl_{tag}")
-                with col_p2:
-                    pipe_d_mm = st.number_input(f"Średnica wewnętrzna rury D [mm] ({tag}):", min_value=25, max_value=300, value=80, key=f"pd_{tag}")
-                    roughness_mm = st.number_input(f"Chropowatość bezwzględna rury k_r [mm] ({tag}):", value=0.05, format="%.3f", key=f"pr_{tag}")
-                with col_p3:
-                    h_static_m = st.number_input(f"Wysokość geometryczna podnoszenia H_stat [m] ({tag}):", value=3.0, key=f"ph_{tag}")
-                    pump_eff_pct = st.slider(f"Sprawność hydrauliczna pompy [%] ({tag}):", min_value=30, max_value=90, value=65, step=5, key=f"peff_{tag}")
+            D_tank = 2.2 * ((v_working / 10.0) ** (1/3))
+            d_impeller = D_tank / 3.0
+            n_rps = 90.0 / 60.0  # stałe 90 RPM
+            visc_dynamic_pas = (visc_user_cst / 1_000_000.0) * rho_product
 
-                # Mechanika Płynów: Prędkość i straty tarcia rurociągu
-                D_pipe_m = pipe_d_mm / 1000.0
-                area_pipe_m2 = (math.pi * (D_pipe_m ** 2)) / 4.0
-                v_velocity_m_s = (q_user_m3_h / 3600.0) / area_pipe_m2
-                
-                Re_pipe = (v_velocity_m_s * D_pipe_m * rho_product) / max(visc_dyn_pas, 0.0001)
-                
-                # Wyznaczenie współczynnika strat liniowych lambda
-                if Re_pipe < 2100:
-                    lambda_p = 64.0 / max(Re_pipe, 1.0)
-                    przeplyw_status = "Laminarny (Duże opory tarcia wewnętrznego)"
-                else:
-                    lambda_p = 0.3164 / (Re_pipe ** 0.25)
-                    przeplyw_status = "Turbulentny"
-                
-                # Równanie Darcy-Weisbacha
-                loss_head_m = lambda_p * (pipe_l_m / D_pipe_m) * ((v_velocity_m_s ** 2) / (2.0 * 9.81))
-                total_head_m = h_static_m + loss_head_m
-                press_bar = (rho_product * 9.81 * total_head_m) / 100000.0
-                
-                # Dobór napędu pompy
-                pump_power_el_kw = (q_user_m3_h * press_bar) / (36.0 * (pump_eff_pct / 100.0)) * 1.20
-                pump_power_el_kw = max(pump_power_el_kw, 0.75)
-                
-                # Inteligentny dobór typu maszyny hydraulicznej ze względu na reologię
-                p_type_rec = "Śrubowa (Wyporowa - zalecana dla FUCHS)" if visc_dyn_pas > 0.1 else "Odśrodkowa przemysłowa"
+            Re_mixing = (n_rps * (d_impeller ** 2) * rho_product) / max(visc_dynamic_pas, 0.0001)
+            Ne_power_num = 2.5 if Re_mixing > 50 else (50.0 / max(Re_mixing, 1.0))
+            power_shaft_w = Ne_power_num * (n_rps ** 3) * (d_impeller ** 5) * rho_product
+            power_mix_electric_kw = max((power_shaft_w / 0.85 * 1.25) / 1000.0, 1.5)
+            
+            # Całkowita energia mieszania szarży = moc elektryczna * czas cyklu reaktora
+            E_mixing_total_kwh = power_mix_electric_kw * cyc_h
 
-                st.warning(f"🔄 **Typ pompy:** {p_type_rec} | Przepływ: {przeplyw_status} | Wymagane ciśnienie instalacji: **{press_bar:.2f} bar**")
+            # ------------------------------------------------------------------
+            # OBLICZENIA HYDRAULICZNE I POMPOWANIA (Darcy-Weisbach)
+            # ------------------------------------------------------------------
+            D_pipe_m = pipe_dia_mm / 1000.0
+            area_pipe_m2 = (math.pi * (D_pipe_m ** 2)) / 4.0
+            
+            # Realna prędkość przepływu cieczy w rurociągu (w m/s)
+            velocity_m_s = (q_pump_m3h / 3600.0) / area_pipe_m2
+            
+            # Klasyfikacja oporów ruchu
+            Re_pipe = (velocity_m_s * D_pipe_m) / max(visc_user_cst / 1_000_000.0, 0.00001)
+            lambda_p = 64.0 / max(Re_pipe, 1.0) if Re_pipe < 2100 else (0.3164 / (Re_pipe ** 0.25))
+            
+            # Straty liniowe i ciśnienie
+            loss_head_m = lambda_p * (pipe_length_m / D_pipe_m) * ((velocity_m_s ** 2) / (2.0 * 9.81))
+            total_head_m = h_stat_m + loss_head_m
+            required_pressure_bar = (rho_product * 9.81 * total_head_m) / 100000.0
+            
+            # Moc pompy i czas pracy pompy (rozładunek na nalewak)
+            power_pump_el_kw = max((q_pump_m3h * required_pressure_bar) / (36.0 * 0.65) * 1.20, 0.75)
+            time_pumping_h = v_working / q_pump_m3h
+            
+            # Całkowita energia zużyta przez pompę na przepompowanie całej objętości wkładu
+            E_pumping_total_kwh = power_pump_el_kw * time_pumping_h
 
-            # Zbieranie danych wyjściowych z konfiguratorów do głównej tabeli zbiorczej poniżej
+            # Weryfikacja kryterium prędkości liniowej (Ostrzeżenie BHP/Technologiczne)
+            if velocity_m_s > 2.0:
+                velocity_status = "❌ Za wysoka (>2.0 m/s)"
+            else:
+                velocity_status = "✅ OK"
+
             spec_rows.append({
-                "Tag urządzenia 🔒": tag,
-                "Pojemność robocza [m³]": round(v_working, 1),
-                "Współczynnik k [kW/m²K]": round(k_actual, 3),
-                "Moc Mieszadła [kW] ⚙️": round(power_electric_kw, 1),
-                "Moc Pompy [kW] 🔄": round(pump_power_el_kw, 1),
-                "Energia szarży [kWh] ⚡": int(Q_total_kwh),
-                "Średnia delta LMTD [°C]": round(lmtd_real, 1),
-                "Czas operacji [h] ⏱️": round(time_heat_h, 2)
+                "Nazwa mieszalnika 🔒": tag,
+                "Pojemność [m³]": round(v_working, 1),
+                "Wielkość szarży [kg]": int(mass_batch_kg),
+                "Ciepło do podgrzania [kWh] 🔥": int(Q_heating_kwh),
+                "Energia mieszania [kWh] ⚙️": round(E_mixing_total_kwh, 1),
+                "Energia pompowania [kWh] 🔄": round(E_pumping_total_kwh, 2),
+                "Prędkość w rurociągu [m/s]": round(velocity_m_s, 2),
+                "Status prędkości ⚠️": velocity_status
             })
 
         # ------------------------------------------------------------------
-        # GRID 3: ZBIORCZA KARTA WYNIKOWA I DYNAMICZNY BILANS MASZYNOWY
+        # GRID 3: MATRYCA PODSUMOWUJĄCA SPECYFIKACJĘ APARATURY
         # ------------------------------------------------------------------
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("### 📊 3. Główna Karta Specyfikacji Technicznej Floty")
-        st.caption("Poniższe zestawienie agreguje na żywo wyniki ze wszystkich powyższych konfiguratorów jednostkowych.")
+        st.markdown("### 📊 2. Zbiorcze Zestawienie Parametrów Energetyczno-Hydraulicznych")
+        st.caption("Poniższa tabela automatycznie bilansuje potoki energetyczne i waliduje kryteria hydrodynamiczne rurociągów.")
 
         df_spec = pd.DataFrame(spec_rows)
 
-        def style_lmtd_cells(row):
+        # Funkcja podświetlająca komórki z przekroczoną prędkością przepływu
+        def style_velocity_warnings(row):
             styles = [''] * len(row)
-            val = row["Średnia delta LMTD [°C]"]
-            if isinstance(val, (int, float)):
-                idx = row.index.get_loc("Średnia delta LMTD [°C]")
-                if val < 15.0:
-                    styles[idx] = 'background-color: #fff2cc; color: #b78103; font-weight: bold;'  # Za mały przepływ / niska siła
-                elif val > 55.0:
-                    styles[idx] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;'  # Ryzyko przypalenia oleju
-                else:
-                    styles[idx] = 'background-color: #e6f4ea; color: #137333; font-weight: bold;'  # Zakres optymalny
+            status = row["Status prędkości ⚠️"]
+            if "Za wysoka" in str(status):
+                # Podświetlamy kolumnę prędkości oraz statusu na blady czerwony kolor ostrzegawczy
+                idx_v = row.index.get_loc("Prędkość w rurociągu [m/s]")
+                idx_s = row.index.get_loc("Status prędkości ⚠️")
+                styles[idx_v] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;'
+                styles[idx_s] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;'
+            else:
+                idx_v = row.index.get_loc("Prędkość w rurociągu [m/s]")
+                styles[idx_v] = 'background-color: #e6f4ea; color: #137333; font-weight: bold;'
             return styles
 
-        styled_df_spec = df_spec.style.apply(style_lmtd_cells, axis=1)
+        styled_df_spec = df_spec.style.apply(style_velocity_warnings, axis=1)
 
+        # Wyświetlenie tabeli w standardzie stretch dla Streamlit v2026
         st.dataframe(
             styled_df_spec,
             hide_index=True,
             width="stretch",
             column_config={
-                "Pojemność robocza [m³]": st.column_config.NumberColumn(format="%.1f m³"),
-                "Współczynnik k [kW/m²K]": st.column_config.NumberColumn(format="%.3f kW/m²K"),
-                "Moc Mieszadła [kW] ⚙️": st.column_config.NumberColumn(format="%.1f kW"),
-                "Moc Pompy [kW] 🔄": st.column_config.NumberColumn(format="%.1f kW"),
-                "Energia szarży [kWh] ⚡": st.column_config.NumberColumn(format="%d kWh"),
-                "Średnia delta LMTD [°C]": st.column_config.NumberColumn(format="%.1f °C"),
-                "Czas operacji [h] ⏱️": st.column_config.NumberColumn(format="%.2f h")
+                "Pojemność [m³]": st.column_config.NumberColumn(format="%.1f m³"),
+                "Wielkość szarży [kg]": st.column_config.NumberColumn(format="%d kg"),
+                "Ciepło do podgrzania [kWh] 🔥": st.column_config.NumberColumn(format="%d kWh"),
+                "Energia mieszania [kWh] ⚙️": st.column_config.NumberColumn(format="%.1f kWh"),
+                "Energia pompowania [kWh] 🔄": st.column_config.NumberColumn(format="%.2f kWh"),
+                "Prędkość w rurociągu [m/s]": st.column_config.NumberColumn(format="%.2f m/s")
             }
         )
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.info("""
+        **ℹ️ Inżynieryjne kryteria interpretacji parametrów instalacji:**
+        * **Prędkość w rurociągu:** Optymalna prędkość ekonomiczna dla cieczy lepkich (olejów) przy przetłaczaniu wynosi **$0.8 - 1.5\text{ m/s}$**. Przekroczenie **$2.0\text{ m/s}$** generuje gwałtowny, kwadratowy wzrost strat ciśnienia (tarcie), przeciążenie silnika pompy oraz ryzyko zrywania strugi.
+        * **Działanie naprawcze:** Jeśli prędkość jest za wysoka, zwiększ średnicę wewnętrzną rurociągu (D) w konfiguratorze powyżej lub obniż wydajność pompy (Q).
+        * **Energia pompowania vs Mieszania:** Energia pompowania uwzględnia realny czas potrzebny na opróżnienie zbiornika przy zadeklarowanym przepływie, dzięki czemu widzisz czysty koszt energii elektrycznej na operację transportową.
+        """)
 # ==========================================
 # ZAKŁADKA 3: LOGISTYKA, CZAS ROZLEWU I GOSPODARKA PALETOWA
 # ==========================================
