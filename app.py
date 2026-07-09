@@ -294,7 +294,9 @@ with tab1:
                         value=True, key=f"chk_split_{kat_over}"
                     )
 
-        # Krok D: Generowanie Końcowej Floty Mieszalników
+       # ==========================================
+        # Krok D: Generowanie Końcowej Floty Mieszalników (Z UWZGLĘDNIENIEM REALNEJ UTYLIZACJI)
+        # ==========================================
         st.markdown("<br>", unsafe_allow_html=True)
         st.markdown("### 🏭 3. Skorygowana i Zweryfikowana Flota Mieszalników")
         
@@ -311,6 +313,9 @@ with tab1:
             total_batches = r["h_batches"]
             total_annual = r["h_annual"]
             
+            # Pobranie parametrów technologicznych z portfolio fabryki
+            cyc = FUCHS_PORTFOLIO[kat]["cycle_h"]
+            
             # Pobieramy zdefiniowaną przez użytkownika liczbę fizycznych zbiorników wynikającą z SKUs
             tanks_count = st.session_state.prod_dict[kat]["num_tanks"]
             
@@ -318,6 +323,12 @@ with tab1:
             vol_per_tank = vol_base / tanks_count if tanks_count > 0 else vol_base
             batches_per_tank = math.ceil(total_batches / tanks_count) if tanks_count > 0 else total_batches
             annual_per_tank = total_annual / tanks_count
+
+            # Obliczenie realnej utylizacji per zbiornik
+            if AVAILABLE_HOURS_MONTH > 0:
+                real_utilization = (batches_per_tank * cyc) / AVAILABLE_HOURS_MONTH * 100.0
+            else:
+                real_utilization = 0.0
 
             # Jeśli nawet po podziale na SKUs zbiornik przekracza 31m³, wykonujemy rozbicie technologiczne
             if split_decisions.get(kat, False) and vol_per_tank > 31.0:
@@ -329,12 +340,19 @@ with tab1:
                     mixer_batches = math.ceil(batches_per_tank * weight_fraction)
                     mixer_mass_batch = math.ceil((r["h_kg"]/tanks_count) * (31.0 / vol_per_tank))
                     
+                    # Ponowne przeliczenie utylizacji dla rozbitej jednostki maszynowej
+                    if AVAILABLE_HOURS_MONTH > 0:
+                        split_util = (mixer_batches * cyc) / AVAILABLE_HOURS_MONTH * 100.0
+                    else:
+                        split_util = 0.0
+                    
                     for t_idx in range(tanks_count):
                         tag_id = f"MT-{tag_counter}{chr(sub_letter_ascii)}" + (f"-Z{t_idx+1}" if tanks_count > 1 else "")
                         final_fleet_rows.append({
                             "ID Urządzenia 🔒": tag_id, "Przypisana Linia 🔒": kat,
-                            "Liczba szarż [/mies] 🔒": int(mixer_batches), "Realna Pojemność [m³] 🔒": 31.0,
-                            "Masa Szarży [kg] 🔒": int(mixer_mass_batch), "Status 🔒": "🧱 Max Gabaryt (31.0 m³)"
+                            "Liczba szarż [/mies] 🔒": int(mixer_batches), "Realna Utylizacja [%] 🔒": round(split_util, 1),
+                            "Realna Pojemność [m³] 🔒": 31.0, "Masa Szarży [kg] 🔒": int(mixer_mass_batch), 
+                            "Status 🔒": "🧱 Max Gabaryt (31.0 m³)"
                         })
                         confirmed_mixers_blueprint.append({
                             "tag": tag_id, "product_family": kat, "capacity_m3": 31.0,
@@ -354,13 +372,19 @@ with tab1:
                     tail_batches = math.ceil(batches_per_tank * weight_fraction_tail)
                     tail_mass_batch = math.ceil((r["h_kg"]/tanks_count) * (split_tail_vol / vol_per_tank))
                     
+                    if AVAILABLE_HOURS_MONTH > 0:
+                        tail_util = (tail_batches * cyc) / AVAILABLE_HOURS_MONTH * 100.0
+                    else:
+                        tail_util = 0.0
+                    
                     for t_idx in range(tanks_count):
                         for _ in range(2):
                             tag_id = f"MT-{tag_counter}{chr(sub_letter_ascii)}" + (f"-Z{t_idx+1}" if tanks_count > 1 else "")
                             final_fleet_rows.append({
                                 "ID Urządzenia 🔒": tag_id, "Przypisana Linia 🔒": kat,
-                                "Liczba szarż [/mies] 🔒": int(tail_batches), "Realna Pojemność [m³] 🔒": round(split_tail_vol, 1),
-                                "Masa Szarży [kg] 🔒": int(tail_mass_batch), "Status 🔒": "🟢 Bliźniak Konstrukcyjny"
+                                "Liczba szarż [/mies] 🔒": int(tail_batches), "Realna Utylizacja [%] 🔒": round(tail_util, 1),
+                                "Realna Pojemność [m³] 🔒": round(split_tail_vol, 1), "Masa Szarży [kg] 🔒": int(tail_mass_batch), 
+                                "Status 🔒": "🟢 Bliźniak Konstrukcyjny"
                             })
                             confirmed_mixers_blueprint.append({
                                 "tag": tag_id, "product_family": kat, "capacity_m3": max(split_tail_vol, 0.5),
@@ -371,7 +395,7 @@ with tab1:
                             total_batches_per_month += tail_batches
                             sub_letter_ascii += 1
             else:
-                # Scenariusz standardowy (wielkość optymalna lub wynikająca bezpośrednio z podziału na zbiorniki SKUs)
+                # Scenariusz standardowy (optymalny lub wynikający bezpośrednio z podziału na zbiorniki SKUs)
                 if vol_per_tank < 5.0:
                     status_txt = "⚠️ Poniżej minimum typoszeregu"
                 elif vol_per_tank > 31.0:
@@ -385,8 +409,9 @@ with tab1:
                     
                     final_fleet_rows.append({
                         "ID Urządzenia 🔒": tag_id, "Przypisana Linia 🔒": kat,
-                        "Liczba szarż [/mies] 🔒": int(batches_per_tank), "Realna Pojemność [m³] 🔒": round(vol_per_tank, 1),
-                        "Masa Szarży [kg] 🔒": int(mass_batch), "Status 🔒": status_txt
+                        "Liczba szarż [/mies] 🔒": int(batches_per_tank), "Realna Utylizacja [%] 🔒": round(real_utilization, 1),
+                        "Realna Pojemność [m³] 🔒": round(vol_per_tank, 1), "Masa Szarży [kg] 🔒": int(mass_batch), 
+                        "Status 🔒": status_txt
                     })
                     confirmed_mixers_blueprint.append({
                         "tag": tag_id, "product_family": kat, "capacity_m3": max(vol_per_tank, 0.5),
@@ -405,6 +430,7 @@ with tab1:
             hide_index=True,
             use_container_width=True,
             column_config={
+                "Realna Utylizacja [%] 🔒": st.column_config.NumberColumn(format="%.1f%%"),
                 "Realna Pojemność [m³] 🔒": st.column_config.NumberColumn(format="%.1f m³"),
                 "Masa Szarży [kg] 🔒": st.column_config.NumberColumn(format="%d kg")
             }
