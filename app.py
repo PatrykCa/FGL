@@ -524,9 +524,9 @@ with tab2:
             * Współczynnik sprawności hydrodynamicznej: `Wyznaczany z liczby Reynoldsa (Re)`
             """)
 
-df_spec = pd.DataFrame(spec_rows)
+        df_spec = pd.DataFrame(spec_rows)
 
-        # ---- NOWA FUNKCJA STYLIZUJĄCA DLA LMTD ----
+        # ---- FUNKCJA STYLIZUJĄCA Z POPRAWNYMI WCIĘCIAMI ----
         def style_lmtd_cells(row):
             styles = [''] * len(row)
             val = row["Średnia delta LMTD [°C]"]
@@ -536,7 +536,7 @@ df_spec = pd.DataFrame(spec_rows)
                     # Za niska delta - proces za wolny
                     styles[idx] = 'background-color: #fff2cc; color: #b78103; font-weight: bold;'
                 elif val > 55.0:
-                    # Za wysoka delta - ryzyko przypalenia produktu / degradacji
+                    # Za wysoka delta - ryzyko przypalenia produktu
                     styles[idx] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;'
                 else:
                     # W normie projektowej
@@ -546,7 +546,7 @@ df_spec = pd.DataFrame(spec_rows)
         # Zastosowanie stylu do DataFrame
         styled_df_spec = df_spec.style.apply(style_lmtd_cells, axis=1)
 
-        # Wyświetlenie ostylizowanej tabeli wynikowej specyfikacji technicznej
+        # Wyświetlenie tabeli wynikowej specyfikacji technicznej
         st.dataframe(
             styled_df_spec,
             hide_index=True,
