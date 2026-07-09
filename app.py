@@ -38,58 +38,20 @@ AGITATOR_TYPES = {
 }
 
 # ==========================================
-# PASEK BOCZNY: WYBÓR OPAKOWAŃ I PROCENTOWEGO PODZIAŁU
+# POPRAWNA KOLEJNOŚĆ W PANELU BOCZNYM (st.sidebar)
 # ==========================================
-st.sidebar.markdown("### 📦 4. Struktura Opakowań (Podział %)")
 
-# 1. Wielokrotny wybór dostępnych typów opakowań
-dostepne_opakowania = ["Butelki (Small)", "Kanistry (Medium)", "Beczki (Large)", "DPPL / Kontenery (Bulk)"]
-wybrane_opakowania = st.sidebar.multiselect(
-    "Wybierz typy opakowań stosowane w zakładzie:",
-    options=dostepne_opakowania,
-    default=["Beczki (Large)", "DPPL / Kontenery (Bulk)"]
+# KROK 1: Najpierw definiujemy wybrane_kategorie (Musi być PIERWSZE!)
+st.sidebar.header("📋 KROK 1: Wybór Rodzin")
+wybrane_kategorie = st.sidebar.multiselect(
+    "Wybierz aktywne linie produktowe FUCHS:",
+    list(FUCHS_PORTFOLIO.keys()),
+    default=["Hydraulic Oils (RENOLIN)", "Engine Oils (TITAN)", "Water-miscible (ECOCOOL)"]
 )
 
-# Inicjalizacja słownika na udziały procentowe w session_state
-if "opakowania_podzial" not in st.session_state:
-    st.session_state.opakowania_podzial = {}
-
-opakowania_rows = {}
-suma_procentow = 0.0
-
-# 2. Dynamiczne generowanie pól dla wybranych opakowań
-if wybrane_opakowania:
-    st.sidebar.caption("Określ procentowy udział wagowy/wolumenowy dla każdego opakowania:")
-    
-    # Wyliczamy domyślny równy podział, aby ułatwić użytkownikowi start
-    domyslny_procent = round(100.0 / len(wybrane_opakowania), 1)
-    
-    for opakowanie in wybrane_opakowania:
-        # Zachowaj poprzednio wpisaną wartość, jeśli użytkownik już coś zmieniał
-        current_val = st.session_state.opakowania_podzial.get(opakowanie, domyslny_procent)
-        
-        val = st.sidebar.number_input(
-            f"Udział dla: {opakowanie} [%]",
-            min_value=0.0,
-            max_value=100.0,
-            value=float(current_val),
-            step=5.0,
-            key=f"pct_{opakowanie}"
-        )
-        # Zapisujemy do stanu i sumujemy
-        st.session_state.opakowania_podzial[opakowanie] = val
-        opakowania_rows[opakowanie] = val
-        suma_procentow += val
-
-    # 3. Walidacja sumy kontrolnej (musi być 100%)
-    if suma_procentow == 100.0:
-        st.sidebar.success(f"✅ Suma udziałów: {suma_procentow}% (Prawidłowa)")
-    else:
-        st.sidebar.error(f"❌ Suma udziałów wynosi {suma_procentow}%. Musi wynosić dokładnie 100%!")
-else:
-    st.sidebar.info("Wybierz przynajmniej jeden typ opakowania, aby określić podział.")
-
 st.sidebar.markdown("---")
+
+# KROK 2: Założenia czasu pracy
 st.sidebar.header("⏱️ KROK 2: Założenia Czasu Pracy")
 liczba_zmian = st.sidebar.slider("Liczba zmian produkcyjnych:", min_value=1.0, max_value=3.0, value=1.0, step=0.5)
 godziny_na_zmiane = st.sidebar.slider("Liczba godzin na jedną zmianę:", min_value=4.0, max_value=12.0, value=8.0, step=0.5)
@@ -98,13 +60,65 @@ godziny_dziennie = liczba_zmian * godziny_na_zmiane
 AVAILABLE_HOURS_MONTH = (250 * godziny_dziennie) / 12  
 
 st.sidebar.markdown("---")
+
+# KROK 3: Dopiero TERAZ możemy użyć pętli 'for kat in wybrane_kategorie'
 st.sidebar.header("⚙️ KROK 3: Wybór Opakowań do Splitu")
 input_packs = {}
 for kat in wybrane_kategorie:
     packs = st.sidebar.multiselect(
-        f"Dostępne opakowania dla {kat}:", list(PACK_CONFIGS.keys()), default=["5l (Karton)", "200l (Beczka)", "1000l (IBC)"], key=f"packs_{kat}"
+        f"Dostępne opakowania dla {kat}:", 
+        list(PACK_CONFIGS.keys()), 
+        default=["5l (Karton)", "200l (Beczka)", "1000l (IBC)"], 
+        key=f"packs_{kat}"
     )
     input_packs[kat] = packs
+
+st.sidebar.markdown("---")
+
+# KROK 4: Struktura procentowa opakowań (z dodanym zabezpieczeniem)
+st.sidebar.markdown("### 📦 KROK 4: Struktura Opakowań (Podział %)")
+
+if "wybrane_opakowania" not in st.session_state:
+    st.session_state.wybrane_opakowania = ["Beczki (Large)", "DPPL / Kontenery (Bulk)"]
+
+if "opakowania_podzial" not in st.session_state:
+    st.session_state.opakowania_podzial = {}
+
+dostepne_opakowania = ["Butelki (Small)", "Kanistry (Medium)", "Beczki (Large)", "DPPL / Kontenery (Bulk)"]
+
+wybrane_opakowania = st.sidebar.multiselect(
+    "Wybierz typy opakowań stosowane w zakładzie:",
+    options=dostepne_opakowania,
+    default=st.session_state.wybrane_opakowania,
+    key="opakowania_multiselect"
+)
+st.session_state.wybrane_opakowania = wybrane_opakowania
+
+opakowania_rows = {}
+suma_procentow = 0.0
+
+if wybrane_opakowania:
+    st.sidebar.caption("Określ procentowy udział wagowy/wolumenowy:")
+    domyslny_procent = round(100.0 / len(wybrane_opakowania), 1)
+    
+    for opakowanie in wybrane_opakowania:
+        current_val = st.session_state.opakowania_podzial.get(opakowanie, domyslny_procent)
+        val = st.sidebar.number_input(
+            f"Udział dla: {opakowanie} [%]",
+            min_value=0.0,
+            max_value=100.0,
+            value=float(current_val),
+            step=5.0,
+            key=f"pct_{opakowanie}"
+        )
+        st.session_state.opakowania_podzial[opakowanie] = val
+        opakowania_rows[opakowanie] = val
+        suma_procentow += val
+
+    if suma_procentow == 100.0:
+        st.sidebar.success(f"✅ Suma udziałów: {suma_procentow}%")
+    else:
+        st.sidebar.error(f"❌ Suma wynosi {suma_procentow}%. Musi być 100%!")
 
 # --- BEZPIECZNA INICJALIZACJA STRUKTUR W SESJI ---
 if "prod_dict" not in st.session_state:
