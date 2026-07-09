@@ -450,57 +450,83 @@ with tab1:
                 del st.session_state["master_logistics_df"]
             st.success(f"🎉 Sukces! Zapisano stabilną strukturę floty złożoną z {len(confirmed_mixers_blueprint)} urządzeń.")
 # ==========================================
-# ZAKŁADKA 2: SPECYFIKACJA APARATURY I ANALIZA TERMICZNA (MODEL ANALITYCZNY)
+# ZAKŁADKA 2: SPECYFIKACJA MASZYN, REOLOGIA, DOBÓR POMP I ENERGIA TERMOCZYNNA
 # ==========================================
 with tab2:
-    st.header("📋 Specyfikacja Aparatury i Analiza Termodynamiczna")
+    st.header("📐 Specyfikacja Aparatury, Układy Pompowo-Mieszające i Termodynamika")
 
-    # Sprawdzenie dostępności danych z pierwszej zakładki
     if "confirmed_mixers" not in st.session_state or not st.session_state.confirmed_mixers:
-        st.info("💡 Aby wygenerować specyfikację aparatury, najpierw zatwierdź konfigurację floty w **Zakładce 1** (przycisk na dole strony).")
+        st.info("💡 Aby wygenerować kartę maszyn, najpierw zatwierdź konfigurację floty w **Zakładce 1** (przycisk na dole strony).")
     else:
-        st.markdown("### 🛠️ 1. Parametry Projektowe i Analityczny Model Wymiany Ciepła")
-        st.caption("Wymiary konstrukcyjne skalowane automatycznie względem danych referencyjnych reaktora T5 (V_robocza = 10m³, A = 17m², Masa = 4118kg).")
+        # --- SEKRETY INŻYNIERYJNE: DOBÓR MEDIÓW I MATERIAŁÓW ---
+        st.markdown("### ⚙️ 1. Konfiguracja Konstrukcyjna i Wybór Mediów Roboczych")
+        
+        c_mat1, c_mat2, c_mat3 = st.columns(3)
+        with c_mat1:
+            material_stal = st.selectbox(
+                "Materiał konstrukcyjny reaktora:",
+                ["Stal węglowa (zwykła / P265GH)", "Stal nierdzewna (SS304 / SS316L)"]
+            )
+        with c_mat2:
+            medium_grzewcze = st.selectbox(
+                "Medium grzewcze (Coil):",
+                ["Para wodna nasycona", "Olej termalny", "Gorąca woda procesowa"]
+            )
+        with c_mat3:
+            medium_chlodzace = st.selectbox(
+                "Medium chłodzące (Coil/Jacket):",
+                ["Woda chłodnicza (chiller)", "Olej chłodzący / Woda sieciowa"]
+            )
 
-        # --- DANE BAZOWE REAKTORA REFERENCYJNEGO (T5 DESIGN DATA) ---
-        V_WORKING_BASE = 10.0
-        V_TOTAL_BASE = 15.17
-        A_BASE = 17.0
-        W_BASE = 4118.0
+        # Dynamiczne dopasowanie wyjściowego współczynnika k na bazie fizyki cieplnej
+        # Para + Stal węglowa = najwyższy k, Olej + Stal nierdzewna = najniższy k
+        if "nierdzewna" in material_stal:
+            base_k_grzanie = 0.55 if "Para" in medium_grzewcze else (0.30 if "Olej" in medium_grzewcze else 0.40)
+            base_k_chlodzenie = 0.45 if "Woda" in medium_chlodzace else 0.25
+        else: # Stal zwykła
+            base_k_grzanie = 0.95 if "Para" in medium_grzewcze else (0.45 if "Olej" in medium_grzewcze else 0.60)
+            base_k_chlodzenie = 0.75 if "Woda" in medium_chlodzace else 0.40
 
-        # --- SIDEBAR / PANEL KONTROLNY PARAMETRÓW CIEPLNYCH ---
         st.sidebar.markdown("### 🌡️ Parametry Procesu Termicznego")
         tryb_procesu = st.sidebar.selectbox("Tryb pracy termicznej", ["Grzanie wkładu", "Chłodzenie wkładu"])
         
-        # Dynamiczne ustawienie domyślnych temperatur w zależności od wybranego procesu
+        # Przypisanie sugerowanego k do sidebar, użytkownik może dokonać korekty ręcznej
+        sug_k = base_k_grzanie if tryb_procesu == "Grzanie wkładu" else base_k_chlodzenie
+        k_coefficient = st.sidebar.number_input("Współczynnik przenikania ciepła (k) [kW/(m²·K)]", value=float(sug_k), step=0.05)
+
+        # Ustawienia temperatur wejściowych
         if tryb_procesu == "Grzanie wkładu":
             T1_init = st.sidebar.number_input("Początkowa temp. produktu (T1) [°C]", value=20.0, step=5.0)
             T2_final = st.sidebar.number_input("Docelowa temp. produktu (T2) [°C]", value=70.0, step=5.0)
-            t1_carrier = st.sidebar.number_input("Temp. nośnika na wlocie (t1) [°C]", value=120.0, step=5.0)
-            c_product = st.sidebar.number_input("Ciepło właściwe produktu (c) [kJ/(kg·K)]", value=2.00, step=0.1) # Domyślnie olej smarowy
-        else: # Chłodzenie (odzwierciedlenie wartości z arkusza kalkulatora chłodzenia)
+            t1_carrier = st.sidebar.number_input(f"Temp. {medium_grzewcze} na wlocie (t1) [°C]", value=120.0, step=5.0)
+            c_product = st.sidebar.number_input("Ciepło właściwe produktu (c) [kJ/(kg·K)]", value=2.00, step=0.1)
+        else:
             T1_init = st.sidebar.number_input("Początkowa temp. produktu (T1) [°C]", value=80.0, step=5.0)
             T2_final = st.sidebar.number_input("Docelowa temp. produktu (T2) [°C]", value=40.0, step=5.0)
-            t1_carrier = st.sidebar.number_input("Temp. wody chłodzącej na wlocie (t1) [°C]", value=15.0, step=5.0)
+            t1_carrier = st.sidebar.number_input(f"Temp. {medium_chlodzace} na wlocie (t1) [°C]", value=15.0, step=5.0)
             c_product = st.sidebar.number_input("Ciepło właściwe produktu (c) [kJ/(kg·K)]", value=3.66, step=0.1)
 
-        k_coefficient = st.sidebar.number_input("Współczynnik przenikania ciepła (k) [kW/(m²·K)]", value=0.80, step=0.05)
         v_flow_rate = st.sidebar.number_input("Strumień objętościowy nośnika [l/min]", value=410.0, step=10.0)
-        c_carrier = st.sidebar.number_input("Ciepło właściwe nośnika (c_wody) [kJ/(kg·K)]", value=4.184, step=0.01)
-        density_carrier = 1.0 # kg/l dla wody/pary kondensującej w przybliżeniu
-
-        # --- OBLICZENIA Z JEDNOSTEK LITERATUROWYCH ---
-        # Strumień masowy nośnika w kg/s: V_wody / 60 * gęstość
-        w_flow_mass = (v_flow_rate / 60.0) * density_carrier 
-        # Pojemność cieplna strumienia w kW/K: w = m_kropka * c_wody
+        c_carrier = st.sidebar.number_input("Ciepło właściwe nośnika [kJ/(kg·K)]", value=4.184, step=0.01)
+        
+        w_flow_mass = (v_flow_rate / 60.0) * 1.0 
         w_heat_capacity = w_flow_mass * c_carrier 
 
-        # Walidacja matematyczna temperatur przed uruchomieniem logarytmów
         valid_physics = True
         if tryb_procesu == "Grzanie wkładu" and (t1_carrier <= T1_init or t1_carrier <= T2_final or T2_final <= T1_init):
             valid_physics = False
         elif tryb_procesu == "Chłodzenie wkładu" and (t1_carrier >= T1_init or t1_carrier >= T2_final or T2_final >= T1_init):
             valid_physics = False
+
+        # --- PRZETWARZANIE FLOTY MASZYN ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("### 📋 2. Zbiorcza Karta Maszynowa i Hydrauliczna Zakładu")
+
+        # Stałe konstrukcyjne referencyjne z reaktora T5
+        V_WORKING_BASE = 10.0
+        V_TOTAL_BASE = 15.17
+        A_BASE = 17.0
+        W_BASE = 4118.0
 
         spec_rows = []
         mixers_fleet = st.session_state.confirmed_mixers
@@ -508,139 +534,129 @@ with tab2:
         for m in mixers_fleet:
             v_working = m["capacity_m3"]
             mass_batch_kg = m["mass_per_batch"]
+            kat = m["product_family"]
+            rho_olej = FUCHS_PORTFOLIO[kat]["density"] * 1000.0  # kg/m³
             
-            # 1. Skalowanie parametrów fizycznych aparatu
+            # 1. Skalowanie geometrii, powierzchni wymiany i masy pustego reaktora
             v_total = v_working * (V_TOTAL_BASE / V_WORKING_BASE)
             scaled_area = A_BASE * ((v_working / V_WORKING_BASE) ** (2/3))
             scaled_weight = W_BASE * (v_total / V_TOTAL_BASE)
             
-            # 2. Analityczne wyznaczenie czasu procesu termicznego (tau) ze wzoru różniczkowego
+            # 2. Obliczenia ENERGII POTRZEBNEJ DO PROCESU (Q = m * c * deltaT)
+            delta_T_czyste = abs(T2_final - T1_init)
+            Q_kilodżule = mass_batch_kg * c_product * delta_T_czyste
+            Q_kwh = Q_kilodżule / 3600.0  # Zamiana kJ -> kWh
+            
+            # 3. Analityczny czas wymiany ciepła (tau) ze wzoru różniczkowo-bilansowego
             if valid_physics and w_heat_capacity > 0:
-                # Wyznaczenie wskaźnika efektywności wymiennika: 1 - 1/exp(k*F/w)
                 efficiency_factor = 1.0 - (1.0 / math.exp((k_coefficient * scaled_area) / w_heat_capacity))
-                
-                # Składnik logarytmiczny: ln((T1 - t1)/(T2 - t1))
                 ln_numerator = T1_init - t1_carrier
                 ln_denominator = T2_final - t1_carrier
-                
                 ln_value = math.log(abs(ln_numerator / ln_denominator))
-                
-                # Przekształcenie wzoru literaturowego na czas tau (w sekundach)
-                # tau = ln_value / [ efficiency_factor * (w / (M * c)) ]
                 tau_seconds = ln_value / (efficiency_factor * (w_heat_capacity / (mass_batch_kg * c_product)))
                 tau_hours = tau_seconds / 3600.0
             else:
                 tau_hours = 0.0
 
-            # 3. Wyznaczenie LMTD dla celów weryfikacyjnych i informacyjnych
-            # Dla uproszczenia bilansu przyjmujemy deltę sprawnościową na wylocie strumienia nośnika
+            # Estymacja LMTD
             t2_carrier_approx = t1_carrier + (mass_batch_kg * c_product * (T2_final - T1_init)) / (w_heat_capacity * max(tau_seconds, 1.0)) if tau_hours > 0 else t1_carrier
             dt1 = abs(t1_carrier - T1_init)
             dt2 = abs(t2_carrier_approx - T2_final)
-            if dt1 == dt2 or dt2 == 0:
-                lmtd = dt1
-            else:
-                lmtd = (dt1 - dt2) / math.log(dt1 / dt2) if (dt1 > 0 and dt2 > 0) else 0.0
+            lmtd = (dt1 - dt2) / math.log(dt1 / dt2) if (dt1 > 0 and dt2 > 0 and dt1 != dt2) else dt1
+
+            # 4. WYMIAROWANIE MIESZADŁA (Kryterium Re i lepkości projektowej 500 cSt z karty T5)
+            D_tank = round(2.2 * ((v_working / 10.0) ** (1/3)), 2)
+            d_agiterator = round(D_tank / 3, 2)
+            n_speed = 1.5  # 90 RPM
+            visc_dynamic = (500.0 / 1_000_000.0) * rho_olej  # Zamiana cSt -> Pa·s
+            
+            Re_mix = (n_speed * (d_agiterator ** 2) * rho_olej) / max(visc_dynamic, 0.001)
+            Ne_power_num = 2.5 if Re_mix > 50 else (50.0 / max(Re_mix, 1.0)) # Model łapowy/płatowy
+            P_mix_watts = Ne_power_num * (n_speed ** 3) * (d_agiterator ** 5) * rho_olej
+            required_motor_power_kw = max((P_mix_watts / 0.82 * 1.25) / 1000.0, 1.5) # uwzględnienie sprawności i zapasu
+
+            # 5. INTELIGENTNY DOBÓR POMPY ROZŁADUNKOWEJ
+            # Przy lepkości projektowej 500 cSt pompy odśrodkowe tracą sprawność -> system wymusza pompę wyporową
+            pump_type = "Śrubowa (Wyporowa)" if v_working >= 15.0 else "Krzywkowa (Rotacyjna)"
+            # Wydajność pompy dobrana tak, aby rozładować zbiornik w max 45 minut
+            q_pump_m3_h = round((v_working / 0.75), 1)
+            # Założone ciśnienie tłoczenia na instalacji Fuchs (straty na rurach + filtracja) = 4.0 bar
+            pump_power_kw = max((q_pump_m3_h * 4.0) / (36.0 * 0.65) * 1.20, 0.75)
 
             spec_rows.append({
                 "Tag urządzenia 🔒": m["tag"],
-                "Przypisana linia 🔒": m["product_family"],
                 "Pojemność robocza [m³]": round(v_working, 1),
-                "Pojemność całkowita [m³]": round(v_total, 2),
-                "Powierzchnia wymiany ciepła [m²] 📐": round(scaled_area, 2),
-                "Masa własna (pusty) [kg]": int(scaled_weight),
-                "Wielkość szarży [kg]": int(mass_batch_kg),
+                "Typ Mieszadła": "Łapowe (Viscous Fluid)",
+                "Moc Mieszadła [kW] ⚙️": round(required_motor_power_kw, 1),
+                "Typ Pompy": pump_type,
+                "Przepływ pompy [m³/h]": q_pump_m3_h,
+                "Moc Pompy [kW] 🔄": round(pump_power_kw, 1),
+                "Energia szarży [kWh] ⚡": int(Q_kwh),
                 "Średnia delta LMTD [°C]": round(lmtd, 1),
-                "Czas operacji termicznej [h] ⏱️": round(tau_hours, 2),
-                "Status wydajności": "✅ W normie procesowej" if tau_hours <= 4.0 else "⚠️ Wymaga optymalizacji mediów"
+                "Czas operacji [h] ⏱️": round(tau_hours, 2)
             })
 
         df_spec = pd.DataFrame(spec_rows)
 
-        # Wyświetlenie tabeli wynikowej specyfikacji technicznej aparatury
-        st.dataframe(
-            df_spec,
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                "Pojemność robocza [m³]": st.column_config.NumberColumn(format="%.1f m³"),
-                "Pojemność całkowita [m³]": st.column_config.NumberColumn(format="%.2f m³"),
-                "Powierzchnia wymiany ciepła [m²] 📐": st.column_config.NumberColumn(format="%.2f m²"),
-                "Masa własna (pusty) [kg]": st.column_config.NumberColumn(format="%d kg"),
-                "Wielkość szarży [kg]": st.column_config.NumberColumn(format="%d kg"),
-                "Średnia delta LMTD [°C]": st.column_config.NumberColumn(format="%.1f °C"),
-                "Czas operacji termicznej [h] ⏱️": st.column_config.NumberColumn(format="%.2f h")
-            }
-        )
-
-        # Przeprowadzenie walidacji błędów fizycznych w panelu bocznym
-        if not valid_physics:
-            st.error("🚨 Wykryto błąd krytyczny w założeniach temperaturowych! Temperatura nośnika (t1) musi pozwalać na realizację procesu wymiany ciepła w wybranym kierunku.")
-
-        # --- SEKCJA INFORMACJI STAŁYCH Z KARTY PROJEKTOWEJ T5 ---
-        st.markdown("### 🌡️ 2. Warunki brzegowe i wytrzymałościowe (T5 Design Data)")
-        
-        inf_col1, inf_col2 = st.columns(2)
-        with inf_col1:
-            st.info("""
-            **Specyfikacja konstrukcyjna zbiornika (Vessel):**
-            * Ciśnienie projektowe: `0 / +0,5 barg`
-            * Temperatura projektowa: `120 °C`
-            * Naddatek na korozję: `0 mm`
-            * Izolacja termiczna: `150 mm`
-            * Projektowe medium wewnętrzne: `Lubricants (Oleje)`
-            """)
-        with inf_col2:
-            st.info("""
-            **Specyfikacja układu wymiany ciepła (Coil):**
-            * Ciśnienie projektowe wężownicy: `0 / +10 barg`
-            * Temperatura projektowa wężownicy: `120 °C`
-            * Lepkość projektowa produktu: `500 cst`
-            * Współczynnik sprawności hydrodynamicznej: `Wyznaczany z liczby Reynoldsa (Re)`
-            """)
-
-        df_spec = pd.DataFrame(spec_rows)
-
-        # ---- FUNKCJA STYLIZUJĄCA Z POPRAWNYMI WCIĘCIAMI ----
+        # Stosowanie bezpiecznego inżynieryjnego podświetlania LMTD (zabezpieczenie przed koksowaniem/szokiem)
         def style_lmtd_cells(row):
             styles = [''] * len(row)
             val = row["Średnia delta LMTD [°C]"]
             if isinstance(val, (int, float)):
                 idx = row.index.get_loc("Średnia delta LMTD [°C]")
                 if val < 15.0:
-                    # Za niska delta - proces za wolny
-                    styles[idx] = 'background-color: #fff2cc; color: #b78103; font-weight: bold;'
+                    styles[idx] = 'background-color: #fff2cc; color: #b78103; font-weight: bold;' # Zbyt powolny proces
                 elif val > 55.0:
-                    # Za wysoka delta - ryzyko przypalenia produktu
-                    styles[idx] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;'
+                    styles[idx] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;' # Ryzyko przypalenia oleju
                 else:
-                    # W normie projektowej
-                    styles[idx] = 'background-color: #e6f4ea; color: #137333;'
+                    styles[idx] = 'background-color: #e6f4ea; color: #137333; font-weight: bold;' # Przedział optymalny
             return styles
 
-        # Zastosowanie stylu do DataFrame
         styled_df_spec = df_spec.style.apply(style_lmtd_cells, axis=1)
 
-        # Wyświetlenie tabeli wynikowej specyfikacji technicznej
+        # Wyświetlenie tabeli z nowym standardem szerokości Streamlita v2026
         st.dataframe(
             styled_df_spec,
             hide_index=True,
-            use_container_width=True,
+            width="stretch",
             column_config={
                 "Pojemność robocza [m³]": st.column_config.NumberColumn(format="%.1f m³"),
-                "Pojemność całkowita [m³]": st.column_config.NumberColumn(format="%.2f m³"),
-                "Powierzchnia wymiany ciepła [m²] 📐": st.column_config.NumberColumn(format="%.2f m²"),
-                "Masa własna (pusty) [kg]": st.column_config.NumberColumn(format="%d kg"),
-                "Wielkość szarży [kg]": st.column_config.NumberColumn(format="%d kg"),
+                "Moc Mieszadła [kW] ⚙️": st.column_config.NumberColumn(format="%.1f kW"),
+                "Przepływ pompy [m³/h]": st.column_config.NumberColumn(format="%.1f m³/h"),
+                "Moc Pompy [kW] 🔄": st.column_config.NumberColumn(format="%.1f kW"),
+                "Energia szarży [kWh] ⚡": st.column_config.NumberColumn(format="%d kWh"),
                 "Średnia delta LMTD [°C]": st.column_config.NumberColumn(format="%.1f °C"),
-                "Czas operacji termicznej [h] ⏱️": st.column_config.NumberColumn(format="%.2f h")
+                "Czas operacji [h] ⏱️": st.column_config.NumberColumn(format="%.2f h")
             }
         )
+
+        if not valid_physics:
+            st.error("🚨 **Błąd założeń temperaturowych!** Nośnik energii w panelu bocznym musi mieć temperaturę umożliwiającą realizację procesu (Wyższa dla grzania, niższa dla chłodzenia).")
+
+        # --- LEGENDA I KRYTERIA INŻYNIERYJNE ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("### 🏭 3. Założenia reologiczne i konstrukcyjne (Model T5 Design)")
+        
+        inf_col1, inf_col2 = st.columns(2)
+        with inf_col1:
+            st.info(f"""
+            **⚙️ Układ Mechaniczny (Mieszanie i Hydraulika):**
+            * **Lepkość obliczeniowa:** Zablokowana na poziomie `500 cSt` (zgodnie z najtrudniejszym scenariuszem rozruchu zimnego reaktora).
+            * **Typ pompy wyporowej:** Śrubowa/Krzywkowa. Generuje stałe natężenie przepływu i potrafi przetłoczyć lepkie oleje bazowe bez zjawiska kawitacji.
+            * **Założone ciśnienie robocze pomp:** `4.0 bar` (uwzględnia opory liniowe oraz opór filtrów workowych na instalacji nalewczej).
+            """)
+        with inf_col2:
+            st.info(f"""
+            **🔥 Układ Termodynamiczny i Przenikanie Ciepła:**
+            * **Materiał korpusu:** `{material_stal}`.
+            * **Sugerowana charakterystyka k:** Wyznaczona automatycznie na poziomie `{sug_k} kW/(m²·K)`.
+            * **Interpretacja LMTD:** 🟢 **15 - 55°C** (Optimum) | 🟡 **< 15°C** (Mała wydajność, proces potrwa zbyt długo) | 🔴 **> 55°C** (Ryzyko lokalnego koksowania oleju na ściance wężownicy i degradacji dodatków uszlachetniających FUCHS).
+            """)
 # ==========================================
-# ZAKŁADKA 3: LOGISTYKA, CZAS ROZLEWU I SYMULACJE OPAKOWAŃ (REALNA + 100%)
+# ZAKŁADKA 3: LOGISTYKA, CZAS ROZLEWU I GOSPODARKA PALETOWA
 # ==========================================
 with tab3:
-    st.header("📦 Analiza Logistyczna, Czas Rozlewu i Przechowywanie")
+    st.header("📦 Analiza Logistyczna, Czas Rozlewu i Gospodarka Paletowa")
 
     if "confirmed_mixers" not in st.session_state or not st.session_state.confirmed_mixers:
         st.info("💡 Aby przeprowadzić analizę logistyczną, najpierw zatwierdź konfigurację floty w **Zakładce 1**.")
@@ -657,21 +673,41 @@ with tab3:
             masa_miesieczna = m["batches_count"] * m["mass_per_batch"]
             tonaz_miesieczny_per_rodzina[kat] = tonaz_miesieczny_per_rodzina.get(kat, 0) + masa_miesieczna
 
+        # --- PARAMETRYZACJA GOSPODARKI MAGAZYNOWEJ ---
+        st.markdown("### 🏢 1. Parametryzacja Magazynu Wyrobów Gotowych")
+        c_log1, c_log2 = st.columns(2)
+        with c_log1:
+            czas_skladowania_dni = st.number_input(
+                "Średni czas składowania palety w magazynie (Rotacja) [dni]:", 
+                min_value=1, 
+                max_value=90, 
+                value=14, 
+                step=1,
+                help="Przez ile dni gotowa paleta średnio przebywa w magazynie przed wysyłką do klienta/dystrybutora."
+            )
+        with c_log2:
+            # Liczba dni roboczych/wysyłkowych w miesiącu na podstawie bazy z panelu bocznego (250 dni / 12 miesięcy)
+            dni_robocze_miesiac = 250.0 / 12.0
+            st.metric("Wyliczone dni wysyłkowe / miesiąc", f"{dni_robocze_miesiac:.2f} dnia")
+
+        st.markdown("---")
+
         # ==========================================
-        # SEKCJA 1: SYMULACJA MIESZANA (REALNY SPLIT PRODUKCJI)
+        # SEKCJA 1: SYMULACJA MIESZANA (REALNY SPLIT PRODUKCJI + PALETY)
         # ==========================================
-        st.markdown("### 🔀 1. Symulacja Mieszana (Na podstawie struktury % z panelu bocznego)")
-        st.caption("Wyliczenia logistyczne odzwierciedlające zadeklarowany podział strumienia produkcyjnego.")
+        st.markdown("### 🔀 2. Symulacja Mieszana (Realny Split i Zapotrzebowanie na Miejsca Paletowe)")
+        st.caption("Wyliczenia logistyczne odzwierciedlające zadeklarowany podział strumienia produkcyjnego oraz wymaganej pojemności magazynu.")
 
         real_split_rows = []
+        total_real_pallets_month = 0
+        total_real_pallet_slots_needed = 0
 
         for kat, total_mass_month in tonaz_miesieczny_per_rodzina.items():
-            # Pobieramy opakowania przypisane w Kroku 3 dla tej konkretnej rodziny
             wybrane_dla_linii = st.session_state.get(f"packs_{kat}", [])
             
             # Wymagania magazynowe / przechowywania na bazie właściwości rodziny
             if "Water-miscible" in kat or "ECOCOOL" in kat:
-                storage_req = "❄️ Frost Sensitive (Min +5°C), Wymaga ogrzewanego magazynu"
+                storage_req = "❄️ Frost Sensitive (Min +5°C), Wymaga strefy grzanej"
             elif "Engine Oils" in kat:
                 storage_req = "🔥 Klasa pożarowa III, Standard"
             else:
@@ -682,24 +718,32 @@ with tab3:
                 udzial_pct = opakowania_podzial.get(key_id, 0.0)
                 
                 if udzial_pct > 0:
-                    # Masa dedykowana na to opakowanie
                     masa_opakowania_month = total_mass_month * (udzial_pct / 100.0)
                     
-                    # Pobranie pojemności opakowania w kg (używamy poprawnego klucza size_l)
                     pack_capacity_l = PACK_CONFIGS[p]["size_l"]
                     pack_capacity_kg = pack_capacity_l * FUCHS_PORTFOLIO[kat]["density"]
                     liczba_sztuk_month = math.ceil(masa_opakowania_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
                     
-                    # Wyznaczenie czasu rozlewu (używamy poprawnego klucza rate_szt_h)
                     wydajnosc_szt_h = PACK_CONFIGS[p]["rate_szt_h"]
                     czas_rozlewu_h = liczba_sztuk_month / wydajnosc_szt_h if wydajnosc_szt_h > 0 else 0.0
+                    
+                    # --- MODELOWANIE STRUMIENIA PALETOWEGO ---
+                    szt_na_palecie = PACK_CONFIGS[p]["per_pallet"]
+                    liczba_palet_month = math.ceil(liczba_sztuk_month / szt_na_palecie) if szt_na_palecie > 0 else 0
+                    total_real_pallets_month += liczba_palet_month
+                    
+                    # Równanie bilansu statycznego: miejsca_paletowe = (palety_miesiecznie / dni_robocze) * czas_skladowania
+                    miejsca_paletowe_w_magazynie = math.ceil((liczba_palet_month / dni_robocze_miesiac) * czas_skladowania_dni)
+                    total_real_pallet_slots_needed += miejsca_paletowe_w_magazynie
                     
                     real_split_rows.append({
                         "Linia produktowa 🔒": kat,
                         "Typ Opakowania 📦": p,
                         "Udział [%]": f"{udzial_pct:.1f}%",
-                        "Masa miesięczna [kg]": int(masa_opakowania_month),
                         "Liczba opakowań [/mies]": int(liczba_sztuk_month),
+                        "Palety [EPAL/mies] 🧱": int(liczba_palet_month),
+                        "Wymagane Miejsca Paletowe [szt] 📐": int(miejsca_paletowe_w_magazynie),
+                        "Czas składowania palety [dni] ⏱️": czas_skladowania_dni,
                         "Czas pracy linii rozlewu [h] ⏱️": round(czas_rozlewu_h, 1),
                         "Wymagania Przechowywania ⚠️": storage_req
                     })
@@ -711,49 +755,54 @@ with tab3:
                 hide_index=True,
                 width="stretch",
                 column_config={
-                    "Masa miesięczna [kg]": st.column_config.NumberColumn(format="%d kg"),
                     "Liczba opakowań [/mies]": st.column_config.NumberColumn(format="%d szt."),
+                    "Palety [EPAL/mies] 🧱": st.column_config.NumberColumn(format="%d EPAL"),
+                    "Wymagane Miejsca Paletowe [szt] 📐": st.column_config.NumberColumn(format="%d miejsc"),
+                    "Czas składowania palety [dni] ⏱️": st.column_config.NumberColumn(format="%d dni"),
                     "Czas pracy linii rozlewu [h] ⏱️": st.column_config.NumberColumn(format="%.1f h")
                 }
             )
         else:
             st.warning("⚠️ Brak zdefiniowanych udziałów procentowych w panelu bocznym lub nie wybrano opakowań.")
+
+
         # ==========================================
         # SEKCJA 2: SYMULACJA STRUKTURY 100% (SCENARIUSZE SKRAJNE)
         # ==========================================
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("### 📊 2. Symulacja Scenariuszy 100% (Analiza obciążenia krytycznego)")
+        st.markdown("### 📊 3. Symulacja Scenariuszy 100% (Maksymalna pojemność i skrajne obciążenia)")
         st.caption("Symulacja pokazująca wymogi logistyczne, gdyby **cały miesięczny tonaż danej rodziny** został skierowany wyłącznie do jednego typu opakowania.")
 
         simulation_100_rows = []
 
         for kat, total_mass_month in tonaz_miesieczny_per_rodzina.items():
-            # Dostępne wszystkie globalne typy opakowań z systemu fabryki
             for p_type in PACK_CONFIGS.keys():
                 pack_capacity_l = PACK_CONFIGS[p_type]["size_l"]
                 pack_capacity_kg = pack_capacity_l * FUCHS_PORTFOLIO[kat]["density"]
                 
-                # Całość (100%) tonażu idzie w to jedno opakowanie
                 liczba_sztuk_100 = math.ceil(total_mass_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
                 
-                # Czas rozlewu bazuje na rate_szt_h (sztuki na godzinę)
                 wydajnosc_szt_h = PACK_CONFIGS[p_type]["rate_szt_h"]
                 czas_rozlewu_100_h = liczba_sztuk_100 / wydajnosc_szt_h if wydajnosc_szt_h > 0 else 0.0
+                
+                # Obliczenia gabarytów paletowych i przestrzennych dla wariantu 100%
+                szt_na_palecie = PACK_CONFIGS[p_type]["per_pallet"]
+                liczba_palet_100 = math.ceil(liczba_sztuk_100 / szt_na_palecie) if szt_na_palecie > 0 else 0
+                miejsca_paletowe_100 = math.ceil((liczba_palet_100 / dni_robocze_miesiac) * czas_skladowania_dni)
                 
                 simulation_100_rows.append({
                     "Linia produktowa 🔒": kat,
                     "Wariant opakowania (100%) 📦": p_type,
-                    "Całkowity tonaż [kg]": int(total_mass_month),
                     "Wymagana liczba sztuk przy 100%": int(liczba_sztuk_100),
-                    "Skrajny czas rozlewu [h] ⏱️": round(czas_rozlewu_100_h, 1),
-                    "Obciążenie etatu rozlewaczy": f"{round(czas_rozlewu_100_h / 160.0 * 100, 1)}% etatu"
+                    "Skrajny obrót palet [EPAL/mies]": int(liczba_palet_100),
+                    "Skrajne Miejsca Paletowe [szt] 📐": int(miejsca_paletowe_100),
+                    "Skrajny czas rozlewu [h] ⏱️": round(czas_rozlewu_100_h, 1)
                 })
 
         df_sim_100 = pd.DataFrame(simulation_100_rows)
-
-        # Wyświetlenie tabeli z filtrem na linię produktową dla wygody użytkownika
+        
         wybrana_linia_filtr = st.selectbox("Filtruj scenariusze 100% dla linii:", ["Wszystkie"] + list(tonaz_miesieczny_per_rodzina.keys()))
-
+        
         if wybrana_linia_filtr != "Wszystkie":
             df_sim_100_filtered = df_sim_100[df_sim_100["Linia produktowa 🔒"] == wybrana_linia_filtr]
         else:
@@ -764,29 +813,35 @@ with tab3:
             hide_index=True,
             width="stretch",
             column_config={
-                "Całkowity tonaż [kg]": st.column_config.NumberColumn(format="%d kg"),
                 "Wymagana liczba sztuk przy 100%": st.column_config.NumberColumn(format="%d szt."),
+                "Skrajny obrót palet [EPAL/mies]": st.column_config.NumberColumn(format="%d EPAL/mies"),
+                "Skrajne Miejsca Paletowe [szt] 📐": st.column_config.NumberColumn(format="%d miejsc"),
                 "Skrajny czas rozlewu [h] ⏱️": st.column_config.NumberColumn(format="%.1f h")
             }
         )
+
+        # ==========================================
+        # GLOBALNA TABLICA KPI - PODSUMOWANIE POTOKU
+        # ==========================================
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.subheader("📊 Zbiorcze wskaźniki KPI gospodarki magazynowej (Wariant Realny):")
+        
+        sum_log1, sum_log2, sum_log3 = st.columns(3)
+        with sum_log1:
+            st.metric(label="🧱 Całkowity obrót paletowy fabryki", value=f"{total_real_pallets_month:,} EPAL/miesiąc")
+        with sum_log2:
+            st.metric(label="📐 WYMAGANA LICZBA MIEJSC PALETOWYCH (Pojemność statyczna)", value=f"{total_real_pallet_slots_needed} szt.", delta="Miejsca w regałach")
+        with sum_log3:
+            st.metric(label="⏱️ Średni czas składowania palety", value=f"{czas_skladowania_dni} dni", delta="Rotacja wyrobów")
 
         # ==========================================
         # PODSUMOWANIE KROKU LOGISTYCZNEGO
         # ==========================================
         st.markdown("<br>", unsafe_allow_html=True)
         st.info("""
-        **💡 Wnioski z analizy magazynowej i logistycznej:**
-        * **Frost Sensitive (Wrażliwe na mróz):** Linia wodorozcieńczalna (np. oleje obróbcze ECOCOOL) zawiera wodę strukturalną. Spadek temperatury poniżej 0°C powoduje nieodwracalne rozwarstwienie emulsji. Przechowywanie bezwzględnie w strefie o temperaturze kontrolowanej (temperatura optymalna: +5°C do +30°C).
-        * **Wydajność operacyjna:** Porównanie czasu rozlewu w symulacji mieszanej z symulacją 100% pozwala zidentyfikować tzw. *wąskie gardła* (bottlenecks) na liniach małych konfekcji (małe butelki drastycznie wydłużają czas pracy rozlewaczy).
-        """)
-        # ==========================================
-        # PODSUMOWANIE KROKU LOGISTYCZNEGO
-        # ==========================================
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.info("""
-        **💡 Wnioski z analizy magazynowej i logistycznej:**
-        * **Frost Sensitive (Wrażliwe na mróz):** Linia wodorozcieńczalna (np. oleje obróbcze ECOCOOL) zawiera wodę strukturalną. Spadek temperatury poniżej 0°C powoduje nieodwracalne rozwarstwienie emulsji. Przechowywanie bezwzględnie w strefie o temperaturze kontrolowanej (temperatura optymalna: +5°C do +30°C).
-        * **Wydajność operacyjna:** Porównanie czasu rozlewu w symulacji mieszanej z symulacją 100% pozwala zidentyfikować tzw. *wąskie gardła* (bottlenecks) na liniach małych konfekcji (małe butelki drastycznie wydłużają czas pracy rozlewaczy).
+        **💡 Wnioski z analizy intralogistycznej i magazynowej:**
+        * **Pojemność statyczna (Miejsca paletowe):** Wyznacza minimalny gabaryt magazynu wysokiego składowania (MWS) niezbędny do bezpiecznego buforowania produkcji przed wysyłką bez ryzyka zatkania linii konfekcyjnych.
+        * **Zależność czasu składowania:** Skrócenie czasu przebywania palety (np. poprzez sprawniejszą awizację transportów) drastycznie zmniejsza wymaganą liczbę miejsc paletowych, optymalizując koszty inwestycyjne infrastruktury FUCHS.
         """)
 # ==========================================
 # ZAKŁADKA 4: FINANSE - BILANSE MOCY ELEKTRYCZNEJ
