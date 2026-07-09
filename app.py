@@ -650,82 +650,176 @@ with tab2:
             }
         )
 # ==========================================
-        # SEKCJA 3: SYMULACJA SCENARIUSZY 100% (SKRAJNE OBCIĄŻENIE KRYTYCZNE)
-        # ==========================================
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("### 📊 3. Symulacja Scenariuszy 100% (Obciążenie krytyczne parku rozlewniczego)")
-        st.caption("Analiza symulująca czasy rozlewu, gdyby **cały tonaż danej rodziny** został skierowany na jedną dedykowaną linię konfekcyjną.")
+# ZAKŁADKA 3: LOGISTYKA, GOSPODARKA PALETOWA I NALEWAKI PER TYP OPAKOWANIA
+# ==========================================
+with tab3:
+    st.header("📦 Analiza Logistyczna, Czas Rozlewu i Gospodarka Paletowa")
 
-        simulation_100_rows = []
-
-        for kat, total_mass_month in tonaz_miesieczny_per_rodzina.items():
-            rho_linii = FUCHS_PORTFOLIO[kat]["density"]
-            m_parent = next((mx for mx in mixers_fleet if mx["product_family"] == kat), None)
-            q_pump_m3h = st.session_state.get("pump_flows", {}).get(m_parent["tag"], m_parent["capacity_m3"] / 0.75) if m_parent else 15.0
-
-            for p_type in PACK_CONFIGS.keys():
-                pack_capacity_l = PACK_CONFIGS[p_type]["size_l"]
-                pack_capacity_kg = pack_capacity_l * rho_linii
-                liczba_sztuk_100 = math.ceil(total_mass_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
-                
-                # Przepustowość nalewaków dla tego konkretnego typu opakowania
-                cfg_fill = st.session_state.filling_lines_config.get(p_type, {"nozzles": 1, "speed_kg_min": 50.0})
-                sekcja_nalewania_kg_h = cfg_fill["nozzles"] * cfg_fill["speed_kg_min"] * 60.0
-                sekcja_nalewania_m3_h = sekcja_nalewania_kg_h / (rho_linii * 1000.0)
-                
-                # Wybór mniejszego przepływu
-                q_effective_flow_m3h = min(q_pump_m3h, sekcja_nalewania_m3_h)
-                objętosc_total_m3 = total_mass_month / (rho_linii * 1000.0)
-                czas_rozlewu_100_h = objętosc_total_m3 / q_effective_flow_m3h if q_effective_flow_m3h > 0 else 0.0
-                
-                szt_na_palecie = PACK_CONFIGS[p_type]["per_pallet"]
-                liczba_palet_100 = math.ceil(liczba_sztuk_100 / szt_na_palecie) if szt_na_palecie > 0 else 0
-                miejsca_paletowe_100 = math.ceil((liczba_palet_100 / dni_robocze_miesiac) * czas_skladowania_dni)
-                
-                # POPRAWKA SKŁADNIOWA: Bezpieczny, jedno-linijkowy zapis cudzysłowów
-                if q_pump_m3h < sekcja_nalewania_m3_h:
-                    limiter_100 = "⚓ Pompa"
-                else:
-                    limiter_100 = f"🍼 Nalewaki ({int(cfg_fill['nozzles'])} gł.)"
-
-                simulation_100_rows.append({
-                    "Linia produktowa 🔒": kat,
-                    "Wariant opakowania (100%) 📦": p_type,
-                    "Wymagana liczba sztuk przy 100%": int(liczba_sztuk_100),
-                    "Skrajny obrót palet [EPAL/mies]": int(liczba_palet_100),
-                    "Skrajne Miejsca Paletowe [szt] 📐": int(miejsca_paletowe_100),
-                    "Skrajny czas rozlewu [h] ⏱️": round(czas_rozlewu_100_h, 1),
-                    "Wąskie gardło 100%": limiter_100
-                })
-
-        df_sim_100 = pd.DataFrame(simulation_100_rows)
-        wybrana_linia_filtr = st.selectbox("Filtruj scenariusze 100% dla linii:", ["Wszystkie"] + list(tonaz_miesieczny_per_rodzina.keys()))
+    if "confirmed_mixers" not in st.session_state or not st.session_state.confirmed_mixers:
+        st.info("💡 Aby przeprowadzić analizę logistyczną, najpierw zatwierdź konfigurację floty w **Zakładce 1**.")
+    else:
+        mixers_fleet = st.session_state.confirmed_mixers
+        opakowania_podzial = st.session_state.get("opakowania_podzial", {})
         
-        if wybrana_linia_filtr != "Wszystkie":
-            df_sim_100_filtered = df_sim_100[df_sim_100["Linia produktowa 🔒"] == wybrana_linia_filtr]
-        else:
-            df_sim_100_filtered = df_sim_100
+        # 1. DEFINICJA SŁOWNIKA TONAZU MIESIĘCZNEGO (Zabezpieczenie przed NameError)
+        tonaz_miesieczny_per_rodzina = {}
+        for m in mixers_fleet:
+            kat = m["product_family"]
+            masa_miesieczna = m["batches_count"] * m["mass_per_batch"]
+            tonaz_miesieczny_per_rodzina[kat] = tonaz_miesieczny_per_rodzina.get(kat, 0) + masa_miesieczna
 
-        st.dataframe(
-            df_sim_100_filtered,
+        # Zbieranie wszystkich unikalnych typów opakowań wybranego portfolio
+        aktywne_opakowania = set()
+        for kat in FUCHS_PORTFOLIO.keys():
+            packs = st.session_state.get(f"packs_{kat}", [])
+            for p in packs:
+                aktywne_opakowania.add(p)
+        if not aktywne_opakowania:
+            aktywne_opakowania = set(PACK_CONFIGS.keys())
+
+        # --- SEKCJA 1: MATRYCA NALEWAKÓW PER OPAKOWANIE ---
+        st.markdown("### 🎛️ 1. Konfiguracja Stanowisk Rozlewniczych per Typ Opakowania")
+        st.caption("Każdy gabaryt opakowania posiada własną specyfikę rozlewu. Określ liczbę głowic oraz wydajność masową dla poszczególnych linii.")
+        
+        if "filling_lines_config" not in st.session_state:
+            st.session_state.filling_lines_config = {}
+            
+        # Domyślne wartości startowe odzwierciedlające fizykę rozlewu
+        for p in aktywne_opakowania:
+            if p not in st.session_state.filling_lines_config:
+                if "5l" in p.lower() or "1l" in p.lower() or "karton" in p.lower() or "small" in p.lower():
+                    st.session_state.filling_lines_config[p] = {"nozzles": 4, "speed_kg_min": 15.0}
+                elif "200l" in p.lower() or "beczka" in p.lower() or "medium" in p.lower() or "large" in p.lower():
+                    st.session_state.filling_lines_config[p] = {"nozzles": 2, "speed_kg_min": 60.0}
+                else: # IBC / Bulk
+                    st.session_state.filling_lines_config[p] = {"nozzles": 1, "speed_kg_min": 150.0}
+
+        def sync_filling_lines():
+            if "filling_editor" in st.session_state:
+                edits = st.session_state.filling_editor.get("edited_rows", {})
+                pack_list = list(aktywne_opakowania)
+                for idx, changes in edits.items():
+                    if idx < len(pack_list):
+                        p_name = pack_list[idx]
+                        if "2. Liczba nalewaków / głowic [szt] 🟦" in changes:
+                            st.session_state.filling_lines_config[p_name]["nozzles"] = int(changes["2. Liczba nalewaków / głowic [szt] 🟦"])
+                        if "3. Wydajność 1 nalewaka [kg/min] 🟦" in changes:
+                            st.session_state.filling_lines_config[p_name]["speed_kg_min"] = float(changes["3. Wydajność 1 nalewaka [kg/min] 🟦"])
+
+        filling_table_rows = []
+        for p in aktywne_opakowania:
+            cfg = st.session_state.filling_lines_config[p]
+            total_kg_h = cfg["nozzles"] * cfg["speed_kg_min"] * 60.0
+            filling_table_rows.append({
+                "1. Typ Opakowania 🔒": p,
+                "2. Liczba nalewaków / głowic [szt] 🟦": int(cfg["nozzles"]),
+                "3. Wydajność 1 nalewaka [kg/min] 🟦": float(cfg["speed_kg_min"]),
+                "4. Łączna przepustowość sekcji [kg/h] 🔒": round(total_kg_h, 1)
+            })
+
+        df_filling_editor = pd.DataFrame(filling_table_rows)
+        
+        st.data_editor(
+            df_filling_editor,
             hide_index=True,
             width="stretch",
+            disabled=["1. Typ Opakowania 🔒", "4. Łączna przepustowość sekcji [kg/h] 🔒"],
             column_config={
-                "Wymagana liczba sztuk przy 100%": st.column_config.NumberColumn(format="%d szt."),
-                "Skrajny obrót palet [EPAL/mies]": st.column_config.NumberColumn(format="%d EPAL/mies"),
-                "Skrajne Miejsca Paletowe [szt] 📐": st.column_config.NumberColumn(format="%d miejsc"),
-                "Skrajny czas rozlewu [h] ⏱️": st.column_config.NumberColumn(format="%.1f h")
-            }
+                "2. Liczba nalewaków / głowic [szt] 🟦": st.column_config.NumberColumn(min_value=1, max_value=24, step=1),
+                "3. Wydajność 1 nalewaka [kg/min] 🟦": st.column_config.NumberColumn(min_value=0.5, max_value=500.0, step=5.0),
+                "4. Łączna przepustowość sekcji [kg/h] 🔒": st.column_config.NumberColumn(format="%.1f kg/h")
+            },
+            key="filling_editor",
+            on_change=sync_filling_lines
         )
 
-        # --- SEKCJA KPI POD TABELAMI ---
+        # Globalny czas rotacji magazynowej
         st.markdown("<br>", unsafe_allow_html=True)
-        st.subheader("📊 Zbiorcze wskaźniki KPI gospodarki magazynowej (Wariant Realny):")
-        
-        sum_log1, sum_log2, sum_log3 = st.columns(3)
-        with sum_log1: st.metric("🧱 Sumaryczny obrót palet", f"{total_real_pallets_month:,} EPAL/miesiąc")
-        with sum_log2: st.metric("📐 WYMAGANA POJEMNOŚĆ MAGAZYNU", f"{total_real_pallet_slots_needed} miejsc", delta="Pojemność statyczna")
-        with sum_log3: st.metric("⏱️ Średni czas składowania (Rotacja)", f"{czas_skladowania_dni} dni")
+        c_rot1, c_rot2 = st.columns([1, 3])
+        with c_rot1:
+            czas_skladowania_dni = st.number_input("Czas składowania palety (Rotacja) [dni]:", min_value=1, max_value=90, value=14, step=1)
+        dni_robocze_miesiac = 250.0 / 12.0
+
+        st.markdown("---")
+
+        # ==========================================
+        # SEKCJA 1: SYMULACJA MIESZANA (REALNY SPLIT + WĄSKIE GARDŁO PER OPAKOWANIE)
+        # ==========================================
+        st.markdown("### 🔀 2. Symulacja Mieszana (Zoptymalizowany Realny Split i Bufor Paletowy)")
+        st.caption("Aplikacja weryfikuje wydajność pompy z Zakładki 2 z wydajnością linii dla danego opakowania i wyznacza maksymalny czas rozlewu.")
+
+        real_split_rows = []
+        total_real_pallets_month = 0
+        total_real_pallet_slots_needed = 0
+
+        for kat, total_mass_month in tonaz_miesieczny_per_rodzina.items():
+            wybrane_dla_linii = st.session_state.get(f"packs_{kat}", [])
+            rho_linii = FUCHS_PORTFOLIO[kat]["density"]
+
+            if "Water-miscible" in kat or "ECOCOOL" in kat:
+                storage_req = "❄️ Frost Sensitive (Min +5°C), Strefa grzana"
+            elif "Engine Oils" in kat:
+                storage_req = "🔥 Klasa pożarowa III, Standard"
+            else:
+                storage_req = "🟢 Standard, Brak obostrzeń"
+
+            for p in wybrane_dla_linii:
+                key_id = f"pct_{kat}_{p}"
+                udzial_pct = opakowania_podzial.get(key_id, 0.0)
+                
+                if udzial_pct > 0:
+                    masa_opakowania_month = total_mass_month * (udzial_pct / 100.0)
+                    pack_capacity_l = PACK_CONFIGS[p]["size_l"]
+                    pack_capacity_kg = pack_capacity_l * rho_linii
+                    liczba_sztuk_month = math.ceil(masa_opakowania_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
+                    
+                    # --- ANALIZA WĄSKIEGO GARDŁA PER TYP OPAKOWANIA ---
+                    cfg_fill = st.session_state.filling_lines_config.get(p, {"nozzles": 1, "speed_kg_min": 50.0})
+                    sekcja_nalewania_kg_h = cfg_fill["nozzles"] * cfg_fill["speed_kg_min"] * 60.0
+                    sekcja_nalewania_m3_h = sekcja_nalewania_kg_h / (rho_linii * 1000.0)
+
+                    m_parent = next((mx for mx in mixers_fleet if mx["product_family"] == kat), None)
+                    q_pump_m3h = st.session_state.get("pump_flows", {}).get(m_parent["tag"], m_parent["capacity_m3"] / 0.75) if m_parent else 15.0
+
+                    q_effective_flow_m3h = min(q_pump_m3h, sekcja_nalewania_m3_h)
+                    
+                    objętosc_strumienia_m3 = masa_opakowania_month / (rho_linii * 1000.0)
+                    czas_rozlewu_h = objętosc_strumienia_m3 / q_effective_flow_m3h if q_effective_flow_m3h > 0 else 0.0
+                    
+                    szt_na_palecie = PACK_CONFIGS[p]["per_pallet"]
+                    liczba_palet_month = math.ceil(liczba_sztuk_month / szt_na_palecie) if szt_na_palecie > 0 else 0
+                    total_real_pallets_month += liczba_palet_month
+                    
+                    miejsca_paletowe_w_magazynie = math.ceil((liczba_palet_month / dni_robocze_miesiac) * czas_skladowania_dni)
+                    total_real_pallet_slots_needed += miejsca_paletowe_w_magazynie
+                    
+                    limiter = "⚓ Pompa tłoczna" if q_pump_m3h < sekcja_nalewania_m3_h else f"🍼 Liniowe Nalewaki ({cfg_fill['nozzles']} gł.)"
+
+                    real_split_rows.append({
+                        "Linia produktowa 🔒": kat,
+                        "Typ Opakowania 📦": p,
+                        "Udział [%]": f"{udzial_pct:.1f}%",
+                        "Liczba opakowań [/mies]": int(liczba_sztuk_month),
+                        "Palety [EPAL/mies] 🧱": int(liczba_palet_month),
+                        "Wymagane Miejsca Paletowe [szt] 📐": int(miejsca_paletowe_w_magazynie),
+                        "Czas rozlewu strumienia [h] ⏱️": round(czas_rozlewu_h, 1),
+                        "Element ograniczający (Wąskie gardło)": limiter,
+                        "Wymagania Przechowywania ⚠️": storage_req
+                    })
+
+        if real_split_rows:
+            df_real_split = pd.DataFrame(real_split_rows)
+            st.dataframe(
+                df_real_split,
+                hide_index=True,
+                width="stretch",
+                column_config={
+                    "Liczba opakowań [/mies]": st.column_config.NumberColumn(format="%d szt."),
+                    "Palety [EPAL/mies] 🧱": st.column_config.NumberColumn(format="%d EPAL"),
+                    "Wymagane Miejsca Paletowe [szt] 📐": st.column_config.NumberColumn(format="%d miejsc"),
+                    "Czas rozlewu strumienia [h] ⏱️": st.column_config.NumberColumn(format="%.1f h")
+                }
+            )
 # ==========================================
 # ZAKŁADKA 4: FINANSE ORAZ INTEGRACJA CYKLU CZASOWEGO FABRYKI
 # ==========================================
