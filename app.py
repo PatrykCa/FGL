@@ -39,15 +39,9 @@ AGITATOR_TYPES = {
 
 # --- 2. INICJALIZACJA STRUKTUR W SESJI ---
 if "prod_dict" not in st.session_state:
-    st.session_state.prod_dict = {}
-for k in FUCHS_PORTFOLIO.keys():
-    if k not in st.session_state.prod_dict:
-        st.session_state.prod_dict[k] = {
-            "roczna": 1200000, 
-            "user_vol_m3": 15.0,  
-            "skus": 1, 
-            "num_tanks": 1
-        }
+    st.session_state.prod_dict = {
+        k: {"roczna": 1200000, "user_vol_m3": 15.0, "skus": 1, "num_tanks": 1} for k in FUCHS_PORTFOLIO.keys()
+    }
 
 if "confirmed_mixers" not in st.session_state:
     st.session_state.confirmed_mixers = []
@@ -56,7 +50,7 @@ if "calculated_times" not in st.session_state:
     st.session_state.calculated_times = {}
 
 # ==========================================
-# ZINTEGROWANY PANEL BOCZNY
+# PANEL BOCZNY (Wybór Rodzin i Opakowań)
 # ==========================================
 st.sidebar.header("📋 KROK 1: Wybór Rodzin")
 wybrane_kategorie = st.sidebar.multiselect(
@@ -96,7 +90,7 @@ for kat in wybrane_kategorie:
         if round(suma_procentow_linii, 1) == 100.0:
             st.sidebar.success(f"    ✅ Bilans {kat}: 100%")
         else:
-            st.sidebar.error(f"    ❌ Suma dla {kat}: {suma_procentow_linii}% (Musi być 100%!)")
+            st.sidebar.error(f"    ❌ Suma dla {kat}: {suma_procentow_linii}%")
     st.sidebar.markdown("---")
 
 # --- STRUKTURA INTERFEJSU ---
@@ -109,69 +103,45 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # ==========================================
-# ZAKŁADKA 1: GŁÓWNE ZESTAWIENIE I DEDYKOWANA FLOTA
+# ZAKŁADKA 1: PŁYNNA I STABILNA EDYCJA
 # ==========================================
 with tab1:
-    st.header(f"Zintegrowane Zestawienie Parametrów Procesowych (Baza: {godziny_dziennie:.1f}h/dzień)")
+    st.header(f"Zintegrowane Zestawienie Parametrów Procesowych")
     
     if wybrane_kategorie:
-        if "tab1_editor" in st.session_state and "edited_rows" in st.session_state.tab1_editor:
-            edits = st.session_state.tab1_editor["edited_rows"]
-            active_families = [k for k in FUCHS_PORTFOLIO.keys() if k in wybrane_kategorie]
-            for idx, changes in edits.items():
-                if int(idx) < len(active_families):
-                    family_name = active_families[int(idx)]
-                    if "2. Roczna produkcja [kg] 🟦" in changes:
-                        st.session_state.prod_dict[family_name]["roczna"] = int(changes["2. Roczna produkcja [kg] 🟦"])
-                    if "3. Pojemność Mieszalnika [m³] 🟦" in changes:
-                        st.session_state.prod_dict[family_name]["user_vol_m3"] = float(changes["3. Pojemność Mieszalnika [m³] 🟦"])
-                    if "4. Liczba SKUs 🟦" in changes:
-                        st.session_state.prod_dict[family_name]["skus"] = int(changes["4. Liczba SKUs 🟦"])
-
-        input_matrix_rows = []
-        for kat in wybrane_kategorie:
-            input_matrix_rows.append({
-                "1. Nazwa rodziny 🔒": kat,
-                "2. Roczna produkcja [kg] 🟦": int(st.session_state.prod_dict[kat]["roczna"]),
-                "3. Pojemność Mieszalnika [m³] 🟦": float(st.session_state.prod_dict[kat]["user_vol_m3"]),
-                "4. Liczba SKUs 🟦": int(st.session_state.prod_dict[kat]["skus"])
-            })
-
-        st.markdown("##### 📥 Krok A: Definiowanie Założeń Zdolności Produkcyjnej, Gabarytów i SKUs")
+        st.markdown("##### 📥 Krok A: Parametryzacja Tonażu, Pojemności Mieszalnika oraz SKUs")
+        st.caption("Wybierz linię z listy, aby błyskawicznie i płynnie zmienić jej parametry. Wyniki w tabeli poniżej przeliczą się natychmiast.")
         
-        with st.form("form_założeń_wejściowych"):
-            edited_table = st.data_editor(
-                pd.DataFrame(input_matrix_rows),
-                hide_index=True,
-                width="stretch",
-                disabled=["1. Nazwa rodziny 🔒"],
-                column_config={
-                    "2. Roczna produkcja [kg] 🟦": st.column_config.NumberColumn(min_value=0, step=50000, format="%d"),
-                    "3. Pojemność Mieszalnika [m³] 🟦": st.column_config.NumberColumn(min_value=0.5, max_value=150.0, step=0.5, format="%.1f m³"),
-                    "4. Liczba SKUs 🟦": st.column_config.NumberColumn(min_value=1, step=1)
-                },
-                key="tab1_editor"
+        # Wybór linii do edycji - eliminuje całkowicie problem skakania tabeli
+        selected_family_to_edit = st.selectbox("Wybierz linię produktową do modyfikacji:", wybrane_kategorie)
+        
+        c_ed1, c_ed2, c_ed3 = st.columns(3)
+        with c_ed1:
+            st.session_state.prod_dict[selected_family_to_edit]["roczna"] = st.number_input(
+                "Roczna produkcja [kg]:", min_value=0, value=int(st.session_state.prod_dict[selected_family_to_edit]["roczna"]), step=50000
             )
-            st.form_submit_button("💾 Zapisz dane wejściowe i przelicz zapotrzebowanie aparatów", type="primary", use_container_width=True)
+        with c_ed2:
+            st.session_state.prod_dict[selected_family_to_edit]["user_vol_m3"] = st.number_input(
+                "Pojemność Mieszalnika [m³]:", min_value=0.5, value=float(st.session_state.prod_dict[selected_family_to_edit]["user_vol_m3"]), step=0.5
+            )
+        with c_ed3:
+            st.session_state.prod_dict[selected_family_to_edit]["skus"] = st.number_input(
+                "Liczba aktywnych SKUs:", min_value=1, value=int(st.session_state.prod_dict[selected_family_to_edit]["skus"]), step=1
+            )
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("##### 🛢️ Krok B: Konfiguracja Floty Równoległej na Podstawie Liczby SKUs")
-        
-        for kat in wybrane_kategorie:
-            current_skus = st.session_state.prod_dict[kat]["skus"]
-            if current_skus > 1:
-                st.session_state.prod_dict[kat]["num_tanks"] = st.number_input(
-                    f"Wykryto **{current_skus} SKUs** dla linii **{kat}**. Na ile osobnych mieszalników chcesz rozbić tę produkcję?",
-                    min_value=1,
-                    max_value=int(current_skus),
-                    value=min(int(st.session_state.prod_dict[kat].get("num_tanks", 1)), int(current_skus)),
-                    key=f"tanks_input_{kat}"
-                )
-            else:
-                st.session_state.prod_dict[kat]["num_tanks"] = 1
+        # Dynamiczny Krok B: Wybór liczby mieszalników na podstawie SKUs
+        current_skus = st.session_state.prod_dict[selected_family_to_edit]["skus"]
+        if current_skus > 1:
+            st.markdown("---")
+            st.session_state.prod_dict[selected_family_to_edit]["num_tanks"] = st.number_input(
+                f"🏭 **Wielkość floty dla {selected_family_to_edit}**: Na ile osobnych mieszalników chcesz rozbić produkcję tych {current_skus} SKUs?",
+                min_value=1, max_value=int(current_skus), value=min(int(st.session_state.prod_dict[selected_family_to_edit].get("num_tanks", 1)), int(current_skus))
+            )
+        else:
+            st.session_state.prod_dict[selected_family_to_edit]["num_tanks"] = 1
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("### 🏭 3. Skorygowana i Zweryfikowana Flota Mieszalników")
+        # Generowanie czystej tabeli wynikowej (Tylko do odczytu - brak błędów skakania)
+        st.markdown("### 📊 Aktualne Zestawienie Floty Produkcyjnej")
         
         final_fleet_rows = []
         confirmed_mixers_blueprint = []
@@ -198,17 +168,16 @@ with tab1:
             for t_idx in range(tanks_count):
                 tag_id = f"MT-{tag_counter}" + (f"-Z{t_idx+1}" if tanks_count > 1 else "")
                 status_txt = "🟢 Optymalna" if real_utilization <= 85.0 else "⚠️ Przeciążenie (>85%)"
-                if v_tank_user < 5.0:
-                    status_txt = "❌ Poniżej minimum fabryki (<5 m³)"
+                if v_tank_user < 5.0: status_txt = "❌ Poniżej min. fabryki (<5 m³)"
 
                 final_fleet_rows.append({
-                    "ID Urządzenia 🔒": tag_id,
-                    "Przypisana Linia 🔒": kat,
-                    "Pojemność geometryczna [m³] 🔒": round(v_tank_user, 1),
-                    "Stała Masa Szarży [kg] 🔒": int(mass_per_batch),
-                    "Liczba szarż [/mies per aparat] 🔒": int(batches_per_tank),
-                    "Realna Utylizacja Czasowa 🔒": round(real_utilization, 1),
-                    "Status Operacyjny 🔒": status_txt
+                    "ID Urządzenia": tag_id,
+                    "Przypisana Linia": kat,
+                    "Pojemność [m³]": round(v_tank_user, 1),
+                    "Masa Szarży [kg]": int(mass_per_batch),
+                    "Szarż / miesiąc (per aparat)": int(batches_per_tank),
+                    "Utylizacja Czasowa": f"{real_utilization:.1f}%",
+                    "Status": status_txt
                 })
                 
                 confirmed_mixers_blueprint.append({
@@ -223,37 +192,27 @@ with tab1:
             total_annual_production += m_annual
             tag_counter += 1
 
-        df_final_fleet = pd.DataFrame(final_fleet_rows)
-        st.dataframe(
-            df_final_fleet, hide_index=True, width="stretch",
-            column_config={
-                "Realna Utylizacja Czasowa 🔒": st.column_config.NumberColumn(format="%.1f%%"),
-                "Pojemność geometryczna [m³] 🔒": st.column_config.NumberColumn(format="%.1f m³"),
-                "Stała Masa Szarży [kg] 🔒": st.column_config.NumberColumn(format="%d kg")
-            }
-        )
+        st.dataframe(pd.DataFrame(final_fleet_rows), hide_index=True, width="stretch")
 
         st.markdown("<br>", unsafe_allow_html=True)
         sum_col1, sum_col2, sum_col3 = st.columns(3)
         with sum_col1: st.metric(label="📈 Sumaryczny tonaż roczny zakładu", value=f"{total_annual_production:,} kg")
         with sum_col2: st.metric(label="🔄 Suma szarż floty / miesiąc", value=f"{total_batches_per_month_global} szarż")
-        with sum_col3: st.metric(label="📐 Całkowita kubatura floty mieszalników", value=f"{total_volume_global:.1f} m³")
+        with sum_col3: st.metric(label="📐 Całkowita kubatura floty", value=f"{total_volume_global:.1f} m³")
             
         st.markdown("---")
         if st.button("📥 Zatwierdź i wyślij konfigurację do kolejnych kroków", type="primary", use_container_width=True):
             st.session_state.confirmed_mixers = confirmed_mixers_blueprint
-            if "master_logistics_df" in st.session_state:
-                del st.session_state["master_logistics_df"]
-            st.success(f"🎉 Sukces! Flota złożona z {len(confirmed_mixers_blueprint)} urządzeń została stabilnie zablokowana i przekazana do dalszych analiz.")
+            st.success(f"🎉 Zapisano stabilną strukturę floty ({len(confirmed_mixers_blueprint)} urządzeń). Przejdź do kolejnych kart.")
 
 # ==========================================
-# ZAKŁADKA 2: SPECYFIKACJA MASZYN & REOLOGIA
+# ZAKŁADKA 2: ORYGINALNY UKŁAD KOLUMN (PRZYWRÓCONY)
 # ==========================================
 with tab2:
     st.header("📐 Specyfikacja Maszyn, Reologii i Dynamicznej Termodynamiki")
 
     if not st.session_state.confirmed_mixers:
-        st.info("💡 Aby wygenerować specyfikację, najpierw zatwierdź konfigurację floty w **Zakładce 1**.")
+        st.info("💡 Aby wygenerować specyfikację, najpierw zatwierdź konfigurację floty w Zakładce 1.")
     else:
         mixers_fleet = st.session_state.confirmed_mixers
         spec_rows = []
@@ -270,33 +229,37 @@ with tab2:
             c_p_default = float(FUCHS_PORTFOLIO[kat]["cp"])
             default_mat = FUCHS_PORTFOLIO[kat]["material"]
 
-            with st.expander(f"🔮 Dedykowany Konfigurator Instancji: {tag} ({kat})", expanded=True):
-                sub_t1, sub_t2, sub_t3 = st.tabs(["🔥❄️ 1. Układ Termiczny", "⚙️ 2. Kinematyka Mieszadła", "🔄 3. Układ Pompowy"])
-                
-                with sub_t1:
-                    c_h1, c_h2 = st.columns(2)
-                    with c_h1: mat_reaktora = st.selectbox("Materiał korpusu:", ["Stal węglowa", "Stal nierdzewna"], index=0 if "zwykła" in default_mat else 1, key=f"mat_{tag}")
-                    with c_h2: v_flow_l_min = st.number_input("Przepływ nośników [l/min]:", min_value=10.0, value=410.0, key=f"vflow_{tag}")
-                    medium_term = st.selectbox("Nośnik grzewczy:", ["Para wodna", "Olej termalny", "Gorąca woda"], key=f"medg_{tag}")
-                    T1_init = st.number_input("Temp. początkowa [°C]:", value=20.0, key=f"t1_{tag}")
-                    T2_final = st.number_input("Temp. procesu MAX [°C]:", value=70.0, key=f"t2_{tag}")
-                    t_in_carrier = st.number_input("Temp. nośnika grz. [°C]:", value=120.0, key=f"t_car_{tag}")
-                    medium_chl = st.selectbox("Nośnik chłodzący:", ["Brak (Zrzut na gorąco)", "Woda z wieży (ok. 20°C)", "Woda z chillera (ok. 7°C)"], key=f"medc_{tag}")
-                    T3_rozlew = st.number_input("Temp. rozlewu [°C]:", value=40.0, key=f"t3_{tag}", disabled=(medium_chl=="Brak (Zrzut na gorąco)"))
-                    t_in_chl = st.number_input("Temp. nośnika chł. [°C]:", value=15.0, key=f"tinc_{tag}", disabled=(medium_chl=="Brak (Zrzut na gorąco)"))
+            st.markdown(f"### ⚙️ Konfiguracja aparatu: **{tag}** ({kat})")
+            
+            # PRZYWRÓCENIE ORYGINALNEGO UKŁADU TRZECH KOLUMN OBOK SIEBIE
+            c_inst1, c_inst2, c_inst3 = st.columns(3)
+            
+            with c_inst1:
+                st.markdown("##### 🔥❄️ 1. Układ Termiczny")
+                mat_reaktora = st.selectbox("Materiał korpusu:", ["Stal węglowa", "Stal nierdzewna"], index=0 if "zwykła" in default_mat else 1, key=f"mat_{tag}")
+                v_flow_l_min = st.number_input("Przepływ nośników [l/min]:", min_value=10.0, value=410.0, key=f"vflow_{tag}")
+                medium_term = st.selectbox("Nośnik grzewczy:", ["Para wodna", "Olej termalny", "Gorąca woda"], key=f"medg_{tag}")
+                T1_init = st.number_input("Temp. początkowa [°C]:", value=20.0, key=f"t1_{tag}")
+                T2_final = st.number_input("Temp. procesu MAX [°C]:", value=70.0, key=f"t2_{tag}")
+                t_in_carrier = st.number_input("Temp. nośnika grz. [°C]:", value=120.0, key=f"t_car_{tag}")
+                medium_chl = st.selectbox("Nośnik chłodzący:", ["Brak (Zrzut na gorąco)", "Woda z wieży (ok. 20°C)", "Woda z chillera (ok. 7°C)"], key=f"medc_{tag}")
+                T3_rozlew = st.number_input("Temp. rozlewu [°C]:", value=40.0, key=f"t3_{tag}", disabled=(medium_chl=="Brak (Zrzut na gorąco)"))
+                t_in_chl = st.number_input("Temp. nośnika chł. [°C]:", value=15.0, key=f"tinc_{tag}", disabled=(medium_chl=="Brak (Zrzut na gorąco)"))
 
-                with sub_t2:
-                    typ_wirnika = st.selectbox("Geometria wirnika:", list(AGITATOR_TYPES.keys()), index=1, key=f"agit_type_{tag}")
-                    obroty_rpm = st.number_input("Obroty [RPM]:", min_value=10, value=90, key=f"rpm_{tag}")
-                    motor_efficiency = st.slider("Sprawność napędu [%]:", min_value=50, max_value=98, value=85, key=f"eff_mot_{tag}")
+            with c_inst2:
+                st.markdown("##### ⚙️ 2. Kinematyka Mieszadła")
+                typ_wirnika = st.selectbox("Geometria wirnika:", list(AGITATOR_TYPES.keys()), index=1, key=f"agit_type_{tag}")
+                obroty_rpm = st.number_input("Obroty [RPM]:", min_value=10, value=90, key=f"rpm_{tag}")
+                motor_efficiency = st.slider("Sprawność napędu [%]:", min_value=50, max_value=98, value=85, key=f"eff_mot_{tag}")
 
-                with sub_t3:
-                    q_user_m3_h = st.number_input("Wydajność Q [m³/h]:", min_value=1.0, value=max(1.0, float(round(v_working / 0.75, 1))), key=f"qp_{tag}")
-                    pipe_l_m = st.number_input("Długość rury L [m]:", min_value=1.0, value=15.0, key=f"pl_{tag}")
-                    pipe_d_mm = st.number_input("Średnica wewn. D [mm]:", min_value=25, value=80, key=f"pd_{tag}")
-                    visc_max_cst = st.number_input("Lepkość MAX [cSt]:", min_value=10.0, value=800.0, key=f"vmax_{tag}")
-                    h_static_m = st.number_input("Wysokość H_stat [m]:", value=3.0, key=f"ph_{tag}")
-                    visc_min_cst = st.number_input("Lepkość MIN [cSt]:", min_value=1.0, value=100.0, key=f"vmin_{tag}")
+            with c_inst3:
+                st.markdown("##### 🔄 3. Układ Pompowy i Rurociągi")
+                q_user_m3_h = st.number_input("Wydajność Q [m³/h]:", min_value=1.0, value=max(1.0, float(round(v_working / 0.75, 1))), key=f"qp_{tag}")
+                pipe_l_m = st.number_input("Długość rury L [m]:", min_value=1.0, value=15.0, key=f"pl_{tag}")
+                pipe_d_mm = st.number_input("Średnica wewn. D [mm]:", min_value=25, value=80, key=f"pd_{tag}")
+                visc_max_cst = st.number_input("Lepkość MAX (Zimny) [cSt]:", min_value=10.0, value=800.0, key=f"vmax_{tag}")
+                h_static_m = st.number_input("Wysokość H_stat [m]:", value=3.0, key=f"ph_{tag}")
+                visc_min_cst = st.number_input("Lepkość MIN (Ciepły) [cSt]:", min_value=1.0, value=100.0, key=f"vmin_{tag}")
 
             # --- OBLICZENIA CIEPLNE ---
             st.session_state.pump_flows[tag] = q_user_m3_h
@@ -324,7 +287,7 @@ with tab2:
 
             total_thermal_time = tau_grz + tau_chl
 
-            # --- OBLICZENIA HYDRODYNAMIKI ---
+            # --- OBLICZENIA HYDRODYNAMIKI MIESZADŁA ---
             visc_avg_pas = ((visc_max_cst + visc_min_cst) / 2.0 / 1_000_000.0) * rho_product
             D_vessel = 2.2 * ((v_working / 10.0) ** (1/3))
             d_impeller = D_vessel / 3.0
@@ -333,7 +296,7 @@ with tab2:
             power_shaft_w = Ne_power * ((obroty_rpm / 60.0) ** 3) * (d_impeller ** 5) * rho_product
             power_mix_kw = max((power_shaft_w / (motor_efficiency / 100.0) * 1.25) / 1000.0, 1.5)
 
-            # --- OBLICZENIA POMPY ---
+            # --- OBLICZENIA UKŁADU HYDRAULICZNEGO ---
             D_pipe_m = pipe_d_mm / 1000.0
             velocity_m_s = (q_user_m3_h / 3600.0) / ((math.pi * (D_pipe_m ** 2)) / 4.0)
             Re_pipe_max = (velocity_m_s * D_pipe_m) / max(visc_max_cst / 1_000_000.0, 0.00001)
@@ -355,17 +318,18 @@ with tab2:
                 "Ciśnienie MAX [bar]": round(press_bar_max, 1), "Moc Pompy [kW] ⚡": round(power_pump_kw, 1),
                 "Prędkość cieczy [m/s]": round(velocity_m_s, 2), "Status pompy": "❌ Za wysoka prędk." if velocity_m_s > 2.0 else "✅ OK"
             })
+            st.markdown("---")
 
-        st.markdown("### 📊 Zbiorcza Karta Specyfikacji Technicznej")
+        st.markdown("### 📊 Zbiorcza Karta Specyfikacji Technicznej Floty")
         st.dataframe(pd.DataFrame(spec_rows), hide_index=True, width="stretch")
 
 # ==========================================
-# ZAKŁADKA 3: LOGISTYKA I SPECYFIKA ROZLEWU
+# ZAKŁADKA 3: LOGISTYKA I OPALETOWANIE
 # ==========================================
 with tab3:
     st.header("📦 Analiza Logistyczna, Czas Rozlewu i Gospodarka Paletowa")
     if not st.session_state.confirmed_mixers:
-        st.info("💡 Najpierw zatwierdź konfigurację floty w **Zakładce 1**.")
+        st.info("💡 Najpierw zatwierdź konfigurację floty w Zakładce 1.")
     else:
         mixers_fleet = st.session_state.confirmed_mixers
         opakowania_podzial = st.session_state.get("opakowania_podzial", {})
@@ -429,7 +393,7 @@ with tab3:
             st.dataframe(pd.DataFrame(real_split_rows), hide_index=True, width="stretch")
 
 # ==========================================
-# ZAKŁADKA 4: ANALIZA FINANSOWA I KOSZTY
+# ZAKŁADKA 4: ANALIZA FINANSOWA
 # ==========================================
 with tab4:
     st.header("💰 Optymalizacja Kosztów Energii i Bilans Finansowy")
