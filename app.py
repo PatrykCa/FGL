@@ -209,15 +209,30 @@ with tab1:
 
         st.markdown("##### 📥 Krok A: Parametryzacja Tonażu, Utylizacji oraz SKUs")
         
-        def style_small_volumes(row):
-            styles = [''] * len(row)
-            val = row["6. Wyliczony gabaryt reaktora 🔒"]
-            if isinstance(val, (int, float)) and val < 5.0:
-                idx = row.index.get_loc("6. Wyliczony gabaryt reaktora 🔒")
-                styles[idx] = 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'
-            return styles
+        # Wyświetlamy ostrzeżenia o małych pojemnościach czytelnie nad tabelą
+        for alert in alert_small_volumes:
+            st.error(alert)
 
-        styled_matrix = df_complete_matrix.style.apply(style_small_volumes, axis=1)
+        # Otwieramy formularz blokujący natychmiastowy rerun podczas pisania
+        with st.form("form_tabela_glowna"):
+            edited_table = st.data_editor(
+                df_complete_matrix,  # Przekazujemy czysty, stabilny DataFrame
+                hide_index=True,
+                width="stretch",
+                disabled=["1. Nazwa rodziny 🔒", "6. Wyliczony gabaryt reaktora 🔒", "7. Sugerowany Mikser (Typoszereg) 🔒"],
+                column_config={
+                    "2. Roczna produkcja [kg] 🟦": st.column_config.NumberColumn(min_value=0, step=50000, format="%d"),
+                    "3. Docelowa Utylizacja [%] 🟦": st.column_config.NumberColumn(min_value=1.0, max_value=100.0, step=5.0, format="%.1f%%"),
+                    "4. Liczba SKUs 🟦": st.column_config.NumberColumn(min_value=1, step=1),
+                    "5. Użyj Typoszeregu 🟦": st.column_config.CheckboxColumn(),
+                    "6. Wyliczony gabaryt reaktora 🔒": st.column_config.NumberColumn(format="%.2f m³"),
+                    "h_vol": None, "h_batches": None, "h_kg": None, "h_annual": None
+                },
+                key="tab1_editor"
+            )
+            
+            # Przycisk, który jako jedyny wywoła przeliczenie danych po zakończeniu edycji
+            potwierdzenie = st.form_submit_button("💾 Zapisz zmiany w tabeli i przelicz instalację", type="primary", use_container_width=True)
 
         # --- KROK 3: CZYSTY EDYTOR BEZ PARAMETRU ON_CHANGE ---
         # Edycja jest teraz w 100% płynna, a stany zapisują się stabilnie w tle
