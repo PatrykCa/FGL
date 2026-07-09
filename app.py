@@ -454,214 +454,241 @@ with tab1:
                 del st.session_state["master_logistics_df"]
             st.success(f"🎉 Sukces! Zapisano stabilną strukturę floty złożoną z {len(confirmed_mixers_blueprint)} urządzeń.")
 # ==========================================
-# ZAKŁADKA 2: ZAAWANSOWANA KARTA MASZYN I SYSTEMU HYDRAULIKI (DYNAMICZNE PARAMETRY)
+# ZAKŁADKA 2: ZAAWANSOWANE DEDYKOWANE KONFIGURATORY PROCESOWE PER REAKTOR
 # ==========================================
 with tab2:
-    st.header("📐 Specyfikacja Maszyn, Reologia, Dynamiczny Dobór Pomp i Termodynamika")
+    st.header("📐 Specyfikacja Maszyn i Zaawansowane Konfiguratory Układów")
 
     if "confirmed_mixers" not in st.session_state or not st.session_state.confirmed_mixers:
-        st.info("💡 Aby wygenerować kartę maszyn, najpierw zatwierdź konfigurację floty w **Zakładce 1** (przycisk na dole strony).")
+        st.info("💡 Aby wygenerować specyfikację, najpierw zatwierdź konfigurację floty w **Zakładce 1**.")
     else:
-        st.markdown("### ⚙️ 1. Konfiguracja Globalna Mediów Roboczych i Materiałów")
-        
-        c_mat1, c_mat2, c_mat3 = st.columns(3)
-        with c_mat1:
-            material_stal = st.selectbox(
-                "Materiał konstrukcyjny aparatów:",
-                ["Stal węglowa (zwykła / P265GH)", "Stal nierdzewna (SS304 / SS316L)"]
-            )
-        with c_mat2:
-            medium_grzewcze = st.selectbox(
-                "Medium grzewcze (Coil/Jacket):",
-                ["Para wodna nasycona", "Olej termalny", "Gorąca woda procesowa"]
-            )
-        with c_mat3:
-            medium_chlodzace = st.selectbox(
-                "Medium chłodzące (Coil/Jacket):",
-                ["Woda chłodnicza (chiller)", "Olej chłodzący / Woda sieciowa"]
-            )
+        st.markdown("### ⚙️ Interaktywne Wymiarowanie i Dostrajanie Floty Maszynowej")
+        st.caption("Poniższe sekcje pozwalają na niezależne symulowanie i optymalizację parametrów termodynamicznych, mieszania i rozładunku dla każdego zbiornika osobno.")
 
-        # Dopasowanie współczynnika przenikania k na bazie fizyki cieplnej i wybranej stali
-        if "nierdzewna" in material_stal:
-            base_k_grzanie = 0.55 if "Para" in medium_grzewcze else (0.30 if "Olej" in medium_grzewcze else 0.40)
-            base_k_chlodzenie = 0.45 if "Woda" in medium_chlodzace else 0.25
-        else:
-            base_k_grzanie = 0.95 if "Para" in medium_grzewcze else (0.45 if "Olej" in medium_grzewcze else 0.60)
-            base_k_chlodzenie = 0.75 if "Woda" in medium_chlodzace else 0.40
-
-        st.sidebar.markdown("### 🌡️ Parametry Procesu Termicznego")
-        tryb_procesu = st.sidebar.selectbox("Tryb pracy termicznej", ["Grzanie wkładu", "Chłodzenie wkładu"])
-        
-        sug_k = base_k_grzanie if tryb_procesu == "Grzanie wkładu" else base_k_chlodzenie
-        k_coefficient = st.sidebar.number_input("Współczynnik przenikania ciepła (k) [kW/(m²·K)]", value=float(sug_k), step=0.05)
-
-        if tryb_procesu == "Grzanie wkładu":
-            T1_init = st.sidebar.number_input("Początkowa temp. produktu (T1) [°C]", value=20.0, step=5.0)
-            T2_final = st.sidebar.number_input("Docelowa temp. produktu (T2) [°C]", value=70.0, step=5.0)
-            t1_carrier = st.sidebar.number_input(f"Temp. {medium_grzewcze} na wlocie (t1) [°C]", value=120.0, step=5.0)
-            c_product = st.sidebar.number_input("Ciepło właściwe produktu (c) [kJ/(kg·K)]", value=2.00, step=0.1)
-        else:
-            T1_init = st.sidebar.number_input("Początkowa temp. produktu (T1) [°C]", value=80.0, step=5.0)
-            T2_final = st.sidebar.number_input("Docelowa temp. produktu (T2) [°C]", value=40.0, step=5.0)
-            t1_carrier = st.sidebar.number_input(f"Temp. {medium_chlodzace} na wlocie (t1) [°C]", value=15.0, step=5.0)
-            c_product = st.sidebar.number_input("Ciepło właściwe produktu (c) [kJ/(kg·K)]", value=3.66, step=0.1)
-
-        v_flow_rate = st.sidebar.number_input("Strumień objętościowy nośnika [l/min]", value=410.0, step=10.0)
-        c_carrier = st.sidebar.number_input("Ciepło właściwe nośnika [kJ/(kg·K)]", value=4.184, step=0.01)
-        
-        w_flow_mass = (v_flow_rate / 60.0) * 1.0 
-        w_heat_capacity = w_flow_mass * c_carrier 
-
-        valid_physics = True
-        if tryb_procesu == "Grzanie wkładu" and (t1_carrier <= T1_init or t1_carrier <= T2_final or T2_final <= T1_init):
-            valid_physics = False
-        elif tryb_procesu == "Chłodzenie wkładu" and (t1_carrier >= T1_init or t1_carrier >= T2_final or T2_final >= T1_init):
-            valid_physics = False
-
-        # --- INDYWIDUALNA PARAMETRYZACJA APARATURY ---
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("### 🛠️ 2. Indywidualne dostrojenie reologii i geometrii rurociągów per reaktor")
-        st.info("💡 **Instrukcja:** Rozwiń sekcję danego miksera, aby zmienić lepkość produktu lub długość i średnicę jego dedykowanej linii rozładunkowej.")
-
-        V_WORKING_BASE = 10.0
-        V_TOTAL_BASE = 15.17
-        A_BASE = 17.0
-        W_BASE = 4118.0
-
-        spec_rows = []
         mixers_fleet = st.session_state.confirmed_mixers
+        spec_rows = []
 
+        # Pętla generuje niezależny, pełny konfigurator inżynieryjny dla każdego zatwierdzonego reaktora
         for m in mixers_fleet:
             tag = m["tag"]
             kat = m["product_family"]
             v_working = m["capacity_m3"]
             mass_batch_kg = m["mass_per_batch"]
-            rho_olej = FUCHS_PORTFOLIO[kat]["density"] * 1000.0
             
-            # Formularz per mieszalnik
-            with st.expander(f"⚙️ Konfiguracja szczegółowa rurociągów i reologii dla aparatu: {tag} ({kat})"):
-                c_exp1, c_exp2, c_exp3, c_exp4 = st.columns(4)
-                with c_exp1:
-                    visc_project = st.number_input(f"Lepkość obliczeniowa [cSt]:", min_value=1.0, max_value=2000.0, value=500.0, step=50.0, key=f"visc_{tag}")
-                with c_exp2:
-                    pipe_length = st.number_input(f"Długość rurociągu L [m]:", min_value=1.0, max_value=200.0, value=15.0, step=5.0, key=f"len_{tag}")
-                with c_exp3:
-                    pipe_diameter_mm = st.number_input(f"Średnica rury D [mm]:", min_value=25, max_value=300, value=80, step=10, key=f"dia_{tag}")
-                with c_exp4:
-                    pump_static_head = st.number_input(f"Wysokość podnoszenia H_stat [m]:", min_value=0.0, max_value=30.0, value=3.0, step=1.0, key=f"hstat_{tag}")
+            # Pobranie wyjściowej gęstości z bazy globalnej FUCHS
+            rho_product = FUCHS_PORTFOLIO[kat]["density"] * 1000.0  # kg/m³
+            default_material = FUCHS_PORTFOLIO[kat]["material"]
 
-            # 1. Geometria i Skalowanie gabarytów reaktora T5
-            v_total = v_working * (V_TOTAL_BASE / V_WORKING_BASE)
-            scaled_area = A_BASE * ((v_working / V_WORKING_BASE) ** (2/3))
-            scaled_weight = W_BASE * (v_total / V_TOTAL_BASE)
-            
-            # 2. Obliczenia Energii Termicznej w kWh
-            delta_T_czyste = abs(T2_final - T1_init)
-            Q_kilodżule = mass_batch_kg * c_product * delta_T_czyste
-            Q_kwh = Q_kilodżule / 3600.0
-            
-            # 3. Analityczny Czas Wymiany Ciepła (Zgodnie z Modelem Różniczkowym)
-            if valid_physics and w_heat_capacity > 0:
-                efficiency_factor = 1.0 - (1.0 / math.exp((k_coefficient * scaled_area) / w_heat_capacity))
-                ln_numerator = T1_init - t1_carrier
-                ln_denominator = T2_final - t1_carrier
-                ln_value = math.log(abs(ln_numerator / ln_denominator))
-                tau_seconds = ln_value / (efficiency_factor * (w_heat_capacity / (mass_batch_kg * c_product)))
-                tau_hours = tau_seconds / 3600.0
-            else:
-                tau_hours = 0.0
+            st.markdown(f"---")
+            st.markdown(f"### 🔮 Zaawansowany Konfigurator Instancji: **{tag}** ({kat})")
 
-            # Wyznaczenie LMTD na wylocie strumienia nośnika
-            t2_carrier_approx = t1_carrier + (mass_batch_kg * c_product * (T2_final - T1_init)) / (w_heat_capacity * max(tau_seconds, 1.0)) if tau_hours > 0 else t1_carrier
-            dt1 = abs(t1_carrier - T1_init)
-            dt2 = abs(t2_carrier_approx - T2_final)
-            lmtd = (dt1 - dt2) / math.log(dt1 / dt2) if (dt1 > 0 and dt2 > 0 and dt1 != dt2) else dt1
+            # GŁÓWNY PODZIAŁ NA TRZY SPECJALISTYCZNE BLOKI KONFIGURACYJNE
+            tab_grzanie, tab_mieszadlo, tab_pompa = st.tabs([
+                "🔥 1. Układ Termiczny i Grzanie", 
+                "⚙️ 2. Kinematyka i Moc Mieszadła", 
+                "🔄 3. Układ Hydrauliczny i Pompa"
+            ])
 
-            # 4. Dynamiczne Wymiarowanie Mieszadła (Wykorzystuje wpisaną lepkość reologiczną)
-            D_tank = round(2.2 * ((v_working / 10.0) ** (1/3)), 2)
-            d_agiterator = round(D_tank / 3, 2)
-            n_speed = 1.5
-            visc_dynamic = (visc_project / 1_000_000.0) * rho_olej
-            
-            Re_mix = (n_speed * (d_agiterator ** 2) * rho_olej) / max(visc_dynamic, 0.001)
-            Ne_power_num = 2.5 if Re_mix > 50 else (50.0 / max(Re_mix, 1.0))
-            P_mix_watts = Ne_power_num * (n_speed ** 3) * (d_agiterator ** 5) * rho_olej
-            required_motor_power_kw = max((P_mix_watts / 0.82 * 1.25) / 1000.0, 1.5)
-
-            # 5. Dynamiczny Dobór Układu Pompowego (Równanie Darcy-Weisbacha)
-            q_pump_m3_h = round((v_working / 0.75), 1) # Nominalne 45min rozładunku
-            D_m = pipe_diameter_mm / 1000.0
-            pipe_area = (math.pi * (D_m ** 2)) / 4.0
-            velocity_m_s = (q_pump_m3_h / 3600.0) / pipe_area
-            
-            Re_pipe = (velocity_m_s * D_m * rho_olej) / max(visc_dynamic, 0.001)
-            if Re_pipe < 2100:
-                lambda_friction = 64.0 / max(Re_pipe, 1.0)
-            else:
-                lambda_friction = 0.3164 / (Re_pipe ** 0.25)
+            # ------------------------------------------------------------------
+            # CONFIGURATOR 1: UKŁAD TERMICZNY (GRZANIE / CHŁODZENIE)
+            # ------------------------------------------------------------------
+            with tab_grzanie:
+                st.markdown("##### Parametryzacja Bilansu Cieplnego i Mediów Energetycznych")
                 
-            g_gravity = 9.81
-            head_loss_m = lambda_friction * (pipe_length / D_m) * ((velocity_m_s ** 2) / (2.0 * g_gravity))
-            total_required_head_m = pump_static_head + head_loss_m
-            required_pressure_bar = (rho_olej * g_gravity * total_required_head_m) / 100000.0
-            
-            # Automatyczny dobór typu pompy ze względu na granicę reologiczną lepkości kinematycznej
-            pump_type = "Śrubowa (Wyporowa)" if visc_project > 150 else ("Krzywkowa (Rotacyjna)" if visc_project > 50 else "Odśrodkowa")
-            pump_power_kw = max((q_pump_m3_h * required_pressure_bar) / (36.0 * 0.65) * 1.20, 0.75)
+                col_h1, col_h2, col_h3 = st.columns(3)
+                with col_h1:
+                    mat_reaktora = st.selectbox(f"Materiał korpusu ({tag}):", ["Stal węglowa (zwykła)", "Stal nierdzewna (SS316L)"], index=0 if "zwykła" in default_material else 1, key=f"mat_{tag}")
+                    medium_term = st.selectbox(f"Typ nośnika energii ({tag}):", ["Para wodna nasycona", "Olej termalny", "Gorąca woda procesowa"], key=f"med_{tag}")
+                with col_h2:
+                    T_in_prod = st.number_input(f"Temp. początkowa oleju T1 [°C] ({tag}):", value=20.0, step=5.0, key=f"t1_{tag}")
+                    T_out_prod = st.number_input(f"Temp. docelowa oleju T2 [°C] ({tag}):", value=70.0, step=5.0, key=f"t2_{tag}")
+                with col_h3:
+                    t_in_carrier = st.number_input(f"Temp. wlotowa nośnika t1 [°C] ({tag}):", value=120.0, step=5.0, key=f"t_car_{tag}")
+                    fouling_factor = st.slider(f"Współczynnik zabrudzenia wężownicy (Fouling) [%]:", min_value=0, max_value=40, value=15, step=5, key=f"foul_{tag}")
 
+                # Dobór fizycznego współczynnika k na bazie dobranych materiałów
+                if "nierdzewna" in mat_reaktora:
+                    k_base = 0.55 if "Para" in medium_term else (0.30 if "Olej" in medium_term else 0.40)
+                else:
+                    k_base = 0.95 if "Para" in medium_term else (0.45 if "Olej" in medium_term else 0.60)
+                
+                # Korekta k o naddatek zabrudzenia (fouling)
+                k_actual = k_base * (1.0 - (fouling_factor / 100.0))
+                
+                # Dodatkowe zaawansowane parametry wejściowe strumienia mediów
+                col_h4, col_h5 = st.columns(2)
+                with col_h4:
+                    v_flow_l_min = st.number_input(f"Strumień objętościowy nośnika [l/min] ({tag}):", min_value=10.0, max_value=2000.0, value=410.0, step=10.0, key=f"vflow_{tag}")
+                with col_h5:
+                    c_p_product = st.number_input(f"Ciepło właściwe produktu [kJ/(kg·K)] ({tag}):", value=float(FUCHS_PORTFOLIO[kat]["cp"]), step=0.1, key=f"cpprod_{tag}")
+
+                # Geometria: Automatyczne nieliniowe skalowanie powierzchni wymiany ciepła na bazie T5 (A=17m2 dla 10m3)
+                scaled_area_m2 = 17.0 * ((v_working / 10.0) ** (2/3))
+                
+                # --- MATEMATYCZNY RYGORSTYCZNY MODEL PROFILU TEMPERATUR (Prawa Fizyki) ---
+                c_p_carrier = 4.184 if "woda" in medium_term.lower() else (2.1 if "olej" in medium_term.lower() else 4.2)
+                w_mass_flow = (v_flow_l_min / 60.0) * 1.0  # kg/s (założenie gęstości wody)
+                w_heat_cap_kw_k = w_mass_flow * c_p_carrier  # Pojemność cieplna strumienia
+
+                # NTU układu wężownicy
+                if w_heat_cap_kw_k > 0:
+                    ntu = (k_actual * scaled_area_m2) / w_heat_cap_kw_k
+                    # Współczynnik sprawności dynamicznej wężownicy (Dynamic Exhaust Factor)
+                    # Zapobiega błędom matematycznym i odzwierciedla spadek temp nośnika na wylocie
+                    coil_efficiency = (1.0 - math.exp(-ntu)) / ntu if ntu > 0 else 1.0
+                else:
+                    coil_efficiency = 0.0
+
+                # Wyznaczenie realnych, fizycznych sił napędowych na starcie i końcu procesu szarży
+                dT_start = abs(t_in_carrier - T_in_prod) * coil_efficiency
+                dT_final = abs(t_in_carrier - T_out_prod) * coil_efficiency
+
+                # Obliczenie poprawnego LMTD
+                if dT_start == dT_final:
+                    lmtd_real = dT_start
+                elif dT_start > 0 and dT_final > 0:
+                    lmtd_real = (dT_start - dT_final) / math.log(dT_start / dT_final)
+                else:
+                    lmtd_real = 0.1
+
+                # Bilans energii i czasu
+                Q_total_kj = mass_batch_kg * c_p_product * abs(T_out_prod - T_in_prod)
+                Q_total_kwh = Q_total_kj / 3600.0
+                
+                power_transfer_kw = k_actual * scaled_area_m2 * lmtd_real
+                time_heat_h = (Q_total_kj / power_transfer_kw / 3600.0) if power_transfer_kw > 0 else 0.0
+
+                st.metric("Wyliczone zapotrzebowanie na energię cieplną szarży", f"{int(Q_total_kwh):,} kWh", delta=f"Czas operacji: {time_heat_h:.2f} h")
+
+            # ------------------------------------------------------------------
+            # CONFIGURATOR 2: UKŁAD MECHANICZNEGO MIESZANIA (AGITATOR)
+            # ------------------------------------------------------------------
+            with tab_mieszadlo:
+                st.markdown("##### Specyfikacja Hydrodynamiczna i Kinematyka Wirnika")
+                
+                col_m1, col_m2, col_m3 = st.columns(3)
+                with col_m1:
+                    typ_wirnika = st.selectbox(f"Geometria wirnika ({tag}):", list(AGITATOR_TYPES.keys()), index=1, key=f"agit_type_{tag}")
+                with col_m2:
+                    obroty_rpm = st.number_input(f"Obroty mieszadła n [RPM] ({tag}):", min_value=10, max_value=500, value=90, step=10, key=f"rpm_{tag}")
+                with col_m3:
+                    motor_efficiency = st.slider(f"Sprawność przekładni i silnika [%] ({tag}):", min_value=50, max_value=98, value=85, step=1, key=f"eff_mot_{tag}")
+
+                # Modelowanie średnicy wirnika (1/3 średnicy zbiornika wyznaczonej z gabarytu)
+                D_vessel = 2.2 * ((v_working / 10.0) ** (1/3))
+                d_impeller = D_vessel / 3.0
+                n_rps = obroty_rpm / 60.0
+
+                # Obliczenie Liczby Reynoldsa dla mieszania przy lepkości projektowej 500 cSt
+                visc_dyn_pas = (500.0 / 1_000_000.0) * rho_product
+                Re_mixing = (n_rps * (d_impeller ** 2) * rho_product) / max(visc_dyn_pas, 0.0001)
+                
+                cfg_mix = AGITATOR_TYPES[typ_wirnika]
+                Ne_power = cfg_mix["laminar_C"] / Re_mixing if Re_mixing < 50 else cfg_mix["turbulent_Ne"]
+                
+                # Wyznaczenie mocy na wale i poboru mocy z sieci (z zapasem inżynieryjnym 25%)
+                power_shaft_w = Ne_power * (n_rps ** 3) * (d_impeller ** 5) * rho_product
+                power_electric_kw = (power_shaft_w / (motor_efficiency / 100.0) * 1.25) / 1000.0
+                power_electric_kw = max(power_electric_kw, 1.5)  # Minimalny silnik strukturalny
+
+                st.success(f"⚙️ **Rekomendowany napęd:** Silnik asynchroniczny o mocy min. **{power_electric_kw:.1f} kW** (Liczba Reynoldsa Re: {int(Re_mixing)})")
+
+            # ------------------------------------------------------------------
+            # CONFIGURATOR 3: UKŁAD HYDRAULICZNEGO ROZŁADUNKU (POMPA)
+            # ------------------------------------------------------------------
+            with tab_pompa:
+                st.markdown("##### Wymiarowanie Linii Rurowej i Strat Ciśnienia (Darcy-Weisbach)")
+                
+                col_p1, col_p2, col_p3 = st.columns(3)
+                with col_p1:
+                    q_user_m3_h = st.number_input(f"Wydajność pompy Q [m³/h] ({tag}):", min_value=1.0, value=float(round(v_working / 0.75, 1)), key=f"qp_{tag}")
+                    pipe_l_m = st.number_input(f"Długość rurociągu tłocznego L [m] ({tag}):", min_value=1.0, value=15.0, key=f"pl_{tag}")
+                with col_p2:
+                    pipe_d_mm = st.number_input(f"Średnica wewnętrzna rury D [mm] ({tag}):", min_value=25, max_value=300, value=80, key=f"pd_{tag}")
+                    roughness_mm = st.number_input(f"Chropowatość bezwzględna rury k_r [mm] ({tag}):", value=0.05, format="%.3f", key=f"pr_{tag}")
+                with col_p3:
+                    h_static_m = st.number_input(f"Wysokość geometryczna podnoszenia H_stat [m] ({tag}):", value=3.0, key=f"ph_{tag}")
+                    pump_eff_pct = st.slider(f"Sprawność hydrauliczna pompy [%] ({tag}):", min_value=30, max_value=90, value=65, step=5, key=f"peff_{tag}")
+
+                # Mechanika Płynów: Prędkość i straty tarcia rurociągu
+                D_pipe_m = pipe_d_mm / 1000.0
+                area_pipe_m2 = (math.pi * (D_pipe_m ** 2)) / 4.0
+                v_velocity_m_s = (q_user_m3_h / 3600.0) / area_pipe_m2
+                
+                Re_pipe = (v_velocity_m_s * D_pipe_m * rho_product) / max(visc_dyn_pas, 0.0001)
+                
+                # Wyznaczenie współczynnika strat liniowych lambda
+                if Re_pipe < 2100:
+                    lambda_p = 64.0 / max(Re_pipe, 1.0)
+                    przeplyw_status = "Laminarny (Duże opory tarcia wewnętrznego)"
+                else:
+                    lambda_p = 0.3164 / (Re_pipe ** 0.25)
+                    przeplyw_status = "Turbulentny"
+                
+                # Równanie Darcy-Weisbacha
+                loss_head_m = lambda_p * (pipe_l_m / D_pipe_m) * ((v_velocity_m_s ** 2) / (2.0 * 9.81))
+                total_head_m = h_static_m + loss_head_m
+                press_bar = (rho_product * 9.81 * total_head_m) / 100000.0
+                
+                # Dobór napędu pompy
+                pump_power_el_kw = (q_user_m3_h * press_bar) / (36.0 * (pump_eff_pct / 100.0)) * 1.20
+                pump_power_el_kw = max(pump_power_el_kw, 0.75)
+                
+                # Inteligentny dobór typu maszyny hydraulicznej ze względu na reologię
+                p_type_rec = "Śrubowa (Wyporowa - zalecana dla FUCHS)" if visc_dyn_pas > 0.1 else "Odśrodkowa przemysłowa"
+
+                st.warning(f"🔄 **Typ pompy:** {p_type_rec} | Przepływ: {przeplyw_status} | Wymagane ciśnienie instalacji: **{press_bar:.2f} bar**")
+
+            # Zbieranie danych wyjściowych z konfiguratorów do głównej tabeli zbiorczej poniżej
             spec_rows.append({
                 "Tag urządzenia 🔒": tag,
                 "Pojemność robocza [m³]": round(v_working, 1),
-                "Wpisana Lepkość [cSt]": int(visc_project),
-                "Moc Mieszadła [kW] ⚙️": round(required_motor_power_kw, 1),
-                "Typ Pompy": pump_type,
-                "Wymagane Ciśnienie [bar]": round(required_pressure_bar, 2),
-                "Moc Pompy [kW] 🔄": round(pump_power_kw, 1),
-                "Energia szarży [kWh] ⚡": int(Q_kwh),
-                "Średnia delta LMTD [°C]": round(lmtd, 1),
-                "Czas operacji [h] ⏱️": round(tau_hours, 2)
+                "Współczynnik k [kW/m²K]": round(k_actual, 3),
+                "Moc Mieszadła [kW] ⚙️": round(power_electric_kw, 1),
+                "Moc Pompy [kW] 🔄": round(pump_power_el_kw, 1),
+                "Energia szarży [kWh] ⚡": int(Q_total_kwh),
+                "Średnia delta LMTD [°C]": round(lmtd_real, 1),
+                "Czas operacji [h] ⏱️": round(time_heat_h, 2)
             })
+
+        # ------------------------------------------------------------------
+        # GRID 3: ZBIORCZA KARTA WYNIKOWA I DYNAMICZNY BILANS MASZYNOWY
+        # ------------------------------------------------------------------
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("### 📊 3. Główna Karta Specyfikacji Technicznej Floty")
+        st.caption("Poniższe zestawienie agreguje na żywo wyniki ze wszystkich powyższych konfiguratorów jednostkowych.")
 
         df_spec = pd.DataFrame(spec_rows)
 
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("### 📊 3. Zbiorcza Karta Wynikowa i Dynamiczny Bilans Maszynowy")
-
-        # Inżynieryjne kryteria podświetlania LMTD
         def style_lmtd_cells(row):
             styles = [''] * len(row)
             val = row["Średnia delta LMTD [°C]"]
             if isinstance(val, (int, float)):
                 idx = row.index.get_loc("Średnia delta LMTD [°C]")
                 if val < 15.0:
-                    styles[idx] = 'background-color: #fff2cc; color: #b78103; font-weight: bold;'
+                    styles[idx] = 'background-color: #fff2cc; color: #b78103; font-weight: bold;'  # Za mały przepływ / niska siła
                 elif val > 55.0:
-                    styles[idx] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;'
+                    styles[idx] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;'  # Ryzyko przypalenia oleju
                 else:
-                    styles[idx] = 'background-color: #e6f4ea; color: #137333; font-weight: bold;'
+                    styles[idx] = 'background-color: #e6f4ea; color: #137333; font-weight: bold;'  # Zakres optymalny
             return styles
 
         styled_df_spec = df_spec.style.apply(style_lmtd_cells, axis=1)
 
-        # Renderowanie tabeli w standardzie stretch (v2026)
         st.dataframe(
             styled_df_spec,
             hide_index=True,
             width="stretch",
             column_config={
                 "Pojemność robocza [m³]": st.column_config.NumberColumn(format="%.1f m³"),
-                "Wpisana Lepkość [cSt]": st.column_config.NumberColumn(format="%d cSt"),
+                "Współczynnik k [kW/m²K]": st.column_config.NumberColumn(format="%.3f kW/m²K"),
                 "Moc Mieszadła [kW] ⚙️": st.column_config.NumberColumn(format="%.1f kW"),
-                "Wymagane Ciśnienie [bar]": st.column_config.NumberColumn(format="%.2f bar"),
                 "Moc Pompy [kW] 🔄": st.column_config.NumberColumn(format="%.1f kW"),
                 "Energia szarży [kWh] ⚡": st.column_config.NumberColumn(format="%d kWh"),
                 "Średnia delta LMTD [°C]": st.column_config.NumberColumn(format="%.1f °C"),
                 "Czas operacji [h] ⏱️": st.column_config.NumberColumn(format="%.2f h")
             }
         )
-
-        if not valid_physics:
-            st.error("🚨 **Błąd założeń temperaturowych!** Nośnik energii w panelu bocznym musi mieć temperaturę umożliwiającą realizację procesu.")
 # ==========================================
 # ZAKŁADKA 3: LOGISTYKA, CZAS ROZLEWU I GOSPODARKA PALETOWA
 # ==========================================
