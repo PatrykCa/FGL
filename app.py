@@ -20,7 +20,7 @@ FUCHS_PORTFOLIO = {
     "Non-water-miscible (ECOCUT)": {"material": "Stal zwykła", "density": 0.87, "cycle_h": 4, "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0},
     "Cleaners (RENOCLEAN)": {"material": "Stal nierdzewna", "density": 1.01, "cycle_h": 4, "cp": 3.9, "oil_group": "Brak (Specjalistyczne)", "water_content": 0.85} # 85% wody
 }
-}
+
 
 PACK_CONFIGS = {
     "1l (Detal)": {"size_l": 1.0, "per_pallet": 480, "rate_szt_h": 2500},
