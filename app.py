@@ -194,7 +194,7 @@ st.data_editor(
 
 df_complete_matrix = pd.DataFrame(calculated_matrix_rows)
 
-        st.markdown("##### 📥 Krok A: Parametryzacja Tonażu, Utylizacji oraz SKUs")
+st.markdown("##### 📥 Krok A: Parametryzacja Tonażu, Utylizacji oraz SKUs")
         
         def style_small_volumes(row):
             styles = [''] * len(row)
