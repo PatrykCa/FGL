@@ -206,17 +206,18 @@ with tab1:
             st.success(f"🎉 Zapisano stabilną strukturę floty ({len(confirmed_mixers_blueprint)} urządzeń). Przejdź do kolejnych kart.")
 
 # ==========================================
-# ZAKŁADKA 2: ORYGINALNY UKŁAD KOLUMN (PRZYWRÓCONY)
+# ZAKŁADKA 2: SPECYFIKACJA MASZYN & DYNAMICZNA REOLOGIA (WERSJA PRO)
 # ==========================================
 with tab2:
     st.header("📐 Specyfikacja Maszyn, Reologii i Dynamicznej Termodynamiki")
 
     if not st.session_state.confirmed_mixers:
-        st.info("💡 Aby wygenerować specyfikację, najpierw zatwierdź konfigurację floty w Zakładce 1.")
+        st.info("💡 Aby wygenerować specyfikację, najpierw zatwierdź konfigurację floty w **Zakładce 1**.")
     else:
         mixers_fleet = st.session_state.confirmed_mixers
         spec_rows = []
-        if "pump_flows" not in st.session_state: st.session_state.pump_flows = {}
+        if "pump_flows" not in st.session_state: 
+            st.session_state.pump_flows = {}
         A_BASE = 17.0
 
         for m in mixers_fleet:
@@ -231,7 +232,7 @@ with tab2:
 
             st.markdown(f"### ⚙️ Konfiguracja aparatu: **{tag}** ({kat})")
             
-            # PRZYWRÓCENIE ORYGINALNEGO UKŁADU TRZECH KOLUMN OBOK SIEBIE
+            # UKŁAD TRZECH PIONOWYCH KOLUMN DLA INSTANCJI APARATU
             c_inst1, c_inst2, c_inst3 = st.columns(3)
             
             with c_inst1:
@@ -257,11 +258,11 @@ with tab2:
                 q_user_m3_h = st.number_input("Wydajność Q [m³/h]:", min_value=1.0, value=max(1.0, float(round(v_working / 0.75, 1))), key=f"qp_{tag}")
                 pipe_l_m = st.number_input("Długość rury L [m]:", min_value=1.0, value=15.0, key=f"pl_{tag}")
                 pipe_d_mm = st.number_input("Średnica wewn. D [mm]:", min_value=25, value=80, key=f"pd_{tag}")
-                visc_max_cst = st.number_input("Lepkość MAX (Zimny) [cSt]:", min_value=10.0, value=800.0, key=f"vmax_{tag}")
+                visc_max_cst = st.number_input("Lepkość MAX (Zimny rozruch) [cSt]:", min_value=10.0, value=800.0, step=50.0, key=f"vmax_{tag}")
                 h_static_m = st.number_input("Wysokość H_stat [m]:", value=3.0, key=f"ph_{tag}")
-                visc_min_cst = st.number_input("Lepkość MIN (Ciepły) [cSt]:", min_value=1.0, value=100.0, key=f"vmin_{tag}")
+                visc_min_cst = st.number_input("Lepkość MIN (Gorący proces) [cSt]:", min_value=1.0, value=100.0, step=10.0, key=f"vmin_{tag}")
 
-            # --- OBLICZENIA CIEPLNE ---
+            # --- OBLICZENIA CIEPLNE (TERMODYNAMIKA) ---
             st.session_state.pump_flows[tag] = q_user_m3_h
             scaled_area_m2 = A_BASE * ((v_working / 10.0) ** (2/3))
             k_base_grz = 0.55 if "Para" in medium_term else 0.40 if "nierdzewna" in mat_reaktora else 0.60
@@ -273,7 +274,8 @@ with tab2:
                 Q_grz_kwh = (mass_batch_kg * c_p_default * abs(T2_final - T1_init)) / 3600.0
                 power_grz_kw = k_base_grz * scaled_area_m2 * abs(t_in_carrier - T1_init) * eff_g
                 tau_grz = Q_grz_kwh / power_grz_kw if power_grz_kw > 0 else 0.0
-            else: Q_grz_kwh, tau_grz = 0.0, 0.0
+            else: 
+                Q_grz_kwh, tau_grz = 0.0, 0.0
 
             if medium_chl != "Brak (Zrzut na gorąco)" and T2_final > T3_rozlew:
                 k_base_chl = 0.45 if "nierdzewna" in mat_reaktora else 0.75
@@ -283,20 +285,33 @@ with tab2:
                 Q_chl_kwh = (mass_batch_kg * c_p_default * abs(T2_final - T3_rozlew)) / 3600.0
                 power_chl_kw = k_base_chl * scaled_area_m2 * abs(T2_final - t_in_chl) * eff_c
                 tau_chl = Q_chl_kwh / power_chl_kw if power_chl_kw > 0 else 0.0
-            else: Q_chl_kwh, tau_chl = 0.0, 0.0
+            else: 
+                Q_chl_kwh, tau_chl = 0.0, 0.0
 
             total_thermal_time = tau_grz + tau_chl
 
-            # --- OBLICZENIA HYDRODYNAMIKI MIESZADŁA ---
-            visc_avg_pas = ((visc_max_cst + visc_min_cst) / 2.0 / 1_000_000.0) * rho_product
+            # --- OBLICZENIA HYDRODYNAMIKI MIESZADŁA (REAGUJĄCE NA ZMIANĘ LEPKOŚCI) ---
+            n_rps = obroty_rpm / 60.0
             D_vessel = 2.2 * ((v_working / 10.0) ** (1/3))
             d_impeller = D_vessel / 3.0
-            Re_mixing = ((obroty_rpm / 60.0) * (d_impeller ** 2) * rho_product) / max(visc_avg_pas, 0.0001)
-            Ne_power = AGITATOR_TYPES[typ_wirnika]["laminar_C"] / Re_mixing if Re_mixing < 50 else AGITATOR_TYPES[typ_wirnika]["turbulent_Ne"]
-            power_shaft_w = Ne_power * ((obroty_rpm / 60.0) ** 3) * (d_impeller ** 5) * rho_product
+
+            # 1. Stan zimny (Najbardziej niekorzystny - rozruchowy)
+            visc_max_pas = (visc_max_cst / 1_000_000.0) * rho_product
+            Re_max = (n_rps * (d_impeller ** 2) * rho_product) / max(visc_max_pas, 0.0001)
+            Ne_max = AGITATOR_TYPES[typ_wirnika]["laminar_C"] / Re_max if Re_max < 50 else AGITATOR_TYPES[typ_wirnika]["turbulent_Ne"]
+            power_shaft_max = Ne_max * (n_rps ** 3) * (d_impeller ** 5) * rho_product
+
+            # 2. Stan ciepły (Procesowy)
+            visc_min_pas = (visc_min_cst / 1_000_000.0) * rho_product
+            Re_min = (n_rps * (d_impeller ** 2) * rho_product) / max(visc_min_pas, 0.0001)
+            Ne_min = AGITATOR_TYPES[typ_wirnika]["laminar_C"] / Re_min if Re_min < 50 else AGITATOR_TYPES[typ_wirnika]["turbulent_Ne"]
+            power_shaft_min = Ne_min * (n_rps ** 3) * (d_impeller ** 5) * rho_product
+
+            # Krytyczny wybór wyższej wymaganej mocy z naddatkiem inżynieryjnym 25%
+            power_shaft_w = max(power_shaft_max, power_shaft_min)
             power_mix_kw = max((power_shaft_w / (motor_efficiency / 100.0) * 1.25) / 1000.0, 1.5)
 
-            # --- OBLICZENIA UKŁADU HYDRAULICZNEGO ---
+            # --- OBLICZENIA UKŁADU HYDRAULICZNEGO POMPY ---
             D_pipe_m = pipe_d_mm / 1000.0
             velocity_m_s = (q_user_m3_h / 3600.0) / ((math.pi * (D_pipe_m ** 2)) / 4.0)
             Re_pipe_max = (velocity_m_s * D_pipe_m) / max(visc_max_cst / 1_000_000.0, 0.00001)
@@ -305,6 +320,7 @@ with tab2:
             power_pump_kw = max((q_user_m3_h * press_bar_max) / (36.0 * 0.65) * 1.25, 0.75)
             time_pumping_h = v_working / q_user_m3_h
 
+            # Zapis stabilnych parametrów do pamięci sesji dla modułu kosztów energii
             st.session_state.calculated_times[tag] = {
                 "heating": total_thermal_time, "pumping": time_pumping_h,
                 "power_mix_kw": power_mix_kw, "power_pump_kw": power_pump_kw,
@@ -314,15 +330,16 @@ with tab2:
             spec_rows.append({
                 "Nazwa 🔒": tag, "Pojemność [m³]": round(v_working, 1),
                 "Grzanie [kWh] 🔥": int(Q_grz_kwh), "Chłodzenie [kWh] ❄️": int(Q_chl_kwh),
-                "Czas Termiki [h] ⏱️": round(total_thermal_time, 2), "Mieszanie [kW] ⚙️": round(power_mix_kw, 1),
-                "Ciśnienie MAX [bar]": round(press_bar_max, 1), "Moc Pompy [kW] ⚡": round(power_pump_kw, 1),
+                "Czas Termiki [h] ⏱️": round(total_thermal_time, 2), "Mieszanie Rozruchowe [kW] ⚙️": round(power_mix_kw, 1),
+                "Ciśnienie Rozładunku [bar]": round(press_bar_max, 1), "Moc Pompy [kW] ⚡": round(power_pump_kw, 1),
                 "Prędkość cieczy [m/s]": round(velocity_m_s, 2), "Status pompy": "❌ Za wysoka prędk." if velocity_m_s > 2.0 else "✅ OK"
             })
             st.markdown("---")
 
-        st.markdown("### 📊 Zbiorcza Karta Specyfikacji Technicznej Floty")
+        # --- ZBIORCZA TABELA WYNIKOWA NA SAMYM DOLE ---
+        st.markdown("### 📊 Zbiorcza Karta Specyfikacji Technicznej Floty Mieszalników")
         st.dataframe(pd.DataFrame(spec_rows), hide_index=True, width="stretch")
-
+        
 # ==========================================
 # ZAKŁADKA 3: LOGISTYKA I OPALETOWANIE
 # ==========================================
