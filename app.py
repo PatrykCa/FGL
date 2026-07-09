@@ -657,7 +657,7 @@ with tab3:
             masa_miesieczna = m["batches_count"] * m["mass_per_batch"]
             tonaz_miesieczny_per_rodzina[kat] = tonaz_miesieczny_per_rodzina.get(kat, 0) + masa_miesieczna
 
-        # ==========================================
+       # ==========================================
         # SEKCJA 1: SYMULACJA MIESZANA (REALNY SPLIT PRODUKCJI)
         # ==========================================
         st.markdown("### 🔀 1. Symulacja Mieszana (Na podstawie struktury % z panelu bocznego)")
@@ -677,22 +677,22 @@ with tab3:
             else:
                 storage_req = "🟢 Standard, Brak specjalnych obostrzeń"
 
-            # --- W SYMULACJI MIESZANEJ ---
-        for p in wybrane_dla_linii:
-            key_id = f"pct_{kat}_{p}"
-            udzial_pct = opakowania_podzial.get(key_id, 0.0)
-    
-            if udzial_pct > 0:
-                masa_opakowania_month = total_mass_month * (udzial_pct / 100.0)
-        
-            # POPRAWKA: size_l zamiast capacity_l
-            pack_capacity_l = PACK_CONFIGS[p]["size_l"]
-            pack_capacity_kg = pack_capacity_l * FUCHS_PORTFOLIO[kat]["density"]
-            liczba_sztuk_month = math.ceil(masa_opakowania_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
-            
-            # POPRAWKA: rate_szt_h zamiast prędkości litrowej
-            wydajnosc_szt_h = PACK_CONFIGS[p]["rate_szt_h"]
-            czas_rozlewu_h = liczba_sztuk_month / wydajnosc_szt_h if wydajnosc_szt_h > 0 else 0.0
+            for p in wybrane_dla_linii:
+                key_id = f"pct_{kat}_{p}"
+                udzial_pct = opakowania_podzial.get(key_id, 0.0)
+                
+                if udzial_pct > 0:
+                    # Masa dedykowana na to opakowanie
+                    masa_opakowania_month = total_mass_month * (udzial_pct / 100.0)
+                    
+                    # Pobranie pojemności opakowania w kg (używamy poprawnego klucza size_l)
+                    pack_capacity_l = PACK_CONFIGS[p]["size_l"]
+                    pack_capacity_kg = pack_capacity_l * FUCHS_PORTFOLIO[kat]["density"]
+                    liczba_sztuk_month = math.ceil(masa_opakowania_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
+                    
+                    # Wyznaczenie czasu rozlewu (używamy poprawnego klucza rate_szt_h)
+                    wydajnosc_szt_h = PACK_CONFIGS[p]["rate_szt_h"]
+                    czas_rozlewu_h = liczba_sztuk_month / wydajnosc_szt_h if wydajnosc_szt_h > 0 else 0.0
                     
                     real_split_rows.append({
                         "Linia produktowa 🔒": kat,
@@ -709,7 +709,7 @@ with tab3:
             st.dataframe(
                 df_real_split,
                 hide_index=True,
-                use_container_width=True,
+                width="stretch",
                 column_config={
                     "Masa miesięczna [kg]": st.column_config.NumberColumn(format="%d kg"),
                     "Liczba opakowań [/mies]": st.column_config.NumberColumn(format="%d szt."),
@@ -718,8 +718,6 @@ with tab3:
             )
         else:
             st.warning("⚠️ Brak zdefiniowanych udziałów procentowych w panelu bocznym lub nie wybrano opakowań.")
-
-
 # ==========================================
 # SEKCJA 2: SYMULACJA STRUKTURY 100% (SCENARIUSZE SKRAJNE)
 # ==========================================
