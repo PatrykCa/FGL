@@ -37,13 +37,57 @@ AGITATOR_TYPES = {
     "Propelerowe (Śmigłowe)": {"laminar_C": 35.0, "turbulent_Ne": 0.8}
 }
 
-# --- PANEL BOCZNY ---
-st.sidebar.header("📋 KROK 1: Wybór Rodzin")
-wybrane_kategorie = st.sidebar.multiselect(
-    "Wybierz aktywne linie produktowe FUCHS:",
-    list(FUCHS_PORTFOLIO.keys()),
-    default=["Hydraulic Oils (RENOLIN)", "Engine Oils (TITAN)", "Water-miscible (ECOCOOL)"]
+# ==========================================
+# PASEK BOCZNY: WYBÓR OPAKOWAŃ I PROCENTOWEGO PODZIAŁU
+# ==========================================
+st.sidebar.markdown("### 📦 4. Struktura Opakowań (Podział %)")
+
+# 1. Wielokrotny wybór dostępnych typów opakowań
+dostepne_opakowania = ["Butelki (Small)", "Kanistry (Medium)", "Beczki (Large)", "DPPL / Kontenery (Bulk)"]
+wybrane_opakowania = st.sidebar.multiselect(
+    "Wybierz typy opakowań stosowane w zakładzie:",
+    options=dostepne_opakowania,
+    default=["Beczki (Large)", "DPPL / Kontenery (Bulk)"]
 )
+
+# Inicjalizacja słownika na udziały procentowe w session_state
+if "opakowania_podzial" not in st.session_state:
+    st.session_state.opakowania_podzial = {}
+
+opakowania_rows = {}
+suma_procentow = 0.0
+
+# 2. Dynamiczne generowanie pól dla wybranych opakowań
+if wybrane_opakowania:
+    st.sidebar.caption("Określ procentowy udział wagowy/wolumenowy dla każdego opakowania:")
+    
+    # Wyliczamy domyślny równy podział, aby ułatwić użytkownikowi start
+    domyslny_procent = round(100.0 / len(wybrane_opakowania), 1)
+    
+    for opakowanie in wybrane_opakowania:
+        # Zachowaj poprzednio wpisaną wartość, jeśli użytkownik już coś zmieniał
+        current_val = st.session_state.opakowania_podzial.get(opakowanie, domyslny_procent)
+        
+        val = st.sidebar.number_input(
+            f"Udział dla: {opakowanie} [%]",
+            min_value=0.0,
+            max_value=100.0,
+            value=float(current_val),
+            step=5.0,
+            key=f"pct_{opakowanie}"
+        )
+        # Zapisujemy do stanu i sumujemy
+        st.session_state.opakowania_podzial[opakowanie] = val
+        opakowania_rows[opakowanie] = val
+        suma_procentow += val
+
+    # 3. Walidacja sumy kontrolnej (musi być 100%)
+    if suma_procentow == 100.0:
+        st.sidebar.success(f"✅ Suma udziałów: {suma_procentow}% (Prawidłowa)")
+    else:
+        st.sidebar.error(f"❌ Suma udziałów wynosi {suma_procentow}%. Musi wynosić dokładnie 100%!")
+else:
+    st.sidebar.info("Wybierz przynajmniej jeden typ opakowania, aby określić podział.")
 
 st.sidebar.markdown("---")
 st.sidebar.header("⏱️ KROK 2: Założenia Czasu Pracy")
