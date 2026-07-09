@@ -658,6 +658,88 @@ with tab2:
         * **Przekroczenie progu 2.0 m/s:** Skutkuje gwałtownym (kwadratowym) wzrostem strat ciśnienia na skutek tarcia, przeciążeniem silnika agregatu pompowego oraz ryzykiem wystąpienia kawitacji lub zrywania strugi.
         * **Działanie korygujące:** Jeśli system zgłasza ostrzeżenie (czerwone podświetlenie), zwiększ wewnętrzną średnicę rury D [mm] w Kroku B lub obniż wydajność pompy rozładunkowej.
         """)
+
+        # ==========================================
+        # NOWA SEKCJA: ZAAWANSOWANA ANALIZA CZASU PRACY I ORGANIZACJI ZMIANOWEJ
+        # ==========================================
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("### ⏱️ 4. Analiza Czasu Pracy i Rekomendacja Organizacji Zmianowej")
+        st.caption("Ocena czasu trwania pełnego łańcucha produkcyjnego szarży (od dozowania surowców po konfekcję) w odniesieniu do 8-godzinnego dnia pracy.")
+
+        time_analysis_rows = []
+        
+        # Iterujemy po zatwierdzonej flocie reaktorów
+        for m in mixers_fleet:
+            tag = m["tag"]
+            kat = m["product_family"]
+            
+            # Dynamiczny konfigurator składowych czasu cyklu dla każdego reaktora osobno
+            with st.expander(f"⏱️ Składniki czasu cyklu dla aparatu: {tag} ({kat})"):
+                c_t1, c_t2, c_t3, c_t4 = st.columns(4)
+                with c_t1:
+                    t_dosing = st.number_input(f"Dozowanie baz i dodatków [h]:", min_value=0.1, max_value=6.0, value=1.0, step=0.25, key=f"tdos_{tag}")
+                with c_t2:
+                    # Domyślnie podpowiadamy czas mieszania na bazie bazy danych FUCHS
+                    t_mixing = st.number_input(f"Praca mieszalnika (proces) [h]:", min_value=0.1, max_value=12.0, value=float(FUCHS_PORTFOLIO[kat]["cycle_h"] * 0.6), step=0.5, key=f"tmix_{tag}")
+                with c_t3:
+                    t_qc = st.number_input(f"Zatwierdzenie laboratoryjne QC [h]:", min_value=0.1, max_value=6.0, value=1.0, step=0.25, key=f"tqc_{tag}")
+                with c_t4:
+                    t_filling = st.number_input(f"Czas rozlewania na nalewaku [h]:", min_value=0.1, max_value=12.0, value=2.0, step=0.5, key=f"tfill_{tag}")
+            
+            # Obliczenie sumarycznego pełnego łańcucha produkcyjnego szarży
+            t_total_chain = t_dosing + t_mixing + t_qc + t_filling
+            
+            # KRYTERIUM 8 GODZIN (Warunek logiczny)
+            if t_total_chain <= 8.0:
+                rekomendacja_zmian = "🟢 Praca Dwuzmianowa (Pełny cykl <= 8h, wysoka elastyczność)"
+            else:
+                rekomendacja_zmian = "🔴 Praca Jednozmianowa (Cykl > 8h, ryzyko przejścia procesu na kolejną zmianę)"
+
+            time_analysis_rows.append({
+                "ID Mieszalnika 🔒": tag,
+                "Przypisana Linia FUCHS 🔒": kat,
+                "Dozowanie baz [h]": t_dosing,
+                "Mieszanie [h]": t_mixing,
+                "Zatwierdzenie QC [h]": t_qc,
+                "Rozlewanie [h]": t_filling,
+                "Pełny łańcuch [h] 🔒": round(t_total_chain, 2),
+                "Sugerowany system zmianowy ⚠️": rekomendacja_zmian
+            })
+            
+        df_time_analysis = pd.DataFrame(time_analysis_rows)
+        
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("##### 📊 Harmonogram i Organizacja Potoku Produkcyjnego")
+        
+        # Funkcja stylizująca i podświetlająca reaktory przekraczające 8 godzin
+        def style_time_chains(row):
+            styles = [''] * len(row)
+            val = row["Pełny łańcuch [h] 🔒"]
+            if isinstance(val, (int, float)) and val > 8.0:
+                idx_t = row.index.get_loc("Pełny łańcuch [h] 🔒")
+                idx_r = row.index.get_loc("Sugerowany system zmianowy ⚠️")
+                styles[idx_t] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;'
+                styles[idx_r] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;'
+            else:
+                idx_t = row.index.get_loc("Pełny łańcuch [h] 🔒")
+                styles[idx_t] = 'background-color: #e6f4ea; color: #137333; font-weight: bold;'
+            return styles
+
+        styled_df_time = df_time_analysis.style.apply(style_time_chains, axis=1)
+        
+        # Wyświetlenie tabeli w najnowszym standardzie szerokości Streamlit v2026
+        st.dataframe(
+            styled_df_time,
+            hide_index=True,
+            width="stretch",
+            column_config={
+                "Dozowanie baz [h]": st.column_config.NumberColumn(format="%.2f h"),
+                "Mieszanie [h]": st.column_config.NumberColumn(format="%.2f h"),
+                "Zatwierdzenie QC [h]": st.column_config.NumberColumn(format="%.2f h"),
+                "Rozlewanie [h]": st.column_config.NumberColumn(format="%.2f h"),
+                "Pełny łańcuch [h] 🔒": st.column_config.NumberColumn(format="%.2f h")
+            }
+        )
 # ==========================================
 # ZAKŁADKA 3: LOGISTYKA, CZAS ROZLEWU I GOSPODARKA PALETOWA
 # ==========================================
