@@ -375,162 +375,154 @@ with tab1:
                 del st.session_state["master_logistics_df"]
             st.success(f"🎉 Sukces! Zapisano stabilną strukturę floty złożoną z {len(confirmed_mixers_blueprint)} urządzeń.")
 # ==========================================
-# ZAKŁADKA 2: SPECYFIKACJA MASZYN, REOLOGIA I DOBÓR POMP (DEDYKOWANE KRYTERIA LMTD)
+# ZAKŁADKA 2: SPECYFIKACJA APARATURY I ANALIZA TERMICZNA (MODEL ANALITYCZNY)
 # ==========================================
 with tab2:
-    st.header("Wymiarowanie Układu Mieszania i Zaawansowany Dobór Hydrauliki")
-    if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Brak danych. Wróć do Zakładki 1 i kliknij przycisk zatwierdzenia.")
+    st.header("📋 Specyfikacja Aparatury i Analiza Termodynamiczna")
+
+    # Sprawdzenie dostępności danych z pierwszej zakładki
+    if "confirmed_mixers" not in st.session_state or not st.session_state.confirmed_mixers:
+        st.info("💡 Aby wygenerować specyfikację aparatury, najpierw zatwierdź konfigurację floty w **Zakładce 1** (przycisk na dole strony).")
     else:
-        engineering_table_data = []
-        for mixer in st.session_state.confirmed_mixers:
-            kat = mixer["product_family"]
-            prod_info = FUCHS_PORTFOLIO[kat]
-            
-            st.markdown(f"### ⚙️ Specyfikacja Aparatury: **{mixer['tag']}** (Linia: *{kat}*)")
-            
-            V_m3 = mixer["capacity_m3"]
-            rho = prod_info["density"] * 1000.0  
-            D_tank = round(2.2 * ((V_m3 / 10.0) ** (1/3)), 2)
-            H_tank = round((4 * V_m3) / (math.pi * (D_tank ** 2)) * 1.2, 2)
-            suggested_F = math.pi * D_tank * H_tank  
-            d_agitor = round(D_tank / 3, 2)
-            n_speed = 1.5  
-            
-            # --- BLOK WEJŚCIOWY REOLOGII ---
-            c_mix1, c_mix2, c_mix3 = st.columns(3)
-            with c_mix1:
-                agitator_choice = st.selectbox(f"Typ wirnika mieszadła dla {mixer['tag']}:", list(AGITATOR_TYPES.keys()), key=f"agit_{mixer['tag']}", index=1)
-            with c_mix2:
-                visc_min = st.number_input(f"Lepkość MIN (startowa) [cSt] ({mixer['tag']}):", min_value=1.0, value=22.0, key=f"v_min_{mixer['tag']}")
-            with c_mix3:
-                visc_max = st.number_input(f"Lepkość MAKS (końcowa) [cSt] ({mixer['tag']}):", min_value=5.0, value=220.0, key=f"v_max_{mixer['tag']}")
-            
-            cfg = AGITATOR_TYPES[agitator_choice]
-            eta_dyn = (visc_max / 1_000_000.0) * rho  
-            Re = (n_speed * (d_agitor ** 2) * rho) / max(eta_dyn, 0.001)
-            Ne = cfg["laminar_C"] / Re if Re < 50 else cfg["turbulent_Ne"]
-            P_max_w = Ne * (n_speed ** 3) * (d_agitor ** 5) * rho
-            required_motor_power_kw = (P_max_w / 0.85 * 1.20) / 1000.0
-            
-            # --- PROJEKTOWANIE UKŁADU ROZŁADUNKOWEGO ---
-            st.markdown("##### 📐 Projektowanie Układu Rozładunkowego i Strat Przepływu (Równanie Darcy-Weisbacha)")
-            default_discharge_flow = round((V_m3 / 0.75) * 1.25, 1)
-            
-            c_label1, c_label2, c_label3, c_label4 = st.columns(4)
-            with c_label1: st.markdown("**Wydajność pompy Q [m³/h]**")
-            with c_label2: st.markdown("**Długość rurociągu L [m]**")
-            with c_label3: st.markdown("**Średnica rury D [mm]**")
-            with c_label4: st.markdown("**Wysokość H_stat [m]**")
-            
-            c_pump1, c_pump2, c_pump3, c_pump4 = st.columns(4)
-            with c_pump1: q_pump = st.number_input("Q", min_value=0.5, value=float(max(default_discharge_flow, 5.0)), key=f"q_p_{mixer['tag']}", label_visibility="collapsed")
-            with c_pump2: pipe_length = st.number_input("L", min_value=1.0, value=15.0, key=f"pipe_l_{mixer['tag']}", label_visibility="collapsed")
-            with c_pump3: pipe_diameter_mm = st.number_input("D", min_value=25, max_value=250, value=80, key=f"pipe_d_{mixer['tag']}", label_visibility="collapsed")
-            with c_pump4: pump_static_head = st.number_input("H", min_value=0.0, value=3.0, key=f"p_stat_{mixer['tag']}", label_visibility="collapsed")
+        st.markdown("### 🛠️ 1. Parametry Projektowe i Analityczny Model Wymiany Ciepła")
+        st.caption("Wymiary konstrukcyjne skalowane automatycznie względem danych referencyjnych reaktora T5 (V_robocza = 10m³, A = 17m², Masa = 4118kg).")
 
-            D_m = pipe_diameter_mm / 1000.0
-            pipe_area = (math.pi * (D_m ** 2)) / 4.0
-            velocity_m_s = (q_pump / 3600.0) / pipe_area
-            eta_dyn_max = (visc_max / 1_000_000.0) * rho
-            Re_pipe = (velocity_m_s * D_m * rho) / max(eta_dyn_max, 0.001)
-            
-            if Re_pipe < 2100:
-                lambda_friction = 64.0 / max(Re_pipe, 1.0)
-            else:
-                lambda_friction = 0.3164 / (Re_pipe ** 0.25)
-                
-            g_gravity = 9.81
-            head_loss_m = lambda_friction * (pipe_length / D_m) * ((velocity_m_s ** 2) / (2.0 * g_gravity))
-            total_required_head_m = pump_static_head + head_loss_m
-            required_pressure_bar = (rho * g_gravity * total_required_head_m) / 100000.0
-            
-            pump_type = "Śrubowa (Wyporowa)" if visc_max > 150 else ("Krzywkowa (Rotacyjna)" if visc_max > 50 else "Odśrodkowa")
-            eta_pump = 0.60
-            pump_power_kw = (q_pump * required_pressure_bar) / (36.0 * eta_pump) * 1.15
-            
-            st.success(f"⚡ **Mieszadło:** Silnik: **{required_motor_power_kw:.2f} kW** | **Pompa Rozładunkowa ({pump_type}):** Przepływ {q_pump:.1f} m³/h @ {required_pressure_bar:.2f} bar")
-            
-            # --- BILANSE CIEPLNE I OBLICZANIE LMTD ---
-            st.markdown("##### 🧊 Parametry Wymiany Ciepła w Zbiorniku")
-            col_geom, _ = st.columns([1, 1])
-            with col_geom:
-                user_F_surface = st.number_input(f"Powierzchnia wymiany ciepła F [m²] ({mixer['tag']}):", min_value=0.1, value=float(round(suggested_F, 2)), key=f"uf_surf_{mixer['tag']}")
-            
-            col_t1, col_t2 = st.columns(2)
-            with col_t1:
-                st.markdown("**🔥 Proces Grzania**")
-                user_time_heat = st.number_input(f"Zadany czas grzania [min] ({mixer['tag']}):", min_value=1.0, value=45.0, key=f"ut_h_{mixer['tag']}")
-                user_K_heat = st.number_input(f"Współczynnik K grzania ({mixer['tag']}):", min_value=10.0, value=500.0, key=f"uk_h_{mixer['tag']}")
-                t_init_h = st.number_input(f"Temp. startowa grzania [°C] ({mixer['tag']}):", value=20, key=f"t_ih_{mixer['tag']}")
-                t_final_h = st.number_input(f"Temp. docelowa [°C] ({mixer['tag']}):", value=60, key=f"t_fh_{mixer['tag']}")
-                st.session_state.heat_temps[mixer["tag"]] = t_final_h
-                
-                Q_heat_j = mixer["mass_per_batch"] * (prod_info["cp"] * 1000.0) * (t_final_h - t_init_h)
-                req_p_heat_kw = (Q_heat_j / (user_time_heat * 60.0)) / 1000.0
-                calculated_lmtd_h = Q_heat_j / (user_K_heat * user_F_surface * (user_time_heat * 60.0)) if (user_K_heat * user_F_surface * user_time_heat) > 0 else 0.0
-                st.write(f"Moc grzania: **{req_p_heat_kw:.1f} kW** | LMTD grzania: **{calculated_lmtd_h:.1f} °C**")
-                
-            with col_t2:
-                st.markdown("**❄️ Proces Chłodzenia**")
-                user_time_cool = st.number_input(f"Zadany czas chłodzenia [min] ({mixer['tag']}):", min_value=1.0, value=60.0, key=f"ut_c_{mixer['tag']}")
-                user_K_cool = st.number_input(f"Współczynnik K chłodzenia ({mixer['tag']}):", min_value=10.0, value=500.0, key=f"uk_c_{mixer['tag']}")
-                t_init_c = st.number_input(f"Temp. startowa chłodzenia [°C] ({mixer['tag']}):", value=60, key=f"t_ic_{mixer['tag']}")
-                t_final_c = st.number_input(f"Temp. końcowa [°C] ({mixer['tag']}):", value=30, key=f"t_fc_{mixer['tag']}")
-                
-                Q_cool_j = mixer["mass_per_batch"] * (prod_info["cp"] * 1000.0) * (t_init_c - t_final_c)
-                req_p_cool_kw = (Q_cool_j / (user_time_cool * 60.0)) / 1000.0
-                calculated_lmtd_c = Q_cool_j / (user_K_cool * user_F_surface * (user_time_cool * 60.0)) if (user_K_cool * user_F_surface * user_time_cool) > 0 else 0.0
-                st.write(f"Moc chłodzenia: **{req_p_cool_kw:.1f} kW** | LMTD chłodzenia: **{calculated_lmtd_c:.1f} °C**")
+        # --- DANE BAZOWE REAKTORA REFERENCYJNEGO (T5 DESIGN DATA) ---
+        V_WORKING_BASE = 10.0
+        V_TOTAL_BASE = 15.17
+        A_BASE = 17.0
+        W_BASE = 4118.0
 
-            engineering_table_data.append({
-                "Mieszalnik": mixer["tag"], "Materiał korpusu": prod_info["material"], "Pojemność [m³]": round(V_m3, 2), 
-                "Masa szarży [kg]": int(mixer["mass_per_batch"]), "Typ Mieszadła": agitator_choice,
-                "Moc Mieszadła [kW]": round(required_motor_power_kw, 2), "Typ Pompy": pump_type, "Przepływ [m³/h]": round(q_pump, 1),
-                "Moc Pompy [kW]": round(pump_power_kw, 2), "Moc Grzania [kW]": round(req_p_heat_kw, 1), 
-                "LMTD Grzania [°C]": round(calculated_lmtd_h, 1),
-                "Moc Chłodzenia [kW]": round(req_p_cool_kw, 1),
-                "LMTD Chłodzenia [°C]": round(calculated_lmtd_c, 1)
-            })
-            st.markdown("---")
-            
-        st.subheader("📋 Zbiorcza Karta Techniczna Linii Mieszania, Rozładunku i Termodynamiki")
-        df_eng = pd.DataFrame(engineering_table_data)
-
-        # --- DEDYKOWANE MAPOWANIE DLA GRZANIA ORAZ CHŁODZENIA ---
-        def style_lmtd_grzanie(val):
-            if isinstance(val, (int, float)):
-                if val < 20.0:
-                    return 'background-color: #fff3cd; color: #856404; font-weight: bold;'  # ŻÓŁTY: Mała wydajność (powolny proces)
-                elif val <= 40.0:
-                    return 'background-color: #d4edda; color: #155724; font-weight: bold;'  # ZIELONY: Optymalny i bezpieczny
-                else:
-                    return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'  # CZERWONY: Za wysoki (koksowanie oleju)
-            return ''
-
-        def style_lmtd_chlodzenie(val):
-            if isinstance(val, (int, float)):
-                if val < 15.0:
-                    return 'background-color: #ffcccc; color: #cc0000; font-weight: bold;'  # CZERWONY: Za niski (szok i zakleszczenie reologiczne)
-                elif val <= 35.0:
-                    return 'background-color: #d4edda; color: #155724; font-weight: bold;'  # ZIELONY: Optymalna sprawność
-                else:
-                    return 'background-color: #fff3cd; color: #856404; font-weight: bold;'  # ŻÓŁTY: Słaba końcówka chłodzenia wodą
-            return ''
-
-        # Mapujemy kolumny niezależnymi kryteriami
-        styled_df_eng = (df_eng.style
-                         .map(style_lmtd_grzanie, subset=["LMTD Grzania [°C]"])
-                         .map(style_lmtd_chlodzenie, subset=["LMTD Chłodzenia [°C]"]))
-
-        st.dataframe(styled_df_eng, hide_index=True, use_container_width=True)
+        # --- SIDEBAR / PANEL KONTROLNY PARAMETRÓW CIEPLNYCH ---
+        st.sidebar.markdown("### 🌡️ Parametry Procesu Termicznego")
+        tryb_procesu = st.sidebar.selectbox("Tryb pracy termicznej", ["Grzanie wkładu", "Chłodzenie wkładu"])
         
-        # Rozbita, profesjonalna legenda
-        st.markdown("""
-        ℹ️ **Profesjonalne Inżynieryjne Kryteria Interpretacji LMTD dla Olejów:**
-        * **🔥 Kolumna Grzania:** 🟢 **20 - 40°C** (Zrównoważone & Bezpieczne) | 🟡 **< 20°C** (Zbyt mała siła napędowa - proces potrwa długo) | 🔴 **> 40°C** (Krytyczny: Zbyt wysoka temperatura medium grozi koksowaniem oleju na ściance i degradacją dodatków).
-        * **❄️ Kolumna Chłodzenia:** 🟢 **15 - 35°C** (Wydajne & Stabilne) | 🟡 **> 35°C** (Mała różnica temperatur pod koniec cyklu - powolne chłodzenie) | 🔴 **< 15°C** (Krytyczny: Szok termiczny; zbyt zimne medium spowoduje zastygnięcie lepkiej warstwy oleju na wężownicy, blokując dalszą wymianę ciepła).
-        """)
+        # Dynamiczne ustawienie domyślnych temperatur w zależności od wybranego procesu
+        if tryb_procesu == "Grzanie wkładu":
+            T1_init = st.sidebar.number_input("Początkowa temp. produktu (T1) [°C]", value=20.0, step=5.0)
+            T2_final = st.sidebar.number_input("Docelowa temp. produktu (T2) [°C]", value=70.0, step=5.0)
+            t1_carrier = st.sidebar.number_input("Temp. nośnika na wlocie (t1) [°C]", value=120.0, step=5.0)
+            c_product = st.sidebar.number_input("Ciepło właściwe produktu (c) [kJ/(kg·K)]", value=2.00, step=0.1) # Domyślnie olej smarowy
+        else: # Chłodzenie (odzwierciedlenie wartości z arkusza kalkulatora chłodzenia)
+            T1_init = st.sidebar.number_input("Początkowa temp. produktu (T1) [°C]", value=80.0, step=5.0)
+            T2_final = st.sidebar.number_input("Docelowa temp. produktu (T2) [°C]", value=40.0, step=5.0)
+            t1_carrier = st.sidebar.number_input("Temp. wody chłodzącej na wlocie (t1) [°C]", value=15.0, step=5.0)
+            c_product = st.sidebar.number_input("Ciepło właściwe produktu (c) [kJ/(kg·K)]", value=3.66, step=0.1)
+
+        k_coefficient = st.sidebar.number_input("Współczynnik przenikania ciepła (k) [kW/(m²·K)]", value=0.80, step=0.05)
+        v_flow_rate = st.sidebar.number_input("Strumień objętościowy nośnika [l/min]", value=410.0, step=10.0)
+        c_carrier = st.sidebar.number_input("Ciepło właściwe nośnika (c_wody) [kJ/(kg·K)]", value=4.184, step=0.01)
+        density_carrier = 1.0 # kg/l dla wody/pary kondensującej w przybliżeniu
+
+        # --- OBLICZENIA Z JEDNOSTEK LITERATUROWYCH ---
+        # Strumień masowy nośnika w kg/s: V_wody / 60 * gęstość
+        w_flow_mass = (v_flow_rate / 60.0) * density_carrier 
+        # Pojemność cieplna strumienia w kW/K: w = m_kropka * c_wody
+        w_heat_capacity = w_flow_mass * c_carrier 
+
+        # Walidacja matematyczna temperatur przed uruchomieniem logarytmów
+        valid_physics = True
+        if tryb_procesu == "Grzanie wkładu" and (t1_carrier <= T1_init or t1_carrier <= T2_final or T2_final <= T1_init):
+            valid_physics = False
+        elif tryb_procesu == "Chłodzenie wkładu" and (t1_carrier >= T1_init or t1_carrier >= T2_final or T2_final >= T1_init):
+            valid_physics = False
+
+        spec_rows = []
+        mixers_fleet = st.session_state.confirmed_mixers
+
+        for m in mixers_fleet:
+            v_working = m["capacity_m3"]
+            mass_batch_kg = m["mass_per_batch"]
+            
+            # 1. Skalowanie parametrów fizycznych aparatu
+            v_total = v_working * (V_TOTAL_BASE / V_WORKING_BASE)
+            scaled_area = A_BASE * ((v_working / V_WORKING_BASE) ** (2/3))
+            scaled_weight = W_BASE * (v_total / V_TOTAL_BASE)
+            
+            # 2. Analityczne wyznaczenie czasu procesu termicznego (tau) ze wzoru różniczkowego
+            if valid_physics and w_heat_capacity > 0:
+                # Wyznaczenie wskaźnika efektywności wymiennika: 1 - 1/exp(k*F/w)
+                efficiency_factor = 1.0 - (1.0 / math.exp((k_coefficient * scaled_area) / w_heat_capacity))
+                
+                # Składnik logarytmiczny: ln((T1 - t1)/(T2 - t1))
+                ln_numerator = T1_init - t1_carrier
+                ln_denominator = T2_final - t1_carrier
+                
+                ln_value = math.log(abs(ln_numerator / ln_denominator))
+                
+                # Przekształcenie wzoru literaturowego na czas tau (w sekundach)
+                # tau = ln_value / [ efficiency_factor * (w / (M * c)) ]
+                tau_seconds = ln_value / (efficiency_factor * (w_heat_capacity / (mass_batch_kg * c_product)))
+                tau_hours = tau_seconds / 3600.0
+            else:
+                tau_hours = 0.0
+
+            # 3. Wyznaczenie LMTD dla celów weryfikacyjnych i informacyjnych
+            # Dla uproszczenia bilansu przyjmujemy deltę sprawnościową na wylocie strumienia nośnika
+            t2_carrier_approx = t1_carrier + (mass_batch_kg * c_product * (T2_final - T1_init)) / (w_heat_capacity * max(tau_seconds, 1.0)) if tau_hours > 0 else t1_carrier
+            dt1 = abs(t1_carrier - T1_init)
+            dt2 = abs(t2_carrier_approx - T2_final)
+            if dt1 == dt2 or dt2 == 0:
+                lmtd = dt1
+            else:
+                lmtd = (dt1 - dt2) / math.log(dt1 / dt2) if (dt1 > 0 and dt2 > 0) else 0.0
+
+            spec_rows.append({
+                "Tag urządzenia 🔒": m["tag"],
+                "Przypisana linia 🔒": m["product_family"],
+                "Pojemność robocza [m³]": round(v_working, 1),
+                "Pojemność całkowita [m³]": round(v_total, 2),
+                "Powierzchnia wymiany ciepła [m²] 📐": round(scaled_area, 2),
+                "Masa własna (pusty) [kg]": int(scaled_weight),
+                "Wielkość szarży [kg]": int(mass_batch_kg),
+                "Średnia delta LMTD [°C]": round(lmtd, 1),
+                "Czas operacji termicznej [h] ⏱️": round(tau_hours, 2),
+                "Status wydajności": "✅ W normie procesowej" if tau_hours <= 4.0 else "⚠️ Wymaga optymalizacji mediów"
+            })
+
+        df_spec = pd.DataFrame(spec_rows)
+
+        # Wyświetlenie tabeli wynikowej specyfikacji technicznej aparatury
+        st.dataframe(
+            df_spec,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "Pojemność robocza [m³]": st.column_config.NumberColumn(format="%.1f m³"),
+                "Pojemność całkowita [m³]": st.column_config.NumberColumn(format="%.2f m³"),
+                "Powierzchnia wymiany ciepła [m²] 📐": st.column_config.NumberColumn(format="%.2f m²"),
+                "Masa własna (pusty) [kg]": st.column_config.NumberColumn(format="%d kg"),
+                "Wielkość szarży [kg]": st.column_config.NumberColumn(format="%d kg"),
+                "Średnia delta LMTD [°C]": st.column_config.NumberColumn(format="%.1f °C"),
+                "Czas operacji termicznej [h] ⏱️": st.column_config.NumberColumn(format="%.2f h")
+            }
+        )
+
+        # Przeprowadzenie walidacji błędów fizycznych w panelu bocznym
+        if not valid_physics:
+            st.error("🚨 Wykryto błąd krytyczny w założeniach temperaturowych! Temperatura nośnika (t1) musi pozwalać na realizację procesu wymiany ciepła w wybranym kierunku.")
+
+        # --- SEKCJA INFORMACJI STAŁYCH Z KARTY PROJEKTOWEJ T5 ---
+        st.markdown("### 🌡️ 2. Warunki brzegowe i wytrzymałościowe (T5 Design Data)")
+        
+        inf_col1, inf_col2 = st.columns(2)
+        with inf_col1:
+            st.info("""
+            **Specyfikacja konstrukcyjna zbiornika (Vessel):**
+            * Ciśnienie projektowe: `0 / +0,5 barg`
+            * Temperatura projektowa: `120 °C`
+            * Naddatek na korozję: `0 mm`
+            * Izolacja termiczna: `150 mm`
+            * Projektowe medium wewnętrzne: `Lubricants (Oleje)`
+            """)
+        with inf_col2:
+            st.info("""
+            **Specyfikacja układu wymiany ciepła (Coil):**
+            * Ciśnienie projektowe wężownicy: `0 / +10 barg`
+            * Temperatura projektowa wężownicy: `120 °C`
+            * Lepkość projektowa produktu: `500 cst`
+            * Współczynnik sprawności hydrodynamicznej: `Wyznaczany z liczby Reynoldsa (Re)`
+            """)
 # ==========================================
 # ZAKŁADKA 3: LOGISTYKA OPAKOWAŃ (JEDNA, W PEŁNI INTERAKTYWNA TABELA ZBIORCZA)
 # ==========================================
