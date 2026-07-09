@@ -454,40 +454,97 @@ with tab1:
                 del st.session_state["master_logistics_df"]
             st.success(f"🎉 Sukces! Zapisano stabilną strukturę floty złożoną z {len(confirmed_mixers_blueprint)} urządzeń.")
 # ==========================================
-# ZAKŁADKA 2: SPECYFIKACJA MASZYN, DYNAMICZNA REOLOGIA I ENERGETYKA PROCESOWA
+# ZAKŁADKA 2: PRZYWRÓCONA WERSJA TABELARYCZNA + ZMIENNA REOLOGIA I RUROCIĄGI
 # ==========================================
 with tab2:
-    st.header("📐 Zaawansowana Karta Maszyn, Hydrauliki i Energetyki")
+    st.header("📐 Specyfikacja Maszyn, Hydrauliki i Energetyki Procesowej")
 
     if "confirmed_mixers" not in st.session_state or not st.session_state.confirmed_mixers:
         st.info("💡 Aby wygenerować specyfikację, najpierw zatwierdź konfigurację floty w **Zakładce 1** (przycisk na dole strony).")
     else:
-        st.markdown("### ⚙️ 1. Indywidualna parametryzacja reologii, rurociągów i mediów")
-        st.caption("Dostosuj lepkość produktu oraz geometrię instalacji rozładunkowej dla każdego mieszalnika niezależnie.")
-
-        # --- GLOBALNY WYBÓR MATERIAŁÓW I MEDIÓW GRZEWCZYCH ---
-        c_glob1, c_glob2 = st.columns(2)
-        with c_glob1:
-            material_stal = st.selectbox("Materiał konstrukcyjny aparatów:", ["Stal węglowa (zwykła)", "Stal nierdzewna (SS316L)"])
-            medium_grzewcze = st.selectbox("Medium grzewcze (Coil/Jacket):", ["Para wodna nasycona", "Olej termalny", "Gorąca woda procesowa"])
-        with c_glob2:
-            tryb_procesu = st.selectbox("Dominujący tryb pracy termicznej zbiorników:", ["Grzanie wkładu", "Chłodzenie wkładu"])
-            v_flow_rate = st.number_input("Strumień objętościowy nośnika ciepła/chłodu [l/min]:", value=410.0, step=10.0)
-
-        # Dobór bazowego współczynnika k
-        if "nierdzewna" in material_stal:
-            k_coefficient = 0.55 if "Para" in medium_grzewcze else (0.30 if "Olej" in medium_grzewcze else 0.40)
-        else:
-            k_coefficient = 0.95 if "Para" in medium_grzewcze else (0.45 if "Olej" in medium_grzewcze else 0.60)
-
-        # Referencyjne dane konstrukcyjne T5
-        V_WORKING_BASE = 10.0
-        A_BASE = 17.0
-
-        spec_rows = []
         mixers_fleet = st.session_state.confirmed_mixers
 
-        # Dynamiczne generowanie konfiguratorów per reaktor
+        # --- BEZPIECZNA INICJALIZACJA STRUKTUR DANYCH WEJŚCIOWYCH W SESJI ---
+        if "mixer_tech_inputs" not in st.session_state:
+            st.session_state.mixer_tech_inputs = {}
+        
+        for m in mixers_fleet:
+            tag = m["tag"]
+            if tag not in st.session_state.mixer_tech_inputs:
+                st.session_state.mixer_tech_inputs[tag] = {
+                    "visc_cst": 220.0,
+                    "pipe_l_m": 15.0,
+                    "pipe_d_mm": 80,
+                    "h_stat_m": 3.0,
+                    "delta_t": 50.0
+                }
+
+        # Funkcja callback synchronizująca edycję tabeli parametrów wejściowych
+        def sync_tab2_inputs():
+            if "tab2_input_editor" in st.session_state:
+                edits = st.session_state.tab2_input_editor.get("edited_rows", {})
+                for idx, changes in edits.items():
+                    if idx < len(mixers_fleet):
+                        tag = mixers_fleet[idx]["tag"]
+                        if "2. Lepkość produktu [cSt] 🟦" in changes:
+                            st.session_state.mixer_tech_inputs[tag]["visc_cst"] = float(changes["2. Lepkość produktu [cSt] 🟦"])
+                        if "3. Długość rury L [m] 🟦" in changes:
+                            st.session_state.mixer_tech_inputs[tag]["pipe_l_m"] = float(changes["3. Długość rury L [m] 🟦"])
+                        if "4. Średnica rury D [mm] 🟦" in changes:
+                            st.session_state.mixer_tech_inputs[tag]["pipe_d_mm"] = int(changes["4. Średnica rury D [mm] 🟦"])
+                        if "5. Wysokość H_stat [m] 🟦" in changes:
+                            st.session_state.mixer_tech_inputs[tag]["h_stat_m"] = float(changes["5. Wysokość H_stat [m] 🟦"])
+                        if "6. Skok termiczny ΔT [°C] 🟦" in changes:
+                            st.session_state.mixer_tech_inputs[tag]["delta_t"] = float(changes["6. Skok termiczny ΔT [°C] 🟦"])
+
+        # --- GLOBALNY WYBÓR MATERIAŁÓW I MEDIÓW ---
+        st.markdown("##### 🏭 Krok A: Założenia Materiałowe i Media Energetyczne")
+        c_glob1, c_glob2, c_glob3 = st.columns(3)
+        with c_glob1:
+            material_stal = st.selectbox("Materiał konstrukcyjny aparatów:", ["Stal węglowa (zwykła)", "Stal nierdzewna (SS316L)"])
+        with c_glob2:
+            medium_grzewcze = st.selectbox("Medium grzewcze (Coil/Jacket):", ["Para wodna nasycona", "Olej termalny", "Gorąca woda procesowa"])
+        with c_glob3:
+            tryb_procesu = st.selectbox("Dominujący tryb pracy termicznej:", ["Grzanie wkładu", "Chłodzenie wkładu"])
+
+        # --- TABELA 1: EDYTOR PARAMETRÓW TECHNICZNYCH PER APARAT ---
+        st.markdown("<br>", unsafe_allow_html=True)
+        st.markdown("##### 📥 Krok B: Dostrojenie Reologii i Geometrii Instalacji per Mieszalnik")
+        
+        input_rows = []
+        for m in mixers_fleet:
+            tag = m["tag"]
+            cfg = st.session_state.mixer_tech_inputs.get(tag, {"visc_cst": 220.0, "pipe_l_m": 15.0, "pipe_d_mm": 80, "h_stat_m": 3.0, "delta_t": 50.0})
+            input_rows.append({
+                "1. Identyfikator Aparatu 🔒": tag,
+                "2. Lepkość produktu [cSt] 🟦": float(cfg["visc_cst"]),
+                "3. Długość rury L [m] 🟦": float(cfg["pipe_l_m"]),
+                "4. Średnica rury D [mm] 🟦": int(cfg["pipe_d_mm"]),
+                "5. Wysokość H_stat [m] 🟦": float(cfg["h_stat_m"]),
+                "6. Skok termiczny ΔT [°C] 🟦": float(cfg["delta_t"])
+            })
+            
+        df_inputs_tab2 = pd.DataFrame(input_rows)
+        
+        edited_inputs_table = st.data_editor(
+            df_inputs_tab2,
+            hide_index=True,
+            width="stretch",
+            disabled=["1. Identyfikator Aparatu 🔒"],
+            column_config={
+                "2. Lepkość produktu [cSt] 🟦": st.column_config.NumberColumn(min_value=1.0, max_value=3000.0, step=10.0),
+                "3. Długość rury L [m] 🟦": st.column_config.NumberColumn(min_value=1.0, max_value=200.0, step=1.0),
+                "4. Średnica rury D [mm] 🟦": st.column_config.NumberColumn(min_value=25, max_value=300, step=5),
+                "5. Wysokość H_stat [m] 🟦": st.column_config.NumberColumn(min_value=0.0, max_value=50.0, step=0.5),
+                "6. Skok termiczny ΔT [°C] 🟦": st.column_config.NumberColumn(min_value=1.0, max_value=100.0, step=5.0)
+            },
+            key="tab2_input_editor",
+            on_change=sync_tab2_inputs
+        )
+
+        # --- OBLICZENIA INŻYNIERYJNE NA BAZIE WPISANYCH DANYCH ---
+        spec_rows = []
+        
         for m in mixers_fleet:
             tag = m["tag"]
             kat = m["product_family"]
@@ -496,68 +553,50 @@ with tab2:
             cyc_h = FUCHS_PORTFOLIO[kat]["cycle_h"]
             rho_product = FUCHS_PORTFOLIO[kat]["density"] * 1000.0  # kg/m³
             c_p_product = float(FUCHS_PORTFOLIO[kat]["cp"])
+            
+            # Pobranie zweryfikowanych danych z session_state
+            tech_cfg = st.session_state.mixer_tech_inputs[tag]
+            visc_cst = tech_cfg["visc_cst"]
+            pipe_l = tech_cfg["pipe_l_m"]
+            pipe_d = tech_cfg["pipe_d_mm"]
+            h_stat = tech_cfg["h_stat_m"]
+            delta_t = tech_cfg["delta_t"]
 
-            with st.expander(f"🛠️ Konfigurator szczegółowy: {tag} (Linia: {kat})"):
-                c_conf1, c_conf2, c_conf3 = st.columns(3)
-                with c_conf1:
-                    # Oczekiwana dynamiczna lepkość w procesie podana przez użytkownika
-                    visc_user_cst = st.number_input(f"Lepkość produktu [cSt] ({tag}):", min_value=1.0, max_value=3000.0, value=220.0, step=20.0, key=f"visc_{tag}")
-                    pipe_length_m = st.number_input(f"Długość rurociągu tłocznego L [m] ({tag}):", min_value=1.0, value=20.0, key=f"len_{tag}")
-                with c_conf2:
-                    pipe_dia_mm = st.number_input(f"Średnica wewnętrzna rury D [mm] ({tag}):", min_value=25, max_value=300, value=80, step=5, key=f"dia_{tag}")
-                    h_stat_m = st.number_input(f"Wysokość podnoszenia H_stat [m] ({tag}):", value=3.0, key=f"hstat_{tag}")
-                with c_conf3:
-                    q_pump_m3h = st.number_input(f"Wydajność pompy rozładunkowej Q [m³/h] ({tag}):", min_value=1.0, value=float(round(v_working / 0.75, 1)), key=f"qp_{tag}")
-                    delta_T_target = st.number_input(f"Zakładany skok temperatury ΔT [°C] ({tag}):", min_value=5.0, value=50.0, step=5.0, key=f"dt_{tag}")
+            # 1. Ciepło potrzebne do podgrzania szarży [kWh]
+            Q_heating_kwh = (mass_batch_kg * c_p_product * delta_t) / 3600.0
 
-            # ------------------------------------------------------------------
-            # OBLICZENIA ENERGETYCZNE I CIEPLNE (Grzanie szarży)
-            # ------------------------------------------------------------------
-            # Ciepło potrzebne do podgrzania wkładu: Q = m * cp * deltaT [kJ] -> zamiana na [kWh]
-            Q_heating_kwh = (mass_batch_kg * c_p_product * delta_T_target) / 3600.0
-
-            # ------------------------------------------------------------------
-            # OBLICZENIA MIESZANIA (Energia zużyta przez mieszadło w cyklu)
-            # ------------------------------------------------------------------
+            # 2. Energia Mieszania (zależna od wpisanej lepkości)
             D_tank = 2.2 * ((v_working / 10.0) ** (1/3))
             d_impeller = D_tank / 3.0
-            n_rps = 90.0 / 60.0  # stałe 90 RPM
-            visc_dynamic_pas = (visc_user_cst / 1_000_000.0) * rho_product
+            n_rps = 90.0 / 60.0
+            visc_dynamic_pas = (visc_cst / 1_000_000.0) * rho_product
 
             Re_mixing = (n_rps * (d_impeller ** 2) * rho_product) / max(visc_dynamic_pas, 0.0001)
             Ne_power_num = 2.5 if Re_mixing > 50 else (50.0 / max(Re_mixing, 1.0))
             power_shaft_w = Ne_power_num * (n_rps ** 3) * (d_impeller ** 5) * rho_product
-            power_mix_electric_kw = max((power_shaft_w / 0.85 * 1.25) / 1000.0, 1.5)
-            
-            # Całkowita energia mieszania szarży = moc elektryczna * czas cyklu reaktora
-            E_mixing_total_kwh = power_mix_electric_kw * cyc_h
+            power_mix_kw = max((power_shaft_w / 0.85 * 1.25) / 1000.0, 1.5)
+            E_mixing_total_kwh = power_mix_kw * cyc_h
 
-            # ------------------------------------------------------------------
-            # OBLICZENIA HYDRAULICZNE I POMPOWANIA (Darcy-Weisbach)
-            # ------------------------------------------------------------------
-            D_pipe_m = pipe_dia_mm / 1000.0
+            # 3. Hydraulika pompy i prędkość przepływu (Darcy-Weisbach)
+            q_pump_m3h = round((v_working / 0.75), 1)  # Nominalny czas rozładunku ~45 min
+            D_pipe_m = pipe_d / 1000.0
             area_pipe_m2 = (math.pi * (D_pipe_m ** 2)) / 4.0
             
-            # Realna prędkość przepływu cieczy w rurociągu (w m/s)
+            # Wyznaczenie prędkości liniowej w rurociągu [m/s]
             velocity_m_s = (q_pump_m3h / 3600.0) / area_pipe_m2
             
-            # Klasyfikacja oporów ruchu
-            Re_pipe = (velocity_m_s * D_pipe_m) / max(visc_user_cst / 1_000_000.0, 0.00001)
+            Re_pipe = (velocity_m_s * D_pipe_m) / max(visc_cst / 1_000_000.0, 0.00001)
             lambda_p = 64.0 / max(Re_pipe, 1.0) if Re_pipe < 2100 else (0.3164 / (Re_pipe ** 0.25))
             
-            # Straty liniowe i ciśnienie
-            loss_head_m = lambda_p * (pipe_length_m / D_pipe_m) * ((velocity_m_s ** 2) / (2.0 * 9.81))
-            total_head_m = h_stat_m + loss_head_m
-            required_pressure_bar = (rho_product * 9.81 * total_head_m) / 100000.0
+            loss_head_m = lambda_p * (pipe_l / D_pipe_m) * ((velocity_m_s ** 2) / (2.0 * 9.81))
+            total_head_m = h_stat + loss_head_m
+            required_press_bar = (rho_product * 9.81 * total_head_m) / 100000.0
             
-            # Moc pompy i czas pracy pompy (rozładunek na nalewak)
-            power_pump_el_kw = max((q_pump_m3h * required_pressure_bar) / (36.0 * 0.65) * 1.20, 0.75)
+            power_pump_kw = max((q_pump_m3h * required_press_bar) / (36.0 * 0.65) * 1.20, 0.75)
             time_pumping_h = v_working / q_pump_m3h
-            
-            # Całkowita energia zużyta przez pompę na przepompowanie całej objętości wkładu
-            E_pumping_total_kwh = power_pump_el_kw * time_pumping_h
+            E_pumping_total_kwh = power_pump_kw * time_pumping_h
 
-            # Weryfikacja kryterium prędkości liniowej (Ostrzeżenie BHP/Technologiczne)
+            # Weryfikacja normatywu prędkości dla olejów (BHP)
             if velocity_m_s > 2.0:
                 velocity_status = "❌ Za wysoka (>2.0 m/s)"
             else:
@@ -574,21 +613,18 @@ with tab2:
                 "Status prędkości ⚠️": velocity_status
             })
 
-        # ------------------------------------------------------------------
-        # GRID 3: MATRYCA PODSUMOWUJĄCA SPECYFIKACJĘ APARATURY
-        # ------------------------------------------------------------------
+        # --- TABELA 2: ZBIORCZA KARTA PODSUMOWUJĄCA SPECYFIKACJĘ ---
         st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("### 📊 2. Zbiorcze Zestawienie Parametrów Energetyczno-Hydraulicznych")
-        st.caption("Poniższa tabela automatycznie bilansuje potoki energetyczne i waliduje kryteria hydrodynamiczne rurociągów.")
+        st.markdown("### 📊 3. Zbiorcza Karta Specyfikacji Technicznej i Potoków Energii")
+        st.caption("Zbiorcze i zweryfikowane zestawienie bilansu energetycznego oraz hydraulicznego instalacji.")
 
         df_spec = pd.DataFrame(spec_rows)
 
-        # Funkcja podświetlająca komórki z przekroczoną prędkością przepływu
+        # Funkcja stylizująca i podświetlająca ostrzeżenia o prędkości strugi
         def style_velocity_warnings(row):
             styles = [''] * len(row)
             status = row["Status prędkości ⚠️"]
             if "Za wysoka" in str(status):
-                # Podświetlamy kolumnę prędkości oraz statusu na blady czerwony kolor ostrzegawczy
                 idx_v = row.index.get_loc("Prędkość w rurociągu [m/s]")
                 idx_s = row.index.get_loc("Status prędkości ⚠️")
                 styles[idx_v] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;'
@@ -600,7 +636,6 @@ with tab2:
 
         styled_df_spec = df_spec.style.apply(style_velocity_warnings, axis=1)
 
-        # Wyświetlenie tabeli w standardzie stretch dla Streamlit v2026
         st.dataframe(
             styled_df_spec,
             hide_index=True,
@@ -615,12 +650,13 @@ with tab2:
             }
         )
 
+        # Informacje inżynieryjne i legenda
         st.markdown("<br>", unsafe_allow_html=True)
         st.info("""
-        **ℹ️ Inżynieryjne kryteria interpretacji parametrów instalacji:**
-        * **Prędkość w rurociągu:** Optymalna prędkość ekonomiczna dla cieczy lepkich (olejów) przy przetłaczaniu wynosi **$0.8 - 1.5\text{ m/s}$**. Przekroczenie **$2.0\text{ m/s}$** generuje gwałtowny, kwadratowy wzrost strat ciśnienia (tarcie), przeciążenie silnika pompy oraz ryzyko zrywania strugi.
-        * **Działanie naprawcze:** Jeśli prędkość jest za wysoka, zwiększ średnicę wewnętrzną rurociągu (D) w konfiguratorze powyżej lub obniż wydajność pompy (Q).
-        * **Energia pompowania vs Mieszania:** Energia pompowania uwzględnia realny czas potrzebny na opróżnienie zbiornika przy zadeklarowanym przepływie, dzięki czemu widzisz czysty koszt energii elektrycznej na operację transportową.
+        **ℹ️ Profesjonalne inżynieryjne kryteria interpretacji parametrów hydraulicznych:**
+        * **Optymalna prędkość ekonomiczna:** Dla cieczy lepkich (olejów) zaleca się zachowanie prędkości liniowej w rurociągach w granicach **0.8 - 1.5 m/s**.
+        * **Przekroczenie progu 2.0 m/s:** Skutkuje gwałtownym (kwadratowym) wzrostem strat ciśnienia na skutek tarcia, przeciążeniem silnika agregatu pompowego oraz ryzykiem wystąpienia kawitacji lub zrywania strugi.
+        * **Działanie korygujące:** Jeśli system zgłasza ostrzeżenie (czerwone podświetlenie), zwiększ wewnętrzną średnicę rury D [mm] w Kroku B lub obniż wydajność pompy rozładunkowej.
         """)
 # ==========================================
 # ZAKŁADKA 3: LOGISTYKA, CZAS ROZLEWU I GOSPODARKA PALETOWA
