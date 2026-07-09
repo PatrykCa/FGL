@@ -523,6 +523,44 @@ with tab2:
             * Lepkość projektowa produktu: `500 cst`
             * Współczynnik sprawności hydrodynamicznej: `Wyznaczany z liczby Reynoldsa (Re)`
             """)
+
+df_spec = pd.DataFrame(spec_rows)
+
+        # ---- NOWA FUNKCJA STYLIZUJĄCA DLA LMTD ----
+        def style_lmtd_cells(row):
+            styles = [''] * len(row)
+            val = row["Średnia delta LMTD [°C]"]
+            if isinstance(val, (int, float)):
+                idx = row.index.get_loc("Średnia delta LMTD [°C]")
+                if val < 15.0:
+                    # Za niska delta - proces za wolny
+                    styles[idx] = 'background-color: #fff2cc; color: #b78103; font-weight: bold;'
+                elif val > 55.0:
+                    # Za wysoka delta - ryzyko przypalenia produktu / degradacji
+                    styles[idx] = 'background-color: #fce8e6; color: #a51d24; font-weight: bold;'
+                else:
+                    # W normie projektowej
+                    styles[idx] = 'background-color: #e6f4ea; color: #137333;'
+            return styles
+
+        # Zastosowanie stylu do DataFrame
+        styled_df_spec = df_spec.style.apply(style_lmtd_cells, axis=1)
+
+        # Wyświetlenie ostylizowanej tabeli wynikowej specyfikacji technicznej
+        st.dataframe(
+            styled_df_spec,
+            hide_index=True,
+            use_container_width=True,
+            column_config={
+                "Pojemność robocza [m³]": st.column_config.NumberColumn(format="%.1f m³"),
+                "Pojemność całkowita [m³]": st.column_config.NumberColumn(format="%.2f m³"),
+                "Powierzchnia wymiany ciepła [m²] 📐": st.column_config.NumberColumn(format="%.2f m²"),
+                "Masa własna (pusty) [kg]": st.column_config.NumberColumn(format="%d kg"),
+                "Wielkość szarży [kg]": st.column_config.NumberColumn(format="%d kg"),
+                "Średnia delta LMTD [°C]": st.column_config.NumberColumn(format="%.1f °C"),
+                "Czas operacji termicznej [h] ⏱️": st.column_config.NumberColumn(format="%.2f h")
+            }
+        )
 # ==========================================
 # ZAKŁADKA 3: LOGISTYKA OPAKOWAŃ (JEDNA, W PEŁNI INTERAKTYWNA TABELA ZBIORCZA)
 # ==========================================
