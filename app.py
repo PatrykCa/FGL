@@ -407,6 +407,7 @@ with tab1:
             if "master_logistics_df" in st.session_state:
                 del st.session_state["master_logistics_df"]
             st.success(f"🎉 Sukces! Zapisano stabilną strukturę floty złożoną z {len(confirmed_mixers_blueprint)} urządzeń.")
+            
 # ==========================================
 # ZAKŁADKA 2: KARTA MASZYN I DOBÓR POMP
 # ==========================================
