@@ -720,56 +720,59 @@ with tab3:
             st.warning("⚠️ Brak zdefiniowanych udziałów procentowych w panelu bocznym lub nie wybrano opakowań.")
 
 
-        # ==========================================
-        # SEKCJA 2: SYMULACJA STRUKTURY 100% (SCENARIUSZE SKRAJNE)
-        # ==========================================
-        st.markdown("<br>", unsafe_allow_html=True)
-        st.markdown("### 📊 2. Symulacja Scenariuszy 100% (Analiza obciążenia krytycznego)")
-        st.caption("Symulacja pokazująca wymogi logistyczne, gdyby **cały miesięczny tonaż danej rodziny** został skierowany wyłącznie do jednego typu opakowania.")
+# ==========================================
+# SEKCJA 2: SYMULACJA STRUKTURY 100% (SCENARIUSZE SKRAJNE)
+# ==========================================
+st.markdown("<br>", unsafe_allow_html=True)
+st.markdown("### 📊 2. Symulacja Scenariuszy 100% (Analiza obciążenia krytycznego)")
+st.caption("Symulacja pokazująca wymogi logistyczne, gdyby **cały miesięczny tonaż danej rodziny** został skierowany wyłącznie do jednego typu opakowania.")
 
-        simulation_100_rows = []
+simulation_100_rows = []
 
-        for kat, total_mass_month in tonaz_miesieczny_per_rodzina.items():
-            # Dostępne wszystkie globalne typy opakowań z systemu fabryki
-            for p_type in PACK_CONFIGS.keys():
-                pack_capacity_kg = PACK_CONFIGS[p_type]["capacity_l"] * FUCHS_PORTFOLIO[kat]["density"]
-                
-                # Całość (100%) tonażu idzie w to jedno opakowanie
-                liczba_sztuk_100 = math.ceil(total_mass_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
-                
-                # Czas rozlewu dla wariantu 100%
-                wydajnosc_h = PACK_CONFIGS[p_type]["filling_speed_l_h"] / PACK_CONFIGS[p_type]["capacity_l"]
-                czas_rozlewu_100_h = liczba_sztuk_100 / wydajnosc_h if wydajnosc_h > 0 else 0.0
-                
-                simulation_100_rows.append({
-                    "Linia produktowa 🔒": kat,
-                    "Wariant opakowania (100%) 📦": p_type,
-                    "Całkowity tonaż [kg]": int(total_mass_month),
-                    "Wymagana liczba sztuk przy 100%": int(liczba_sztuk_100),
-                    "Skrajny czas rozlewu [h] ⏱️": round(czas_rozlewu_100_h, 1),
-                    "Obciążenie etatu rozlewaczy": f"{round(czas_rozlewu_100_h / 160.0 * 100, 1)}% etatu"
-                })
-
-        df_sim_100 = pd.DataFrame(simulation_100_rows)
+for kat, total_mass_month in tonaz_miesieczny_per_rodzina.items():
+    # Dostępne wszystkie globalne typy opakowań z systemu fabryki
+    for p_type in PACK_CONFIGS.keys():
+        # POPRAWKA: Używamy 'size_l' zgodnie ze słownikiem bazowym
+        pack_capacity_l = PACK_CONFIGS[p_type]["size_l"]
+        pack_capacity_kg = pack_capacity_l * FUCHS_PORTFOLIO[kat]["density"]
         
-        # Wyświetlenie tabeli z filtrem na linię produktową, aby ułatwić analizę
-        wybrana_linia_filtr = st.selectbox("Filtruj scenariusze 100% dla linii:", ["Wszystkie"] + list(tonaz_miesieczny_per_rodzina.keys()))
+        # Całość (100%) tonażu idzie w to jedno opakowanie
+        liczba_sztuk_100 = math.ceil(total_mass_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
         
-        if wybrana_linia_filtr != "Wszystkie":
-            df_sim_100_filtered = df_sim_100[df_sim_100["Linia produktowa 🔒"] == wybrana_linia_filtr]
-        else:
-            df_sim_100_filtered = df_sim_100
+        # POPRAWKA: Czas rozlewu bazuje na 'rate_szt_h' (sztuki na godzinę)
+        wydajnosc_szt_h = PACK_CONFIGS[p_type]["rate_szt_h"]
+        czas_rozlewu_100_h = liczba_sztuk_100 / wydajnosc_szt_h if wydajnosc_szt_h > 0 else 0.0
+        
+        simulation_100_rows.append({
+            "Linia produktowa 🔒": kat,
+            "Wariant opakowania (100%) 📦": p_type,
+            "Całkowity tonaż [kg]": int(total_mass_month),
+            "Wymagana liczba sztuk przy 100%": int(liczba_sztuk_100),
+            "Skrajny czas rozlewu [h] ⏱️": round(czas_rozlewu_100_h, 1),
+            "Obciążenie etatu rozlewaczy": f"{round(czas_rozlewu_100_h / 160.0 * 100, 1)}% etatu"
+        })
 
-        st.dataframe(
-            df_sim_100_filtered,
-            hide_index=True,
-            use_container_width=True,
-            column_config={
-                "Całkowity tonaż [kg]": st.column_config.NumberColumn(format="%d kg"),
-                "Wymagana liczba sztuk przy 100%": st.column_config.NumberColumn(format="%d szt."),
-                "Skrajny czas rozlewu [h] ⏱️": st.column_config.NumberColumn(format="%.1f h")
-            }
-        )
+df_sim_100 = pd.DataFrame(simulation_100_rows)
+
+# Wyświetlenie tabeli z filtrem na linię produktową dla wygody użytkownika
+wybrana_linia_filtr = st.selectbox("Filtruj scenariusze 100% dla linii:", ["Wszystkie"] + list(tonaz_miesieczny_per_rodzina.keys()))
+
+if wybrana_linia_filtr != "Wszystkie":
+    df_sim_100_filtered = df_sim_100[df_sim_100["Linia produktowa 🔒"] == wybrana_linia_filtr]
+else:
+    df_sim_100_filtered = df_sim_100
+
+# POPRAWKA: Zmiana 'use_container_width=True' na nowy standard Streamlita 'width="stretch"'
+st.dataframe(
+    df_sim_100_filtered,
+    hide_index=True,
+    width="stretch",
+    column_config={
+        "Całkowity tonaż [kg]": st.column_config.NumberColumn(format="%d kg"),
+        "Wymagana liczba sztuk przy 100%": st.column_config.NumberColumn(format="%d szt."),
+        "Skrajny czas rozlewu [h] ⏱️": st.column_config.NumberColumn(format="%.1f h")
+    }
+)
 
         # ==========================================
         # PODSUMOWANIE KROKU LOGISTYCZNEGO
