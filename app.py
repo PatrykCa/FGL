@@ -128,7 +128,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # ==========================================
-# ZAKŁADKA 1: GŁÓWNE ZESTAWIENIE I FLOTA
+# ZAKŁADKA 1: GŁÓWNE ZESTAWIENIE I FLOTA (WERSJA STABILNA)
 # ==========================================
 with tab1:
     st.header(f"Zintegrowane Zestawienie Parametrów Procesowych (Baza: {godziny_dziennie:.1f}h/dzień)")
@@ -136,22 +136,25 @@ with tab1:
     TYPOSZEREG_MIKSEROW = [5, 7, 10, 15, 18, 21, 25, 31]
     
     if wybrane_kategorie:
-        def sync_tab1_data():
-            if "tab1_editor" in st.session_state:
-                edits = st.session_state.tab1_editor.get("edited_rows", {})
-                active_families = [k for k in FUCHS_PORTFOLIO.keys() if k in wybrane_kategorie]
-                for idx, changes in edits.items():
-                    if idx < len(active_families):
-                        family_name = active_families[idx]
-                        if "2. Roczna produkcja [kg] 🟦" in changes:
-                            st.session_state.prod_dict[family_name]["roczna"] = int(changes["2. Roczna produkcja [kg] 🟦"])
-                        if "3. Docelowa Utylizacja [%] 🟦" in changes:
-                            st.session_state.prod_dict[family_name]["utilization"] = float(changes["3. Docelowa Utylizacja [%] 🟦"])
-                        if "4. Liczba SKUs 🟦" in changes:
-                            st.session_state.prod_dict[family_name]["skus"] = int(changes["4. Liczba SKUs 🟦"])
-                        if "5. Użyj Typoszeregu 🟦" in changes:
-                            st.session_state.prod_dict[family_name]["use_typoszereg"] = bool(changes["5. Użyj Typoszeregu 🟦"])
+        # --- KROK 1: BEZPIECZNA SYNCHRONIZACJA PRZED RENDEROWANIEM ---
+        # Sprawdzamy czy edytor zapisał jakieś zmiany w sesji i nanosimy je na prod_dict
+        if "tab1_editor" in st.session_state and st.session_state.tab1_editor.get("edited_rows"):
+            edits = st.session_state.tab1_editor["edited_rows"]
+            active_families = [k for k in FUCHS_PORTFOLIO.keys() if k in wybrane_kategorie]
+            
+            for idx, changes in edits.items():
+                if int(idx) < len(active_families):
+                    family_name = active_families[int(idx)]
+                    if "2. Roczna produkcja [kg] 🟦" in changes:
+                        st.session_state.prod_dict[family_name]["roczna"] = int(changes["2. Roczna produkcja [kg] 🟦"])
+                    if "3. Docelowa Utylizacja [%] 🟦" in changes:
+                        st.session_state.prod_dict[family_name]["utilization"] = float(changes["3. Docelowa Utylizacja [%] 🟦"])
+                    if "4. Liczba SKUs 🟦" in changes:
+                        st.session_state.prod_dict[family_name]["skus"] = int(changes["4. Liczba SKUs 🟦"])
+                    if "5. Użyj Typoszeregu 🟦" in changes:
+                        st.session_state.prod_dict[family_name]["use_typoszereg"] = bool(changes["5. Użyj Typoszeregu 🟦"])
 
+        # --- KROK 2: PRZETWARZANIE MATEMATYCZNE ---
         calculated_matrix_rows = []
         oversized_reactors = {}
 
@@ -216,6 +219,8 @@ with tab1:
 
         styled_matrix = df_complete_matrix.style.apply(style_small_volumes, axis=1)
 
+        # --- KROK 3: CZYSTY EDYTOR BEZ PARAMETRU ON_CHANGE ---
+        # Edycja jest teraz w 100% płynna, a stany zapisują się stabilnie w tle
         edited_table = st.data_editor(
             styled_matrix,
             hide_index=True,
@@ -229,8 +234,7 @@ with tab1:
                 "6. Wyliczony gabaryt reaktora 🔒": st.column_config.NumberColumn(format="%.2f m³"),
                 "h_vol": None, "h_batches": None, "h_kg": None, "h_annual": None
             },
-            key="tab1_editor",
-            on_change=sync_tab1_data
+            key="tab1_editor"
         )
 
         st.markdown("<br>", unsafe_allow_html=True)
@@ -403,7 +407,6 @@ with tab1:
             if "master_logistics_df" in st.session_state:
                 del st.session_state["master_logistics_df"]
             st.success(f"🎉 Sukces! Zapisano stabilną strukturę floty złożoną z {len(confirmed_mixers_blueprint)} urządzeń.")
-
 # ==========================================
 # ZAKŁADKA 2: KARTA MASZYN I DOBÓR POMP
 # ==========================================
