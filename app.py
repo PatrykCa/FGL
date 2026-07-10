@@ -1,5 +1,5 @@
-import streamlit as pd
-import pandas as pd
+import streamlit as st  # <-- Musi być 'as st'
+import pandas as pd     # <-- Musi być 'as pd'
 import math
 import io
 
