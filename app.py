@@ -194,6 +194,65 @@ with tab1:
 
         st.dataframe(pd.DataFrame(final_fleet_rows), hide_index=True, width="stretch")
 
+        # (Tutaj kończy się Twój dotychczasowy kod generujący listę 'final_fleet_rows' oraz 'confirmed_mixers_blueprint')
+
+        st.markdown("### 📊 Aktualne Zestawienie Floty Produkcyjnej (Możesz edytować i usuwać wiersze)")
+        st.caption("💡 Aby usunąć zbiornik, zaznacz pole po lewej stronie wiersza i naciśnij klawisz Delete (lub ikonę kosza na końcu wiersza).")
+
+        # Konwersja do DataFrame, aby Streamlit mógł nim zarządzać w edytorze
+        df_fleet = pd.DataFrame(final_fleet_rows)
+
+        # Wyświetlenie interaktywnego edytora z możliwością usuwania wierszy
+        edited_df = st.data_editor(
+            df_fleet, 
+            hide_index=True, 
+            width="stretch", 
+            num_rows="dynamic",  # To włącza usuwanie i dodawanie wierszy
+            disabled=["ID Urządzenia"], # Zabezpieczamy ID przed przypadkową zmianą tekstu
+            key="fleet_data_editor"
+        )
+
+        # Ponowne obliczenie sumarycznych metryk na podstawie EDYTOWANEJ tabeli
+        if not edited_df.empty:
+            # Czyszczenie formatu tekstowego utylizacji (np. "45.2%" -> 45.2), jeśli byłoby potrzebne do obliczeń
+            total_annual_production_edited = sum(st.session_state.prod_dict[kat]["roczna"] for kat in wybrane_kategorie)
+            total_batches_edited = edited_df["Szarż / miesiąc (per aparat)"].astype(int).sum()
+            total_volume_edited = edited_df["Pojemność [m³]"].astype(float).sum()
+        else:
+            total_annual_production_edited = 0
+            total_batches_edited = 0
+            total_volume_edited = 0.0
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        sum_col1, sum_col2, sum_col3 = st.columns(3)
+        with sum_col1: st.metric(label="📈 Sumaryczny tonaż roczny zakładu", value=f"{total_annual_production_edited:,} kg")
+        with sum_col2: st.metric(label="🔄 Suma szarż floty / miesiąc", value=f"{total_batches_edited} szarż")
+        with sum_col3: st.metric(label="📐 Całkowita kubatura floty", value=f"{total_volume_edited:.1f} m³")
+                    
+        st.markdown("---")
+        
+        if st.button("📥 Zatwierdź i wyślij konfigurację do kolejnych kroków", type="primary", use_container_width=True):
+            if edited_df.empty:
+                st.error("❌ Flota nie może być pusta! Dodaj lub wygeneruj zbiorniki.")
+            else:
+                # Mapujemy edytowany/uszczuplony DataFrame z powrotem na strukturę 'confirmed_mixers' dla Zakładek 2-5
+                updated_mixers_blueprint = []
+                for _, row in edited_df.iterrows():
+                    kat = row["Przypisana Linia"]
+                    updated_mixers_blueprint.append({
+                        "tag": row["ID Urządzenia"],
+                        "product_family": kat,
+                        "capacity_m3": float(row["Pojemność [m³]"]),
+                        "material": FUCHS_PORTFOLIO[kat]["material"],
+                        "batches_count": int(row["Szarż / miesiąc (per aparat)"]),
+                        "mass_per_batch": int(row["Masa Szarży [kg]"]),
+                        "annual_volume": (int(row["Masa Szarży [kg]"]) * int(row["Szarż / miesiąc (per aparat)"]) * 12) / FUCHS_PORTFOLIO[kat]["density"] # przybliżony tonaż roczny per aparat
+                    })
+                
+                # Zapis do stanu sesji
+                st.session_state.confirmed_mixers = updated_mixers_blueprint
+                st.success(f"🎉 Zapisano zmodyfikowaną strukturę floty ({len(updated_mixers_blueprint)} urządzeń). Przejdź do kolejnych kart.")
+
         st.markdown("<br>", unsafe_allow_html=True)
         sum_col1, sum_col2, sum_col3 = st.columns(3)
         with sum_col1: st.metric(label="📈 Sumaryczny tonaż roczny zakładu", value=f"{total_annual_production:,} kg")
