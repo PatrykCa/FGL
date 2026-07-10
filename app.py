@@ -176,7 +176,8 @@ with tab1:
                 
             tag_counter += 1
 
-        st.markdown("### 📊 Aktualne Zestawienie
+        st.markdown("### 📊 Aktualne Zestawienie Floty Produkcyjnej (Możesz usuwać wiersze)")
+        st.caption("💡 **Instrukcja:** Aby usunąć zbiornik z systemu, zaznacz pole wyboru po lewej stronie wiersza i naciśnij klawisz `Delete` na klawiaturze (lub użyj ikony kosza na końcu tabeli).")
 
 # ==========================================
 # ZAKŁADKA 2: SPECYFIKACJA MASZYN & DYNAMICZNA REOLOGIA (WERSJA PRO)
