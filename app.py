@@ -241,150 +241,158 @@ with tab1:
                 st.session_state.confirmed_mixers = confirmed_mixers_blueprint
                 st.success(f"🎉 Zapisano strukturę floty ({len(confirmed_mixers_blueprint)} urządzeń).")
 # ==========================================
-# ZAKŁADKA 2: KARTA MASZYN, DOBÓR POMP I LMTD
+# ZAKŁADKA 2: HYDRAULIKA I TERMIKA Z KOLOROWANIEM LMTD
 # ==========================================
 with tab2:
-    st.header("Karta Maszyn, Parametryzacja Hydrauliczna i Termiczna (LMTD)")
+    st.header("Karta Maszyn: Zaawansowane Projektowanie Procesowe")
 
     if "confirmed_mixers" not in st.session_state or not st.session_state.confirmed_mixers:
         st.warning("⚠️ Brak danych o flocie. Skonfiguruj i zatwierdź flotę w Zakładce 1, aby odblokować ten krok.")
     else:
-        # Inicjalizacja słownika w sesji na zaawansowane parametry techniczne
-        if "mixer_tech_params" not in st.session_state:
-            st.session_state.mixer_tech_params = {}
+        if "mixer_tech_advanced_details" not in st.session_state:
+            st.session_state.mixer_tech_advanced_details = {}
 
-        # --- REKONSTRUKCJA I AKTUALIZACJA DANYCH (ZASZYTE OBLICZENIA) ---
-        summary_rows = []
+        summary_combined_rows = []
+
+        # --- GŁÓWNA PĘTLA OBLICZENIOWA ---
         for mixer in st.session_state.confirmed_mixers:
             m_id = mixer["tag"]
             kat = mixer["product_family"]
             
-            # Przywrócenie Twoich domyślnych, zaawansowanych parametrów inżynieryjnych
-            if m_id not in st.session_state.mixer_tech_params:
-                st.session_state.mixer_tech_params[m_id] = {
-                    "viscosity_cps": 150.0,
-                    "pump_flow_m3h": 15.0,
-                    "pipe_dn": 80,
-                    "t_product_in": 20.0,
-                    "t_product_out": 70.0,
-                    "t_utility_in": 90.0,
-                    "t_utility_out": 80.0
+            if m_id not in st.session_state.mixer_tech_advanced_details:
+                st.session_state.mixer_tech_advanced_details[m_id] = {
+                    "pump_flow_m3h": 15.0, "pipe_dn": 80, "pipe_length_m": 25.0, "roughness_mm": 0.05, "viscosity_cst": 120.0,
+                    "density_kg_m3": FUCHS_PORTFOLIO[kat]["density"] * 1000.0,
+                    "count_elbows_90": 4, "count_tees": 2, "count_valves": 3, "pump_efficiency": 0.65,
+                    "cp_product": 2.10, "t_product_in": 20.0, "t_product_out": 75.0, "process_time_h": 1.5,
+                    "t_utility_in": 110.0, "t_utility_out": 90.0, "cp_utility": 4.19, "k_coeff": 350.0, "tank_mass": 1200.0, "cp_steel": 0.46
                 }
             
-            p = st.session_state.mixer_tech_params[m_id]
+            p = st.session_state.mixer_tech_advanced_details[m_id]
             
-            # --- ZASZYTE OBLICZENIA HYDRAULICZNE I REOLOGICZNE ---
-            density = FUCHS_PORTFOLIO[kat]["density"]
-            v_m3s = (p["pump_flow_m3h"] / 3600.0)
-            area_m2 = math.pi * ((p["pipe_dn"] / 1000.0) ** 2) / 4.0
-            velocity = v_m3s / area_m2 if area_m2 > 0 else 0.0
+            # Hydraulika (Zeta i Delta P)
+            zeta_sum_calculated = (p["count_elbows_90"] * 0.5) + (p["count_tees"] * 1.5) + (p["count_valves"] * 0.2)
+            Q_m3s = p["pump_flow_m3h"] / 3600.0
+            d_m = p["pipe_dn"] / 1000.0
+            area_m2 = math.pi * (d_m ** 2) / 4.0
+            velocity = Q_m3s / area_m2 if area_m2 > 0 else 0.0
+            viscosity_m2s = p["viscosity_cst"] * 1e-6
+            reynolds = (velocity * d_m) / viscosity_m2s if viscosity_m2s > 0 else 0
+            lambda_f = 64.0 / reynolds if reynolds <= 2320 and reynolds > 0 else 0.02
             
-            # Liczba Reynoldsa (Re)
-            reynolds = (density * velocity * (p["pipe_dn"] / 1000.0)) / (p["viscosity_cps"] / 1000.0) if p["viscosity_cps"] > 0 else 0
-            flow_type = "Laminarny (⚠️ wysokie opory)" if reynolds < 2100 else ("Burzliwy (🟢 optymalny)" if reynolds > 4000 else "Przejściowy")
+            total_delta_p_bar = ((lambda_f * (p["pipe_length_m"] / d_m) + zeta_sum_calculated) * (p["density_kg_m3"] * (velocity ** 2) / 2.0)) / 100000.0 if d_m > 0 else 0.0
+            pump_power_kw = (Q_m3s * (total_delta_p_bar * 100000.0)) / p["pump_efficiency"] / 1000.0 if p["pump_efficiency"] > 0 else 0.0
+
+            # --- OBLICZENIA CIEPLNE I SPRAWDZENIE LMTD ---
+            mass_product = mixer["mass_per_batch"]
+            delta_t_product = p["t_product_out"] - p["t_product_in"]
+            Q_total_kj = (mass_product * p["cp_product"] * delta_t_product) + (p["tank_mass"] * p["cp_steel"] * delta_t_product)
+            thermal_power_kw = Q_total_kj / (p["process_time_h"] * 3600.0) if p["process_time_h"] > 0 else 0.0
             
-            # --- OBLICZENIA LMTD (Logarithmic Mean Temperature Difference) ---
-            # Przeciwprąd: dt1 = T_ut_in - T_prod_out, dt2 = T_ut_out - T_prod_in
+            # Wyznaczenie dt1 i dt2 dla przeciwprądu
             dt1 = p["t_utility_in"] - p["t_product_out"]
             dt2 = p["t_utility_out"] - p["t_product_in"]
             
+            # Klasyfikacja i walidacja LMTD
             if dt1 <= 0 or dt2 <= 0:
                 lmtd = 0.0
-                lmtd_status = "❌ Błędny profil temperatur"
+                lmtd_status = "❌ Błąd fizyczny (Zimne medium)"
             elif abs(dt1 - dt2) < 0.1:
                 lmtd = dt1
-                lmtd_status = "🟢 Poprawny ($dT_1 \approx dT_2$)"
+                lmtd_status = "🟢 Optymalny" if 15.0 <= lmtd <= 60.0 else ("⚠️ Za niski (<15K)" if lmtd < 15.0 else "⚠️ Za wysoki (>60K)")
             else:
                 lmtd = (dt1 - dt2) / math.log(dt1 / dt2)
-                lmtd_status = "🟢 Wyznaczony poprawnie"
+                if lmtd < 15.0:
+                    lmtd_status = "⚠️ Za niski (<15K)"
+                elif lmtd > 60.0:
+                    lmtd_status = "⚠️ Za wysoki (>60K)"
+                else:
+                    lmtd_status = "🟢 Optymalny"
+                
+            req_area_m2 = (thermal_power_kw * 1000.0) / (p["k_coeff"] * lmtd) if (p["k_coeff"] * lmtd) > 0 else 0.0
 
-            # Zapis wyliczonych parametrów do słownika, aby były dostępne globalnie
-            st.session_state.mixer_tech_params[m_id]["calculated_velocity"] = velocity
-            st.session_state.mixer_tech_params[m_id]["calculated_reynolds"] = reynolds
-            st.session_state.mixer_tech_params[m_id]["calculated_lmtd"] = lmtd
-            st.session_state.mixer_tech_params[m_id]["flow_type"] = flow_type
+            # Zapis do stanu sesji
+            p["calculated_lmtd"] = lmtd
+            p["lmtd_status"] = lmtd_status
 
-            summary_rows.append({
+            summary_combined_rows.append({
                 "ID Urządzenia": m_id,
                 "Linia": kat,
-                "Pojemność [m³]": mixer["capacity_m3"],
-                "Przepływ pompy [m³/h]": p["pump_flow_m3h"],
-                "Prędkość cieczy [m/s]": round(velocity, 2),
-                "Liczba Reynoldsa (Re)": int(reynolds),
-                "Reżim przepływu": flow_type,
-                "Wyznaczone LMTD [K]": round(lmtd, 1)
+                "Szarża [kg]": mass_product,
+                "Opór hydr. [bar]": round(total_delta_p_bar, 2),
+                "Moc Pompy [kW]": round(pump_power_kw, 2),
+                "Moc Cieplna [kW]": round(thermal_power_kw, 1),
+                "LMTD [K]": round(lmtd, 1),
+                "Status LMTD": lmtd_status,
+                "Wymagana pow. [m²]": round(req_area_m2, 2)
             })
 
-        # --- 1. NA SAMEJ GÓRZE: TABELA ZBIORCZA Z PODSUMOWANIEM ---
-        st.markdown("### 📋 Zbiorcza Karta Techniczna i Hydrauliczna Floty")
-        st.caption("Zbiorcze podsumowanie wszystkich kluczowych wyliczeń inżynieryjnych dla całej fabryki:")
-        st.dataframe(pd.DataFrame(summary_rows), hide_index=True, use_container_width=True)
+        # --- 1. NA SAMEJ GÓRZE: LEGENDA I ZBIORCZA TABELA PARAMETRÓW ---
+        st.markdown("### 📋 Zbiorcza Specyfikacja Techniczna Maszyn i Pompy")
+        
+        # Komponent informacyjny o poprawnym zakresie
+        st.info("💡 **Kryteria walidacji LMTD:** Optymalny zakres inżynieryjny dla wymienników to **15.0 K ÷ 60.0 K**.\n"
+                "- Wartości **poniżej 15 K** oznaczają zbyt małą siłę napędową (proces potrwa za długo).\n"
+                "- Wartości **powyżej 60 K** grożą lokalnym przegrzaniem medium/produktu.")
+
+        df_summary = pd.DataFrame(summary_combined_rows)
+
+        # --- FUNKCJA STYLIZUJĄCA (KOLOROWANIE WIERSZY NA PODSTAWIE STATUSU LMTD) ---
+        def style_lmtd_rows(row):
+            status = row["Status LMTD"]
+            if "❌" in status:
+                return ['background-color: #FCE4D6; color: #C00000; font-weight: bold;'] * len(row) # Czerwony / Błąd
+            elif "Za niski" in status or "Za wysoki" in status:
+                return ['background-color: #FFF2CC; color: #7F6000;'] * len(row) # Żółty / Ostrzeżenie
+            else:
+                return ['background-color: #E2EFDA; color: #375623;'] * len(row) # Zielony / Poprawny
+
+        # Renderowanie ostylowanej tabeli
+        styled_df = df_summary.style.apply(style_lmtd_rows, axis=1)
+        st.dataframe(styled_df, hide_index=True, use_container_width=True)
         
         st.markdown("---")
 
-        # --- 2. PONIŻEJ: SZCZEGÓŁOWE KONFIGURATORY WEJŚCIOWE ---
-        st.markdown("### ⚙️ Indywidualne Konfiguratory Szczegółowe")
-        st.caption("Zmień parametry poniżej, aby zaktualizować obliczenia w tabeli zbiorczej na górze strony.")
+        # --- 2. PONIŻEJ: SZCZEGÓŁOWE KONFIGURATORY ROZWIJALNE ---
+        st.markdown("### ⚙️ Szczegółowe Parametryzatory i Zestawienia Elementów")
+        st.caption("Rozwiń wybrane urządzenie i zmień temperatury, aby automatycznie wprowadzić LMTD w poprawny zielony zakres:")
 
         for mixer in st.session_state.confirmed_mixers:
             m_id = mixer["tag"]
             kat = mixer["product_family"]
-            p = st.session_state.mixer_tech_params[m_id]
+            p = st.session_state.mixer_tech_advanced_details[m_id]
             
-            with st.expander(f"🛠️ Specyfikacja aparatu: {m_id} (Linia: {kat})", expanded=False):
-                col1, col2, col3 = st.columns(3)
-                
-                with col1:
-                    st.markdown("**🌊 Parametry Hydrauliczne**")
-                    p["viscosity_cps"] = st.number_input(f"Lepkość dynamiczna [cP] ({m_id}):", min_value=1.0, value=float(p["viscosity_cps"]), step=10.0, key=f"visc_t2_{m_id}")
-                    p["pump_flow_m3h"] = st.number_input(f"Wydajność pompy [m³/h] ({m_id}):", min_value=1.0, value=float(p["pump_flow_m3h"]), step=5.0, key=f"pump_t2_{m_id}")
-                    p["pipe_dn"] = st.number_input(f"Średnica rurociągu [DN] ({m_id}):", min_value=15, value=int(p["pipe_dn"]), step=5, key=f"dn_t2_{m_id}")
-
-                with col2:
-                    st.markdown("**🔥 Profil Termiczny Produktu**")
-                    p["t_product_in"] = st.number_input(f"Temp. początkowa produktu $t_{{in}}$ [°C]:", value=float(p["t_product_in"]), step=5.0, key=f"tpin_{m_id}")
-                    p["t_product_out"] = st.number_input(f"Temp. docelowa produktu $t_{{out}}$ [°C]:", value=float(p["t_product_out"]), step=5.0, key=f"tpout_{m_id}")
-
-                with col3:
-                    st.markdown("**⚡ Profil Medium Grzewczego**")
-                    p["t_utility_in"] = st.number_input(f"Temp. wejścia medium $T_{{in}}$ [°C]:", value=float(p["t_utility_in"]), step=5.0, key=f"tuin_{m_id}")
-                    p["t_utility_out"] = st.number_input(f"Temp. wyjścia medium $T_{{out}}$ [°C]:", value=float(p["t_utility_out"]), step=5.0, key=f"tuout_{m_id}")
-                
-                # Dynamiczna prezentacja wyników LMTD pod każdym urządzeniem
-                if p["calculated_lmtd"] > 0:
-                    st.info(f"📐 **Obliczenia wymiany ciepła ({m_id}):** Średnia logarytmiczna różnica temperatur **LMTD = {p['calculated_lmtd']:.2f} K**")
-                else:
-                    st.error(f"⚠️ **Błąd profilu termicznego ({m_id}):** Temperatura medium grzewczego musi być wyższa niż temperatura produktu!")
+            with st.expander(f"🛠️ Aparat i instalacja: {m_id} (Status LMTD: {p['lmtd_status']})", expanded=False):
+                c1, c2, c3 = st.columns(3)
+                with c1:
+                    st.markdown("**🌊 Wydajność i Rurociąg**")
+                    p["pump_flow_m3h"] = st.number_input(f"Przepływ pompy [m³/h]:", min_value=1.0, value=float(p["pump_flow_m3h"]), key=f"q_adv_{m_id}")
+                    p["pipe_dn"] = st.number_input(f"Średnica rury [DN]:", min_value=15, value=int(p["pipe_dn"]), key=f"dn_adv_{m_id}")
+                    p["viscosity_cst"] = st.number_input(f"Lepkość [cSt]:", min_value=1.0, value=float(p["viscosity_cst"]), key=f"nu_adv_{m_id}")
+                with c2:
+                    st.markdown("**📐 Profil Produktu**")
+                    p["t_product_in"] = st.number_input(f"Temp. początkowa szarży [°C]:", value=float(p["t_product_in"]), key=f"tpin_adv_{m_id}")
+                    p["t_product_out"] = st.number_input(f"Temp. końcowa szarży [°C]:", value=float(p["t_product_out"]), key=f"tpout_adv_{m_id}")
+                    p["process_time_h"] = st.number_input(f"Czas operacji grzania [h]:", min_value=0.1, value=float(p["process_time_h"]), key=f"time_adv_{m_id}")
+                with c3:
+                    st.markdown("**🔥 Profil Medium (Zmień tu, by poprawić LMTD)**")
+                    p["t_utility_in"] = st.number_input(f"Temp. wejściowa medium [°C]:", value=float(p["t_utility_in"]), key=f"tuin_adv_{m_id}")
+                    p["t_utility_out"] = st.number_input(f"Temp. wyjściowa medium [°C]:", value=float(p["t_utility_out"]), key=f"tuout_adv_{m_id}")
+                    p["k_coeff"] = st.number_input(f"Współczynnik K [W/m²·K]:", min_value=10.0, value=float(p["k_coeff"]), key=f"k_adv_{m_id}")
 
         st.markdown("---")
         
-        # --- 3. GENEROWANIE I POBIERANIE PLIKU EXCEL ---
-        st.markdown("### 📥 Eksport Kompletnego Modelu Matematycznego")
-        st.caption("Pobierz arkusz Excel zawierający pełne, surowe zestawienie wszystkich zbiorników oraz zaszyte formuły i wyniki obliczeń.")
-        
-        # Tworzenie pliku Excel w pamięci podręcznej (BytesIO)
-        output = io.BytesIO()
-        with pd.ExcelWriter(output, engine='xlsxwriter') as writer:
-            df_to_export = pd.DataFrame(summary_rows)
-            df_to_export.to_excel(writer, sheet_name='Karta Floty i Pomp', index=False)
-            
-            # Stylizacja arkusza Excel
-            workbook  = writer.book
-            worksheet = writer.sheets['Karta Floty i Pomp']
-            header_format = workbook.add_format({'bold': True, 'text_wrap': True, 'valign': 'top', 'fg_color': '#D7E4BC', 'border': 1})
-            
-            for col_num, value in enumerate(df_to_export.columns.values):
-                worksheet.write(0, col_num, value, header_format)
-                worksheet.set_column(col_num, col_num, 25)
-                
-        excel_data = output.getvalue()
-        
+        # Przycisk pobierania Excela (zachowuje surowe dane)
+        output_combined = io.BytesIO()
+        with pd.ExcelWriter(output_combined, engine='xlsxwriter') as writer:
+            df_summary.to_excel(writer, sheet_name='Model Procesowy', index=False)
         st.download_button(
             label="📊 Pobierz raport inżynieryjny (Excel .xlsx)",
-            data=excel_data,
-            file_name="Fuchs_Model_Floty_i_LMTD.xlsx",
+            data=output_combined.getvalue(),
+            file_name="Fuchs_Kompletny_Model_Z_Walidacja_LMTD.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            use_container_width=True
+            use_container_width=True,
+            key="btn_download_final_excel_v5"
         )
         
 # ==========================================
