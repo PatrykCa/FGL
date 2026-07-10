@@ -8,6 +8,18 @@ st.title("🏭 Inżynieryjny Reaktor Procesowy & Logistyczny FUCHS Oil")
 st.subheader("Kompletna Platforma Wymiarowania Linii, Reologii, Logistyki i Surowców")
 st.markdown("---")
 
+st.markdown("""
+    <style>
+    div[data-testid="stTabs"] {
+        position: sticky;
+        top: 2.875rem;
+        background-color: white;
+        z-index: 999;
+        padding-top: 10px;
+    }
+    </style>
+""", unsafe_allow_html=True)
+
 # --- 1. BAZA DANYCH PROCESOWYCH I FIZYKOCHEMICZNYCH FUCHS ---
 FUCHS_PORTFOLIO = {
     "Hydraulic Oils (RENOLIN)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0},
@@ -229,139 +241,115 @@ with tab1:
                 st.session_state.confirmed_mixers = confirmed_mixers_blueprint
                 st.success(f"🎉 Zapisano strukturę floty ({len(confirmed_mixers_blueprint)} urządzeń).")
 # ==========================================
-# ZAKŁADKA 2: SPECYFIKACJA MASZYN & DYNAMICZNA REOLOGIA (WERSJA PRO)
+# ZAKŁADKA 2: REOLOGIA I PARAMETRY PROCESOWE
 # ==========================================
 with tab2:
-    st.header("📐 Specyfikacja Maszyn, Reologii i Dynamicznej Termodynamiki")
+    st.header("Konfiguracja Reologiczna i Technologiczna Floty")
 
-    if not st.session_state.confirmed_mixers:
-        st.info("💡 Aby wygenerować specyfikację, najpierw zatwierdź konfigurację floty w **Zakładce 1**.")
+    # 1. SPRAWDZENIE CZY FLOTA ZOSTAŁA ZATWIERDZONA W ZAKŁADCE 1
+    if "confirmed_mixers" not in st.session_state or not st.session_state.confirmed_mixers:
+        st.warning("⚠️ Brak danych o flocie. Skonfiguruj i zatwierdź flotę w Zakładce 1, aby odblokować ten krok.")
     else:
-        mixers_fleet = st.session_state.confirmed_mixers
-        spec_rows = []
-        if "pump_flows" not in st.session_state: 
-            st.session_state.pump_flows = {}
-        A_BASE = 17.0
-
-        for m in mixers_fleet:
-            tag = m["tag"]
-            kat = m["product_family"]
-            v_working = m["capacity_m3"]
-            mass_batch_kg = m["mass_per_batch"]
-            cyc_h = FUCHS_PORTFOLIO[kat]["cycle_h"]
-            rho_product = FUCHS_PORTFOLIO[kat]["density"] * 1000.0
-            c_p_default = float(FUCHS_PORTFOLIO[kat]["cp"])
-            default_mat = FUCHS_PORTFOLIO[kat]["material"]
-
-            st.markdown(f"### ⚙️ Konfiguracja aparatu: **{tag}** ({kat})")
-            
-            # UKŁAD TRZECH PIONOWYCH KOLUMN DLA INSTANCJI APARATU
-            c_inst1, c_inst2, c_inst3 = st.columns(3)
-            
-            with c_inst1:
-                st.markdown("##### 🔥❄️ 1. Układ Termiczny")
-                mat_reaktora = st.selectbox("Materiał korpusu:", ["Stal węglowa", "Stal nierdzewna"], index=0 if "zwykła" in default_mat else 1, key=f"mat_{tag}")
-                v_flow_l_min = st.number_input("Przepływ nośników [l/min]:", min_value=10.0, value=410.0, key=f"vflow_{tag}")
-                medium_term = st.selectbox("Nośnik grzewczy:", ["Para wodna", "Olej termalny", "Gorąca woda"], key=f"medg_{tag}")
-                T1_init = st.number_input("Temp. początkowa [°C]:", value=20.0, key=f"t1_{tag}")
-                T2_final = st.number_input("Temp. procesu MAX [°C]:", value=70.0, key=f"t2_{tag}")
-                t_in_carrier = st.number_input("Temp. nośnika grz. [°C]:", value=120.0, key=f"t_car_{tag}")
-                medium_chl = st.selectbox("Nośnik chłodzący:", ["Brak (Zrzut na gorąco)", "Woda z wieży (ok. 20°C)", "Woda z chillera (ok. 7°C)"], key=f"medc_{tag}")
-                T3_rozlew = st.number_input("Temp. rozlewu [°C]:", value=40.0, key=f"t3_{tag}", disabled=(medium_chl=="Brak (Zrzut na gorąco)"))
-                t_in_chl = st.number_input("Temp. nośnika chł. [°C]:", value=15.0, key=f"tinc_{tag}", disabled=(medium_chl=="Brak (Zrzut na gorąco)"))
-
-            with c_inst2:
-                st.markdown("##### ⚙️ 2. Kinematyka Mieszadła")
-                typ_wirnika = st.selectbox("Geometria wirnika:", list(AGITATOR_TYPES.keys()), index=1, key=f"agit_type_{tag}")
-                obroty_rpm = st.number_input("Obroty [RPM]:", min_value=10, value=90, key=f"rpm_{tag}")
-                motor_efficiency = st.slider("Sprawność napędu [%]:", min_value=50, max_value=98, value=85, key=f"eff_mot_{tag}")
-
-            with c_inst3:
-                st.markdown("##### 🔄 3. Układ Pompowy i Rurociągi")
-                q_user_m3_h = st.number_input("Wydajność Q [m³/h]:", min_value=1.0, value=max(1.0, float(round(v_working / 0.75, 1))), key=f"qp_{tag}")
-                pipe_l_m = st.number_input("Długość rury L [m]:", min_value=1.0, value=15.0, key=f"pl_{tag}")
-                pipe_d_mm = st.number_input("Średnica wewn. D [mm]:", min_value=25, value=80, key=f"pd_{tag}")
-                visc_max_cst = st.number_input("Lepkość MAX (Zimny rozruch) [cSt]:", min_value=10.0, value=800.0, step=50.0, key=f"vmax_{tag}")
-                h_static_m = st.number_input("Wysokość H_stat [m]:", value=3.0, key=f"ph_{tag}")
-                visc_min_cst = st.number_input("Lepkość MIN (Gorący proces) [cSt]:", min_value=1.0, value=100.0, step=10.0, key=f"vmin_{tag}")
-
-            # --- OBLICZENIA CIEPLNE (TERMODYNAMIKA) ---
-            st.session_state.pump_flows[tag] = q_user_m3_h
-            scaled_area_m2 = A_BASE * ((v_working / 10.0) ** (2/3))
-            k_base_grz = 0.55 if "Para" in medium_term else 0.40 if "nierdzewna" in mat_reaktora else 0.60
-            w_cap_grz = ((v_flow_l_min / 60.0) * 1.0) * 4.2
-            
-            if (t_in_carrier > T1_init and t_in_carrier > T2_final) and w_cap_grz > 0:
-                ntu_g = (k_base_grz * scaled_area_m2) / w_cap_grz
-                eff_g = (1.0 - math.exp(-ntu_g)) / ntu_g if ntu_g > 0 else 1.0
-                Q_grz_kwh = (mass_batch_kg * c_p_default * abs(T2_final - T1_init)) / 3600.0
-                power_grz_kw = k_base_grz * scaled_area_m2 * abs(t_in_carrier - T1_init) * eff_g
-                tau_grz = Q_grz_kwh / power_grz_kw if power_grz_kw > 0 else 0.0
-            else: 
-                Q_grz_kwh, tau_grz = 0.0, 0.0
-
-            if medium_chl != "Brak (Zrzut na gorąco)" and T2_final > T3_rozlew:
-                k_base_chl = 0.45 if "nierdzewna" in mat_reaktora else 0.75
-                w_cap_chl = ((v_flow_l_min / 60.0) * 1.0) * 4.184
-                ntu_c = (k_base_chl * scaled_area_m2) / w_cap_chl
-                eff_c = (1.0 - math.exp(-ntu_c)) / ntu_c if ntu_c > 0 else 1.0
-                Q_chl_kwh = (mass_batch_kg * c_p_default * abs(T2_final - T3_rozlew)) / 3600.0
-                power_chl_kw = k_base_chl * scaled_area_m2 * abs(T2_final - t_in_chl) * eff_c
-                tau_chl = Q_chl_kwh / power_chl_kw if power_chl_kw > 0 else 0.0
-            else: 
-                Q_chl_kwh, tau_chl = 0.0, 0.0
-
-            total_thermal_time = tau_grz + tau_chl
-
-            # --- OBLICZENIA HYDRODYNAMIKI MIESZADŁA (REAGUJĄCE NA ZMIANĘ LEPKOŚCI) ---
-            n_rps = obroty_rpm / 60.0
-            D_vessel = 2.2 * ((v_working / 10.0) ** (1/3))
-            d_impeller = D_vessel / 3.0
-
-            # 1. Stan zimny (Najbardziej niekorzystny - rozruchowy)
-            visc_max_pas = (visc_max_cst / 1_000_000.0) * rho_product
-            Re_max = (n_rps * (d_impeller ** 2) * rho_product) / max(visc_max_pas, 0.0001)
-            Ne_max = AGITATOR_TYPES[typ_wirnika]["laminar_C"] / Re_max if Re_max < 50 else AGITATOR_TYPES[typ_wirnika]["turbulent_Ne"]
-            power_shaft_max = Ne_max * (n_rps ** 3) * (d_impeller ** 5) * rho_product
-
-            # 2. Stan ciepły (Procesowy)
-            visc_min_pas = (visc_min_cst / 1_000_000.0) * rho_product
-            Re_min = (n_rps * (d_impeller ** 2) * rho_product) / max(visc_min_pas, 0.0001)
-            Ne_min = AGITATOR_TYPES[typ_wirnika]["laminar_C"] / Re_min if Re_min < 50 else AGITATOR_TYPES[typ_wirnika]["turbulent_Ne"]
-            power_shaft_min = Ne_min * (n_rps ** 3) * (d_impeller ** 5) * rho_product
-
-            # Krytyczny wybór wyższej wymaganej mocy z naddatkiem inżynieryjnym 25%
-            power_shaft_w = max(power_shaft_max, power_shaft_min)
-            power_mix_kw = max((power_shaft_w / (motor_efficiency / 100.0) * 1.25) / 1000.0, 1.5)
-
-            # --- OBLICZENIA UKŁADU HYDRAULICZNEGO POMPY ---
-            D_pipe_m = pipe_d_mm / 1000.0
-            velocity_m_s = (q_user_m3_h / 3600.0) / ((math.pi * (D_pipe_m ** 2)) / 4.0)
-            Re_pipe_max = (velocity_m_s * D_pipe_m) / max(visc_max_cst / 1_000_000.0, 0.00001)
-            lambda_max = 64.0 / max(Re_pipe_max, 1.0) if Re_pipe_max < 2100 else (0.3164 / (Re_pipe_max ** 0.25))
-            press_bar_max = (rho_product * 9.81 * (h_static_m + (lambda_max * (pipe_l_m / D_pipe_m) * ((velocity_m_s ** 2) / (2.0 * 9.81))))) / 100000.0
-            power_pump_kw = max((q_user_m3_h * press_bar_max) / (36.0 * 0.65) * 1.25, 0.75)
-            time_pumping_h = v_working / q_user_m3_h
-
-            # Zapis stabilnych parametrów do pamięci sesji dla modułu kosztów energii
-            st.session_state.calculated_times[tag] = {
-                "heating": total_thermal_time, "pumping": time_pumping_h,
-                "power_mix_kw": power_mix_kw, "power_pump_kw": power_pump_kw,
-                "t_max_mix": T2_final, "t_rozlew": T3_rozlew if medium_chl != "Brak (Zrzut na gorąco)" else T2_final
-            }
-
-            spec_rows.append({
-                "Nazwa 🔒": tag, "Pojemność [m³]": round(v_working, 1),
-                "Grzanie [kWh] 🔥": int(Q_grz_kwh), "Chłodzenie [kWh] ❄️": int(Q_chl_kwh),
-                "Czas Termiki [h] ⏱️": round(total_thermal_time, 2), "Mieszanie Rozruchowe [kW] ⚙️": round(power_mix_kw, 1),
-                "Ciśnienie Rozładunku [bar]": round(press_bar_max, 1), "Moc Pompy [kW] ⚡": round(power_pump_kw, 1),
-                "Prędkość cieczy [m/s]": round(velocity_m_s, 2), "Status pompy": "❌ Za wysoka prędk." if velocity_m_s > 2.0 else "✅ OK"
+        # --- NA SAMEJ GÓRZE: TABELA ZBIORCZA (PODGLĄD AKTUALNEJ FLOTY) ---
+        st.markdown("### 📋 Podsumowanie Floty Produkcyjnej")
+        st.caption("Poniższa tabela przedstawia aktualnie wybrane urządzenia. Skonfiguruj szczegóły dla każdego z nich poniżej.")
+        
+        # Konwersja danych z sesji do wyświetlenia w tabeli zbiorczej
+        summary_data = []
+        for mixer in st.session_state.confirmed_mixers:
+            summary_data.append({
+                "ID Urządzenia": mixer["tag"],
+                "Linia Produktowa": mixer["product_family"],
+                "Pojemność [m³]": mixer["capacity_m3"],
+                "Materiał": mixer["material"],
+                "Liczba szarż/miesiąc": mixer["batches_count"],
+                "Masa szarży [kg]": mixer["mass_per_batch"]
             })
-            st.markdown("---")
+        st.dataframe(pd.DataFrame(summary_data), hide_index=True, use_container_width=True)
+        
+        st.markdown("---")
+        
+        # Inicjalizacja słownika w sesji na szczegółowe parametry reologiczne, jeśli jeszcze nie istnieje
+        if "mixer_rheology_params" not in st.session_state:
+            st.session_state.mixer_rheology_params = {}
 
-        # --- ZBIORCZA TABELA WYNIKOWA NA SAMYM DOLE ---
-        st.markdown("### 📊 Zbiorcza Karta Specyfikacji Technicznej Floty Mieszalników")
-        st.dataframe(pd.DataFrame(spec_rows), hide_index=True, width="stretch")
+        # --- PONIŻEJ: SZCZEGÓŁOWE KONFIGURATORY DLA KAŻDEGO APARATU ---
+        st.markdown("### ⚙️ Szczegółowa parametryzacja urządzeń")
+        st.caption("Obliczenia są wykonywane niezależnie dla każdego aparatu, co pozwala na różną konfigurację podobnych składowych.")
+
+        # Iterujemy po każdym zatwierdzonym mikserze, tworząc dla niego osobny blok/expander
+        for mixer in st.session_state.confirmed_mixers:
+            m_id = mixer["tag"]
+            m_family = mixer["product_family"]
+            
+            # Tworzymy sekcję (np. Expander), aby strona była czytelna
+            with st.expander(f"⚙️ Urządzenie: {m_id} (Linia: {m_family}, Pojemność: {mixer['capacity_m3']} m³)", expanded=True):
+                
+                # Inicjalizacja domyślnych wartości dla konkretnego ID urządzenia
+                if m_id not in st.session_state.mixer_rheology_params:
+                    st.session_state.mixer_rheology_params[m_id] = {
+                        "viscosity_type": "Średnia (np. oleje silnikowe)",
+                        "has_heating": True if "Kompaundy" in m_family or "Smary" in m_family else False,
+                        "agitator_type": "Kotwicowe" if "Smary" in m_family else "Turbinowe",
+                        "rpm_max": 150
+                    }
+                
+                # Formularz konfiguracji specyficzny dla tego konkretnego zbiornika
+                col_r1, col_r2, col_r3 = st.columns(3)
+                
+                with col_r1:
+                    st.session_state.mixer_rheology_params[m_id]["viscosity_type"] = st.selectbox(
+                        f"Lepkość produktu ({m_id}):",
+                        options=["Niska (wodnista)", "Średnia (np. oleje silnikowe)", "Wysoka (pasty, smary)", "Ekstremalna"],
+                        index=["Niska (wodnista)", "Średnia (np. oleje silnikowe)", "Wysoka (pasty, smary)", "Ekstremalna"].index(
+                            st.session_state.mixer_rheology_params[m_id]["viscosity_type"]
+                        ),
+                        key=f"visc_{m_id}"
+                    )
+                
+                with col_r2:
+                    st.session_state.mixer_rheology_params[m_id]["agitator_type"] = st.selectbox(
+                        f"Typ mieszadła ({m_id}):",
+                        options=["Turbinowe", "Kotwicowe", "Śrubowe", "Ramowe z zebrakami"],
+                        index=["Turbinowe", "Kotwicowe", "Śrubowe", "Ramowe z zebrakami"].index(
+                            st.session_state.mixer_rheology_params[m_id]["agitator_type"]
+                        ),
+                        key=f"agitator_{m_id}"
+                    )
+                    
+                with col_r3:
+                    st.session_state.mixer_rheology_params[m_id]["rpm_max"] = st.number_input(
+                        f"Max obroty [RPM] ({m_id}):",
+                        min_value=10, max_value=1500,
+                        value=int(st.session_state.mixer_rheology_params[m_id]["rpm_max"]),
+                        step=10,
+                        key=f"rpm_{m_id}"
+                    )
+                
+                # Dodatkowy parametr np. układ grzania/chłodzenia
+                st.session_state.mixer_rheology_params[m_id]["has_heating"] = st.checkbox(
+                    f"Wymagany płaszcz grzewczo-chłodzący dla {m_id}",
+                    value=st.session_state.mixer_rheology_params[m_id]["has_heating"],
+                    key=f"heat_{m_id}"
+                )
+                
+                # --- PRZYKŁAD SPECYFICZNYCH OBLICZEŃ DLA TEGO APARATU ---
+                # Wyliczanie szacowanej mocy silnika na podstawie niezależnych danych wejściowych
+                visc_factor = {"Niska (wodnista)": 1.1, "Średnia (np. oleje silnikowe)": 2.2, "Wysoka (pasty, smary)": 5.5, "Ekstremalna": 11.0}
+                selected_visc = st.session_state.mixer_rheology_params[m_id]["viscosity_type"]
+                
+                # Indywidualne wyliczenie mocy kW dla tego konkretnego zbiornika
+                calculated_power_kw = mixer["capacity_m3"] * visc_factor[selected_visc] * (st.session_state.mixer_rheology_params[m_id]["rpm_max"] / 100)
+                st.session_state.mixer_rheology_params[m_id]["calculated_power_kw"] = round(calculated_power_kw, 2)
+                
+                # Wyświetlenie wyniku dedykowanego dla tego zbiornika
+                st.info(f"⚡ **Dedykowane obliczenia techniczne dla {m_id}:** Szacowana moc napędu mieszadła: **{st.session_state.mixer_rheology_params[m_id]['calculated_power_kw']} kW**")
+
+        st.markdown("---")
+        
+        # Przycisk zapisu na samym dole Zakładki 2
+        if st.button("📥 Zatwierdź parametry reologiczne floty", type="primary", use_container_width=True, key="btn_zatwierdz_reologie"):
+            st.success("🎉 Pomyślnie zapisano niezależne konfiguracje reologiczne i obliczenia mocy dla wszystkich maszyn. Możesz przejść do kolejnej zakładki.")
         
 # ==========================================
 # ZAKŁADKA 3: LOGISTYKA I OPALETOWANIE
