@@ -1,5 +1,5 @@
-import streamlit as st  # <-- Musi być 'as st'
-import pandas as pd     # <-- Musi być 'as pd'
+import streamlit as st  # <-- POPRAWIONE: Teraz st to Streamlit
+import pandas as pd     # <-- POPRAWIONE: Teraz pd to Pandas
 import math
 import io
 
@@ -241,8 +241,9 @@ with tab1:
                 
                 st.session_state.confirmed_mixers = confirmed_mixers_blueprint
                 st.success(f"🎉 Zapisano strukturę floty ({len(confirmed_mixers_blueprint)} urządzeń).")
+
 # ==========================================
-# ZAKŁADKA 2: HYDRAULIKA, LMTD ORAZ ODZYSK ENERGII
+# ZAKŁADKA 2: ZAAWANSOWANY KONFIGURATOR PROCESOWY
 # ==========================================
 with tab2:
     st.header("Karta Maszyn: Zaawansowane Projektowanie Procesowe")
@@ -260,26 +261,29 @@ with tab2:
             m_id = mixer["tag"]
             kat = mixer["product_family"]
             
-            # 1. BEZPIECZNA INICJALIZACJA: Zapobiega KeyError, jeśli słownik był pusty lub niepełny
+            # Bezpieczna inicjalizacja struktury słownika
             if m_id not in st.session_state.mixer_tech_advanced_details:
                 st.session_state.mixer_tech_advanced_details[m_id] = {}
             
             p = st.session_state.mixer_tech_advanced_details[m_id]
             
+            # Definicja parametrów wejściowych (w tym powierzchnia wymiany i przepływ l/min)
             defaults = {
                 "pump_flow_m3h": 15.0, "pipe_dn": 80, "pipe_length_m": 25.0, "delta_h_m": 5.0, "roughness_mm": 0.05,
                 "viscosity_min_cst": 30.0, "viscosity_max_cst": 300.0, "density_kg_m3": FUCHS_PORTFOLIO[kat]["density"] * 1000.0,
                 "count_elbows_90": 4, "count_tees": 2, "count_valves": 3, "pump_efficiency": 0.65,
                 "cp_product": 2.10, "t_product_in": 20.0, "t_product_out": 70.0, "process_time_h": 1.5,
                 "t_utility_in": 110.0, "t_utility_out": 90.0, "k_coeff": 350.0, "tank_mass": 1200.0, "cp_steel": 0.46,
-                "t_discharge_c": 30.0,        # Temp. rozlewu
-                "cooling_power_kw": 50.0       # Moc chłodnicza
+                "t_discharge_c": 30.0,
+                # NOWE SUWAKI / POLA WEJŚCIOWE ZGODNIE Z WYTYCZNYMI:
+                "exchange_area_m2": 4.5,      # Powierzchnia grzania ustawiana przez użytkownika
+                "utility_flow_lmin": 80.0      # Przepływ medium użytkowego [l/min]
             }
             for key, val in defaults.items():
                 if key not in p:
                     p[key] = val
 
-            # --- 2. OBLICZENIA HYDRAULICZNE (PRĘDKOŚĆ I WIELOWARIANTOWOŚĆ) ---
+            # --- 1. OBLICZENIA HYDRAULICZNE ---
             visc_min = p["viscosity_min_cst"]
             visc_max = p["viscosity_max_cst"]
             visc_avg = (visc_min + visc_max) / 2.0
@@ -288,35 +292,48 @@ with tab2:
             Q_m3s = p["pump_flow_m3h"] / 3600.0
             d_m = p["pipe_dn"] / 1000.0
             area_m2 = math.pi * (d_m ** 2) / 4.0
-            
-            # Prędkość produktu w rurociągu [m/s]
             velocity = Q_m3s / area_m2 if area_m2 > 0 else 0.0
             
             dynamic_pressure = p["density_kg_m3"] * (velocity ** 2) / 2.0
             g = 9.81
             p_hydrostatic = p["density_kg_m3"] * g * p["delta_h_m"]
 
-            # Funkcja licząca opory i moc dla danej lepkości punktowej
             def calculate_hydraulics(v_cst):
                 v_m2s = v_cst * 1e-6
                 re = (velocity * d_m) / v_m2s if v_m2s > 0 else 0
                 lam = 64.0 / re if re <= 2320 and re > 0 else 0.02
                 p_loss_lin = lam * (p["pipe_length_m"] / d_m) * dynamic_pressure if d_m > 0 else 0.0
                 tot_p_pa = p_loss_lin + (zeta_sum_calculated * dynamic_pressure) + p_hydrostatic
-                tot_p_bar = tot_p_pa / 100000.0
-                p_power_kw = (Q_m3s * tot_p_pa) / p["pump_efficiency"] / 1000.0 if p["pump_efficiency"] > 0 else 0.0
-                return tot_p_bar, p_power_kw
+                return tot_p_pa / 100000.0, (Q_m3s * tot_p_pa) / p["pump_efficiency"] / 1000.0 if p["pump_efficiency"] > 0 else 0.0
 
             p_bar_min, power_kw_min = calculate_hydraulics(visc_min)
             p_bar_avg, power_kw_avg = calculate_hydraulics(visc_avg)
             p_bar_max, power_kw_max = calculate_hydraulics(visc_max)
 
-            # --- 3. BILANS TERMICZNY I KONTROLA LMTD ---
+            # --- 2. BILANS ENERGETYCZNY GRZANIA I CHŁODZENIA ---
             mass_product = mixer["mass_per_batch"]
-            delta_t_heating = p["t_product_out"] - p["t_product_in"]
-            Q_total_kj = (mass_product * p["cp_product"] * delta_t_heating) + (p["tank_mass"] * p["cp_steel"] * delta_t_heating)
-            thermal_power_kw = Q_total_kj / (p["process_time_h"] * 3600.0) if p["process_time_h"] > 0 else 0.0
             
+            # A. GRZANIE
+            delta_t_heating = p["t_product_out"] - p["t_product_in"]
+            Q_heating_kj = (mass_product * p["cp_product"] * delta_t_heating) + (p["tank_mass"] * p["cp_steel"] * delta_t_heating)
+            Q_heating_mj = Q_heating_kj / 1000.0
+            power_heating_kw = Q_heating_kj / (p["process_time_h"] * 3600.0) if p["process_time_h"] > 0 else 0.0
+            
+            # B. CHŁODZENIE
+            delta_t_cooling = p["t_product_out"] - p["t_discharge_c"]
+            if delta_t_cooling > 0:
+                Q_cooling_kj = (mass_product * p["cp_product"] * delta_t_cooling)
+                Q_cooling_mj = Q_cooling_kj / 1000.0
+                # Szacujemy czas chłodzenia na podstawie powierzchni i k podanych przez użytkownika
+                # Średnia różnica temperatur w przybliżeniu dla chłodzenia wodą sieciową (np. 15-20°C)
+                approx_dt_cooling = (p["t_product_out"] + p["t_discharge_c"])/2.0 - 18.0
+                cooling_power_estimated_kw = (p["k_coeff"] * p["exchange_area_m2"] * approx_dt_cooling) / 1000.0 if approx_dt_cooling > 0 else 10.0
+                cooling_time_h = Q_cooling_kj / (cooling_power_estimated_kw * 3600.0) if cooling_power_estimated_kw > 0 else 0.0
+            else:
+                Q_cooling_mj = 0.0
+                cooling_time_h = 0.0
+
+            # --- 3. OCENA WARTOŚCI LMTD ---
             dt1 = p["t_utility_in"] - p["t_product_out"]
             dt2 = p["t_utility_out"] - p["t_product_in"]
             
@@ -326,82 +343,58 @@ with tab2:
             else:
                 lmtd = (dt1 - dt2) / math.log(dt1 / dt2) if abs(dt1 - dt2) > 0.1 else dt1
                 lmtd_color_trigger = "optimal" if 15.0 <= lmtd <= 60.0 else "warning"
-                
-            req_area_m2 = (thermal_power_kw * 1000.0) / (p["k_coeff"] * lmtd) if (p["k_coeff"] * lmtd) > 0 else 0.0
 
-            # --- 4. ODZYSK ENERGII (CHŁODZENIE DO ROZLEWU) ---
-            delta_t_cooling = p["t_product_out"] - p["t_discharge_c"]
-            if delta_t_cooling > 0:
-                energy_to_recover_mj = (mass_product * p["cp_product"] * delta_t_cooling) / 1000.0
-                cooling_time_h = (energy_to_recover_mj * 1000.0) / (p["cooling_power_kw"] * 3600.0) if p["cooling_power_kw"] > 0 else 0.0
-                recovery_text = f"{energy_to_recover_mj:.1f} MJ"
-                time_text = f"{cooling_time_h:.2f} h"
-            else:
-                recovery_text = "0.0 MJ"
-                time_text = "0.00 h"
-
-            # Budowanie pełnego zestawu danych
+            # Zapis do tabeli zbiorczej
             summary_combined_rows.append({
                 "ID Urządzenia": m_id,
                 "Linia": kat,
                 "Prędkość [m/s]": round(velocity, 2),
-                "Zakres lepkości [cSt]": f"{int(visc_min)} ÷ {int(visc_max)}",
                 "Opór [bar] (Min/Śr/Max)": f"{p_bar_min:.2f}/{p_bar_avg:.2f}/{p_bar_max:.2f}",
                 "Moc Pompy [kW] (Min/Śr/Max)": f"{power_kw_min:.2f}/{power_kw_avg:.2f}/{power_kw_max:.2f}",
+                "Energia Grzania [MJ]": round(Q_heating_mj, 1),
+                "Moc Grzania [kW]": round(power_heating_kw, 1),
+                "Energia Chłodzenia [MJ]": round(Q_cooling_mj, 1),
+                "Czas chłodzenia [h]": round(cooling_time_h, 2),
                 "LMTD [K]": round(lmtd, 1),
-                "Wymagana pow. [m²]": round(req_area_m2, 2),
-                "Energia do odzysku": recovery_text,
-                "Czas chłodzenia": time_text,
-                # Ukryte flagi odczytywane wyłącznie przez funkcję stylizującą:
+                # Ukryte zmienne techniczne dla stylizatora DataFrame
                 "_velocity_val": velocity,
                 "_lmtd_trigger": lmtd_color_trigger
             })
 
-        # --- 5. WYŚWIETLANIE TABELI ZBIORCZEJ Z ZAAWANSOWANYM STYLIZOWANIEM ---
+        # --- 4. PREZENTACJA TABELI ZBIORCZEJ Z KOLOROWANIEM PANDAS ---
         st.markdown("### 📋 Zbiorcza Specyfikacja Techniczna Maszyn i Pompy")
-        st.info("💡 **Kryteria walidacji:**\n"
-                "- **LMTD:** Optymalny zakres inżynieryjny to **15 K ÷ 60 K** (całe wiersze zmienią odcień).\n"
-                "- **Prędkość cieczy:** Poza przedziałem **0.5 m/s ÷ 2.5 m/s** pojedyncza komórka zaświeci się na intensywny czerwony.\n"
-                "- **Odzysk ciepła:** Sekcja po prawej stronie wyznacza potencjał energetyczny schładzania produktu do temperatury rozlewu.")
+        st.info("💡 **Kryteria inżynieryjne instalacji:**\n"
+                "- **Walidacja prędkości:** Poza bezpiecznym zakresem **0.5 m/s ÷ 2.5 m/s** komórka prędkości zabarwi się na czerwono.\n"
+                "- **Ocena LMTD:** Optymalne warunki to **15 K ÷ 60 K** (odpowiedni odcień wiersza). Analiza uwzględnia zdefiniowaną powierzchnię wymiany.")
 
         df_summary = pd.DataFrame(summary_combined_rows)
         columns_to_show = [c for c in df_summary.columns if not c.startswith('_')]
 
-        # Poprawiona funkcja mapująca kolory (odporna na zmiany typów w nowym Streamlit)
         def style_advanced_grid(df_data):
             style_matrix = pd.DataFrame('', index=df_data.index, columns=df_data.columns)
             for idx, row in df_data.iterrows():
-                # Sprawdzamy status LMTD w źródłowym df_summary za pomocą indeksu
                 lmtd_flag = df_summary.loc[idx, "_lmtd_trigger"]
-                if lmtd_flag == "error": 
-                    row_style = 'background-color: #FCE4D6; color: #C00000;'
-                elif lmtd_flag == "warning": 
-                    row_style = 'background-color: #FFF2CC; color: #7F6000;'
-                else: 
-                    row_style = 'background-color: #E2EFDA; color: #375623;'
+                if lmtd_flag == "error": row_style = 'background-color: #FCE4D6; color: #C00000;'
+                elif lmtd_flag == "warning": row_style = 'background-color: #FFF2CC; color: #7F6000;'
+                else: row_style = 'background-color: #E2EFDA; color: #375623;'
                 
                 style_matrix.loc[idx] = row_style
                 
-                # Walidacja samej komórki prędkości (nadpisuje kolor wiersza)
+                # Nadpisanie koloru komórki prędkości przy zaburzeniach hydraulicznych
                 v = df_summary.loc[idx, "_velocity_val"]
                 if v < 0.5 or v > 2.5:
                     if "Prędkość [m/s]" in style_matrix.columns:
                         style_matrix.loc[idx, "Prędkość [m/s]"] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
             return style_matrix
 
-        # FIX: Separujemy wycinanie kolumn od wywołania stylizatora dla Streamlit
+        # Najpierw odcinamy kolumny techniczne, potem nakładamy arkusz stylów
         df_filtered = df_summary[columns_to_show]
         styled_grid = df_filtered.style.apply(style_advanced_grid, axis=None)
 
-        st.dataframe(
-            styled_grid, 
-            hide_index=True, 
-            use_container_width=True
-        )
-        
+        st.dataframe(styled_grid, hide_index=True, use_container_width=True)
         st.markdown("---")
 
-        # --- 6. FORMULARZE WEJŚCIOWE DLA KAŻDEGO APARATU ---
+        # --- 5. SZCZEGÓŁOWE ROZWIJALNE PARAMETRYZATORY WEJŚCIOWE ---
         st.markdown("### ⚙️ Szczegółowe Parametryzatory i Zestawienia Elementów")
 
         for mixer in st.session_state.confirmed_mixers:
@@ -409,40 +402,43 @@ with tab2:
             kat = mixer["product_family"]
             p = st.session_state.mixer_tech_advanced_details[m_id]
             
-            with st.expander(f"🛠️ Urządzenie: {m_id} (Odzysk ciepła: {df_summary.loc[df_summary['ID Urządzenia'] == m_id, 'Energia do odzysku'].values[0]})", expanded=False):
+            with st.expander(f"🛠️ Urządzenie: {m_id} | Zapotrzebowanie energii grzewczej: {df_summary.loc[df_summary['ID Urządzenia'] == m_id, 'Energia Grzania [MJ]'].values[0]} MJ", expanded=False):
                 c1, c2, c3 = st.columns(3)
                 with c1:
-                    st.markdown("**🌊 Średnice i Zakres Lepkości**")
+                    st.markdown("**🌊 Średnice i Reologia**")
                     p["pipe_dn"] = st.number_input(f"Średnica rury [DN]:", min_value=15, value=int(p["pipe_dn"]), key=f"dn_adv_{m_id}")
                     p["pump_flow_m3h"] = st.number_input(f"Przepływ pompy [m³/h]:", min_value=1.0, value=float(p["pump_flow_m3h"]), key=f"q_adv_{m_id}")
-                    p["viscosity_min_cst"] = st.number_input(f"Lepkość MIN (ciecz gorąca) [cSt]:", min_value=0.5, value=float(p["viscosity_min_cst"]), key=f"v_min_{m_id}")
-                    p["viscosity_max_cst"] = st.number_input(f"Lepkość MAX (ciecz zimna) [cSt]:", min_value=1.0, value=float(p["viscosity_max_cst"]), key=f"v_max_{m_id}")
+                    p["viscosity_min_cst"] = st.number_input(f"Lepkość MIN [cSt]:", min_value=0.5, value=float(p["viscosity_min_cst"]), key=f"v_min_{m_id}")
+                    p["viscosity_max_cst"] = st.number_input(f"Lepkość MAX [cSt]:", min_value=1.0, value=float(p["viscosity_max_cst"]), key=f"v_max_{m_id}")
                 with c2:
-                    st.markdown("**📐 Rurociąg, Geometria i Wysokość**")
-                    p["pipe_length_m"] = st.number_input(f"Długość odcinka rury $L$ [m]:", min_value=0.1, value=float(p["pipe_length_m"]), key=f"l_len_{m_id}")
+                    st.markdown("**📐 Rurociąg i Wysokości**")
+                    p["pipe_length_m"] = st.number_input(f"Długość rury $L$ [m]:", min_value=0.1, value=float(p["pipe_length_m"]), key=f"l_len_{m_id}")
                     p["delta_h_m"] = st.number_input(f"Różnica wysokości $\Delta h$ [m]:", min_value=0.0, value=float(p["delta_h_m"]), key=f"h_delta_{m_id}")
                     p["count_elbows_90"] = st.number_input(f"Liczba kolan 90°:", min_value=0, value=int(p["count_elbows_90"]), key=f"elb_{m_id}")
                     p["count_valves"] = st.number_input(f"Liczba zaworów:", min_value=0, value=int(p["count_valves"]), key=f"val_{m_id}")
                 with c3:
-                    st.markdown("**♻️ Profil Procesowy i Odzysk Energii**")
-                    p["t_product_in"] = st.number_input(f"Temp. początkowa szarży [°C]:", value=float(p["t_product_in"]), key=f"tpin_adv_{m_id}")
+                    st.markdown("**🔥 Wymiennik i Parametry Termiczne**")
+                    p["exchange_area_m2"] = st.number_input(f"Powierzchnia wymiany ciepła [$m^2$]:", min_value=0.1, value=float(p["exchange_area_m2"]), key=f"area_{m_id}")
+                    p["utility_flow_lmin"] = st.number_input(f"Przepływ medium [$l/min$]:", min_value=1.0, value=float(p["utility_flow_lmin"]), key=f"ut_flow_{m_id}")
+                    p["t_product_in"] = st.number_input(f"Temp. początkowa płynu [°C]:", value=float(p["t_product_in"]), key=f"tpin_adv_{m_id}")
                     p["t_product_out"] = st.number_input(f"Temp. procesu (gorący) [°C]:", value=float(p["t_product_out"]), key=f"tpout_adv_{m_id}")
-                    p["t_discharge_c"] = st.number_input(f"Temp. rozlewania (docelowa) [°C]:", value=float(p["t_discharge_c"]), key=f"tdisc_{m_id}")
-                    p["cooling_power_kw"] = st.number_input(f"Moc wymiennika chłodzenia [kW]:", min_value=1.0, value=float(p["cooling_power_kw"]), key=f"p_cool_{m_id}")
+                    p["t_discharge_c"] = st.number_input(f"Temp. rozlewu (zimny) [°C]:", value=float(p["t_discharge_c"]), key=f"tdisc_{m_id}")
+                    p["process_time_h"] = st.number_input(f"Czas grzania [h]:", min_value=0.1, value=float(p["process_time_h"]), key=f"time_adv_{m_id}")
 
         st.markdown("---")
         
-        # --- 7. EKSPORT DO EXCELA ---
+        # --- 6. EKSPORT DO EXCELA (ZASTOSOWANIE SILNIKA OPENPYXL - ODPORNY NA BRAK XLSXWRITER) ---
         output_combined = io.BytesIO()
-        with pd.ExcelWriter(output_combined, engine='xlsxwriter') as writer:
+        # Zmieniono engine na 'openpyxl', który jest standardem i nie wywołuje ModuleNotFoundError
+        with pd.ExcelWriter(output_combined, engine='openpyxl') as writer:
             df_filtered.to_excel(writer, sheet_name='Model Procesowy', index=False)
         st.download_button(
-            label="📊 Pobierz zintegrowany raport inżynieryjny (Excel .xlsx)",
+            label="📊 Pobierz raport z bilansami energii i LMTD (Excel .xlsx)",
             data=output_combined.getvalue(),
-            file_name="Fuchs_Kompletny_Model_Procesowy.xlsx",
+            file_name="Fuchs_Zaawansowany_Model_Procesowy.xlsx",
             mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
             use_container_width=True,
-            key="btn_download_final_excel_v10"
+            key="btn_download_final_excel_v11"
         )
         
 # ==========================================
