@@ -103,7 +103,7 @@ tab1, tab2, tab3, tab4, tab5 = st.tabs([
 ])
 
 # ==========================================
-# ZAKŁADKA 1: PŁYNNA EDYCJA I DYNAMICZNE USUWANIE ZBIORNIKÓW
+# ZAKŁADKA 1: POPRAWIONA I STABILNA FLOTA
 # ==========================================
 with tab1:
     st.header(f"Zintegrowane Zestawienie Parametrów Procesowych")
@@ -134,20 +134,20 @@ with tab1:
         if current_skus > 1:
             st.markdown("---")
             st.session_state.prod_dict[selected_family_to_edit]["num_tanks"] = st.number_input(
-                "🏭 **Wielkość floty dla " + selected_family_to_edit + "**: Na ile osobnych mieszalników chcesz rozbić produkcję tych " + str(current_skus) + " SKUs?",
+                f"🏭 **Wielkość floty dla {selected_family_to_edit}**: Na ile osobnych mieszalników chcesz rozbić produkcję tych {current_skus} SKUs?",
                 min_value=1, max_value=int(current_skus), value=min(int(st.session_state.prod_dict[selected_family_to_edit].get("num_tanks", 1)), int(current_skus))
             )
         else:
             st.session_state.prod_dict[selected_family_to_edit]["num_tanks"] = 1
 
-        # Generowanie bazowej struktury floty przed edycją użytkownika
+        # Generowanie bazowej struktury floty
         final_fleet_rows = []
         tag_counter = 101
 
         for kat in wybrane_kategorie:
             m_annual = st.session_state.prod_dict[kat]["roczna"]
             v_tank_user = st.session_state.prod_dict[kat]["user_vol_m3"]
-            tanks_count = st.session_state.prod_dict[kat]["num_tanks"]
+            tanks_count = st.session_state.prod_dict[kat].get("num_tanks", 1)
             
             rho_product = FUCHS_PORTFOLIO[kat]["density"]
             cyc_h = FUCHS_PORTFOLIO[kat]["cycle_h"]
@@ -177,8 +177,57 @@ with tab1:
             tag_counter += 1
 
         st.markdown("### 📊 Aktualne Zestawienie Floty Produkcyjnej (Możesz usuwać wiersze)")
-        st.caption("💡 **Instrukcja:** Aby usunąć zbiornik z systemu, zaznacz pole wyboru po lewej stronie wiersza i naciśnij klawisz `Delete` na klawiaturze (lub użyj ikony kosza na końcu tabeli).")
+        st.caption("💡 **Instrukcja:** Aby usunąć zbiornik, zaznacz pole wyboru po lewej stronie wiersza i naciśnij `Delete` na klawiaturze (lub użyj ikony kosza).")
 
+        df_fleet = pd.DataFrame(final_fleet_rows)
+
+        # NAPRAWA: Zmiana width="stretch" na use_container_width=True
+        # Usunięto agresywny parametr 'disabled', aby zapobiec konfliktom renderowania przy usuwaniu wierszy
+        edited_df = st.data_editor(
+            df_fleet, 
+            hide_index=True, 
+            use_container_width=True,  # <-- TO ROZWIĄZUJE PROBLEM ZNIKANIA
+            num_rows="dynamic",        
+            key="fleet_data_editor_v3"
+        )
+
+        # Przeliczanie metryk
+        if not edited_df.empty:
+            total_annual_production_edited = sum(st.session_state.prod_dict[kat]["roczna"] for kat in wybrane_kategorie)
+            total_batches_edited = edited_df["Szarż / miesiąc (per aparat)"].astype(int).sum()
+            total_volume_edited = edited_df["Pojemność [m³]"].astype(float).sum()
+        else:
+            total_annual_production_edited = 0
+            total_batches_edited = 0
+            total_volume_edited = 0.0
+
+        st.markdown("<br>", unsafe_allow_html=True)
+        sum_col1, sum_col2, sum_col3 = st.columns(3)
+        with sum_col1: st.metric(label="📈 Sumaryczny tonaż roczny zakładu", value=f"{total_annual_production_edited:,} kg")
+        with sum_col2: st.metric(label="🔄 Suma szarż floty / miesiąc", value=f"{total_batches_edited} szarż")
+        with sum_col3: st.metric(label="📐 Całkowita kubatura floty", value=f"{total_volume_edited:.1f} m³")
+            
+        st.markdown("---")
+        
+        if st.button("📥 Zatwierdź i wyślij konfigurację do kolejnych kroków", type="primary", use_container_width=True, key="btn_zatwierdz_flote_v3"):
+            if edited_df.empty:
+                st.error("❌ Flota nie może być pusta!")
+            else:
+                confirmed_mixers_blueprint = []
+                for _, row in edited_df.iterrows():
+                    kat = row["Przypisana Linia"]
+                    confirmed_mixers_blueprint.append({
+                        "tag": row["ID Urządzenia"],
+                        "product_family": kat,
+                        "capacity_m3": float(row["Pojemność [m³]"]),
+                        "material": FUCHS_PORTFOLIO[kat]["material"],
+                        "batches_count": int(row["Szarż / miesiąc (per aparat)"]),
+                        "mass_per_batch": int(row["Masa Szarży [kg]"]),
+                        "annual_volume": int(row["Masa Szarży [kg]"]) * int(row["Szarż / miesiąc (per aparat)"]) * 12
+                    })
+                
+                st.session_state.confirmed_mixers = confirmed_mixers_blueprint
+                st.success(f"🎉 Zapisano strukturę floty ({len(confirmed_mixers_blueprint)} urządzeń).")
 # ==========================================
 # ZAKŁADKA 2: SPECYFIKACJA MASZYN & DYNAMICZNA REOLOGIA (WERSJA PRO)
 # ==========================================
