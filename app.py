@@ -263,6 +263,9 @@ if "calculated_times" not in st.session_state:
 if "mixer_tech_advanced_details" not in st.session_state:
     st.session_state.mixer_tech_advanced_details = {}
 
+if "batch_time_components" not in st.session_state:
+    st.session_state.batch_time_components = {}
+
 # ==========================================
 # PANEL BOCZNY (Wybór Rodzin i Opakowań)
 # ==========================================
@@ -838,24 +841,9 @@ with tab4:
         final_cost = total_base_manuf_cost + total_energy_cost_el - total_monthly_saving_thermal
         st.metric(label="🚀 ZOPTYMALIZOWANY REALNY KOSZT WYTWORZENIA (Miesięcznie)", value=f"{final_cost:,.2f} {waluta}")
 
-        st.markdown("### ⏱️ 2. Pełna Analiza Czasu Cyklu Szarży")
-        time_analysis_rows = []
-        for mixer in st.session_state.confirmed_mixers:
-            tag = mixer["tag"]
-            kat = mixer["product_family"]
-            m_data = calculated_times.get(tag, {"heating": 1.5, "pumping": 0.75})
-
-            with st.expander(f"⏱️ Składniki czasu operacyjnego dla: {tag}", expanded=False):
-                t_dosing = st.number_input("Dozowanie surowców [h]:", min_value=0.1, value=1.0, key=f"tdos_{tag}")
-                t_homog = st.number_input("Homogenizacja właściwa [h]:", min_value=0.1, value=2.0, key=f"thom_{tag}")
-                t_qc = st.number_input("Zwolnienie laboratoryjne QC [h]:", min_value=0.1, value=1.0, key=f"tqc_{tag}")
-
-            t_total_chain = t_dosing + m_data["heating"] + t_homog + t_qc + m_data["pumping"]
-            time_analysis_rows.append({
-                "ID Mieszalnika": tag, "Linia": kat, "Pełny łańcuch szarży [h]": round(t_total_chain, 2),
-                "Rekomendacja operacyjna": "🟢 Dwuzmianowa (Cykl <= 8h)" if t_total_chain <= 8.0 else "🔴 Jednozmianowa (Wymagany nadzór nocny)"
-            })
-        st.dataframe(pd.DataFrame(time_analysis_rows), hide_index=True, use_container_width=True)
+        st.info("💡 Pełna analiza czasu cyklu szarży (dozowanie, grzanie, homogenizacja, QC, pompowanie, chłodzenie, "
+                "rozlew) oraz rekomendacja liczby zmian znajdują się teraz w **Zakładce 6 (Mapa Strumienia Wartości)**, "
+                "razem z resztą analizy czasu procesu.")
 
 # ==========================================
 # ZAKŁADKA 5: PARK ZBIORNIKÓW (TANK FARM)
@@ -999,13 +987,24 @@ with tab6:
             pumping_h = sum(c["pumping"] for c in calc_times_family) / len(calc_times_family)
             cooling_h = sum(c.get("cooling_h", 0.0) for c in calc_times_family) / len(calc_times_family)
 
-        # Dozowanie / homogenizacja — wprowadzane w Zakładce 4 per urządzenie; użyj reprezentatywnego
-        # urządzenia tej rodziny (pierwszy tag), z domyślnymi wartościami jeśli jeszcze nie odwiedzono Zakładki 4.
-        rep_tag = mixers_in_family[0]["tag"]
-        t_dosing = st.session_state.get(f"tdos_{rep_tag}", 1.0)
-        t_homog = st.session_state.get(f"thom_{rep_tag}", 2.0)
-        st.caption(f"Dozowanie i homogenizacja pobrane z konfiguracji urządzenia **{rep_tag}** w Zakładce 4 "
-                   "(jeśli nie skonfigurowano tam jeszcze tej rodziny, użyto wartości domyślnych 1h / 2h).")
+        # --- DOZOWANIE / HOMOGENIZACJA: konfiguracja per urządzenie, przeniesiona tu z Zakładki 4 ---
+        # (dawniej wpisywana w Zakładce 4 i odczytywana przez klucz widgetu — jeśli nikt nie odwiedził
+        # tamtej zakładki dla danej rodziny, VSM cicho używał wartości domyślnych; teraz to jest
+        # jedyne miejsce konfiguracji tych czasów).
+        st.markdown("##### ⏱️ Dozowanie i Homogenizacja (per urządzenie)")
+        for mixer in mixers_in_family:
+            tag = mixer["tag"]
+            defaults_bt = st.session_state.batch_time_components.setdefault(tag, {"dosing": 1.0, "homog": 2.0})
+            with st.expander(f"⏱️ Składniki czasu operacyjnego dla: {tag}", expanded=(len(mixers_in_family) == 1)):
+                defaults_bt["dosing"] = st.number_input(
+                    "Dozowanie surowców [h]:", min_value=0.1, value=float(defaults_bt["dosing"]), key=f"vsm_tdos_{tag}")
+                defaults_bt["homog"] = st.number_input(
+                    "Homogenizacja właściwa [h]:", min_value=0.1, value=float(defaults_bt["homog"]), key=f"vsm_thom_{tag}")
+
+        dosing_vals = [st.session_state.batch_time_components[m["tag"]]["dosing"] for m in mixers_in_family]
+        homog_vals = [st.session_state.batch_time_components[m["tag"]]["homog"] for m in mixers_in_family]
+        t_dosing = sum(dosing_vals) / len(dosing_vals)
+        t_homog = sum(homog_vals) / len(homog_vals)
 
         # Czas rozlewu — suma po opakowaniach dla tej rodziny, z Zakładki 3.
         logistics_rows = st.session_state.get("logistics_results", [])
