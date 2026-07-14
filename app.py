@@ -5,7 +5,7 @@ import io
 
 st.set_page_config(page_title="System Projektowania", layout="wide")
 
-st.title("🏭 Inżynieryjny Reaktor Procesowy & Logistyczny FUCHS Oil")
+st.title("🏭 Inżynieryjny Reaktor Procesowy & Logistyczny")
 st.subheader("Kompletna Platforma Wymiarowania Linii, Reologii, Logistyki i Surowców")
 st.markdown("---")
 
