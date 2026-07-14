@@ -717,7 +717,19 @@ with tab3:
             })
 
         st.markdown("##### Konfiguracja Sekcji Głowic Rozlewniczych")
-        st.data_editor(pd.DataFrame(filling_table_rows), hide_index=True, use_container_width=True, disabled=["Typ Opakowania 🔒"], key="filling_editor")
+        edited_filling_df = st.data_editor(
+            pd.DataFrame(filling_table_rows), hide_index=True, use_container_width=True,
+            disabled=["Typ Opakowania 🔒"], key="filling_editor"
+        )
+        # POPRAWKA: edytowana tabela była wcześniej tylko wyświetlana i nigdy nie zapisywana
+        # z powrotem do filling_lines_config, więc wpisane tu wartości nigdy nie trafiały do
+        # obliczeń poniżej ("czas rozlewu" wyglądał na "zamrożony" na wartościach domyślnych).
+        for _, row in edited_filling_df.iterrows():
+            p_name = row["Typ Opakowania 🔒"]
+            st.session_state.filling_lines_config[p_name] = {
+                "nozzles": float(row["Liczba głowic nalewaka [szt] 🟦"]),
+                "speed_kg_min": float(row["Wydajność 1 głowicy [kg/min] 🟦"]),
+            }
 
         czas_skladowania_dni = st.number_input("Czas składowania palety (Rotacja) [dni]:", min_value=1, value=14)
         st.session_state["czas_skladowania_tab3"] = czas_skladowania_dni
