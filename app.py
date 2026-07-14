@@ -3,7 +3,7 @@ import pandas as pd     # <-- POPRAWIONE: Teraz pd to Pandas
 import math
 import io
 
-st.set_page_config(page_title="System Projektowania FUCHS", layout="wide")
+st.set_page_config(page_title="System Projektowania", layout="wide")
 
 st.title("🏭 Inżynieryjny Reaktor Procesowy & Logistyczny FUCHS Oil")
 st.subheader("Kompletna Platforma Wymiarowania Linii, Reologii, Logistyki i Surowców")
