@@ -73,6 +73,34 @@ MEDIA_PROCESOWE = {
     "Para nasycona": {"cp": 2.15, "t_max": 180.0, "t_min": 100.0, "steam": True}
 }
 
+# Katalog testów laboratoryjnych oznaczonych jako "QC" (zwolnienie szarży) w dostarczonej
+# liście testów. Testy oznaczone wyłącznie jako "R&D" (np. korozja, pianotwórczość, EP/AW,
+# wielkość cząstek, tribologia, czystość ISO 4406) są pominięte - nie leżą na ścieżce
+# krytycznej standardowego zwolnienia partii produkcyjnej.
+# Czasy trwania [min] to orientacyjne wartości domyślne oparte na typowej praktyce
+# laboratoryjnej - EDYTOWALNE bezpośrednio w Zakładce 6 (VSM), bo rzeczywisty czas zależy
+# od obciążenia laboratorium i wprawy technika.
+QC_TEST_CATALOG = {
+    "Lepkość kinematyczna @40°C": {"duration_min": 20, "equipment": "Łaźnia wiskozymetryczna (Lauda / Koehler / Cannon)"},
+    "Lepkość kinematyczna @100°C": {"duration_min": 25, "equipment": "Łaźnia wiskozymetryczna 100°C"},
+    "Lepkość dynamiczna": {"duration_min": 10, "equipment": "Wiskozymetr Brookfield"},
+    "Barwa ASTM": {"duration_min": 5, "equipment": "Kolorymetr"},
+    "Temp. zapłonu - tygiel otwarty": {"duration_min": 45, "equipment": "Cleveland Open Cup"},
+    "Temp. zapłonu - tygiel zamknięty": {"duration_min": 30, "equipment": "Koehler Closed Cup"},
+    "Gęstość": {"duration_min": 10, "equipment": "Densimetr Koehler K86200"},
+    "Zawartość wody (Karl Fischer)": {"duration_min": 15, "equipment": "Metrohm / 795 KFT Titrino"},
+    "pH": {"duration_min": 5, "equipment": "pH-metr stołowy"},
+    "Przewodność": {"duration_min": 5, "equipment": "Konduktometr"},
+    "Demulgowalność": {"duration_min": 60, "equipment": "Koehler Water Separability Tester"},
+    "Wskaźnik refrakcji": {"duration_min": 5, "equipment": "Refraktometr cyfrowy Atago"},
+    "XRF": {"duration_min": 15, "equipment": "Spektrometr XRF Bruker"},
+    "Punkt aniliny": {"duration_min": 20, "equipment": "Aniline Point Tester"},
+    "Zawartość ciał stałych": {"duration_min": 30, "equipment": "Wagosuszarka"},
+    "Spektroskopia FTIR": {"duration_min": 10, "equipment": "Spektrometr FT-IR Perkin Elmer"},
+    "Krzywa chłodzenia (Cooling Curve)": {"duration_min": 20, "equipment": "Smart Quench SQ2"},
+    "Zasadowość (Alkalinity)": {"duration_min": 20, "equipment": "Automatyczny tytrator potencjometryczny"},
+}
+
 
 # ==========================================
 # FUNKCJE POMOCNICZE (wydzielone z pętli UI, aby dało się je testować niezależnie)
@@ -286,12 +314,13 @@ for kat in wybrane_kategorie:
     st.sidebar.markdown("---")
 
 # --- STRUKTURA INTERFEJSU ---
-tab1, tab2, tab3, tab4, tab5 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 1. Główne Zestawienie i Utylizacja",
     "📐 2. Karta Maszyn i Dobór Pomp",
     "📦 3. Logistyka i Czas Rozlewu",
     "💰 4. Analiza Finansowa i Koszty Produkcji",
-    "🛢️ 5. Surowce i Park Zbiorników"
+    "🛢️ 5. Surowce i Park Zbiorników",
+    "🧵 6. Mapa Strumienia Wartości (VSM)"
 ])
 
 # ==========================================
@@ -532,6 +561,7 @@ with tab2:
                     "pumping": pumping_time_h,
                     "t_max_mix": p["t_product_out"],
                     "t_rozlew": p["t_discharge_c"],
+                    "cooling_h": cooling_time_h if cooling_status == "ok" else 0.0,
                 }
 
                 cooling_txt = f"{cooling_time_h:.2f}" if cooling_status == "ok" else ("—" if cooling_status == "brak_potrzeby" else "⚠️ N/A")
@@ -690,6 +720,7 @@ with tab3:
         st.data_editor(pd.DataFrame(filling_table_rows), hide_index=True, use_container_width=True, disabled=["Typ Opakowania 🔒"], key="filling_editor")
 
         czas_skladowania_dni = st.number_input("Czas składowania palety (Rotacja) [dni]:", min_value=1, value=14)
+        st.session_state["czas_skladowania_tab3"] = czas_skladowania_dni
         dni_robocze_miesiac = WORKING_DAYS_YEAR / MONTHS_PER_YEAR
 
         real_split_rows = []
@@ -725,6 +756,8 @@ with tab3:
                         "Miejsca magazynowe [szt] 📐": int(miejsca_paletowe), "Czas rozlewu strumienia [h] ⏱️": round(czas_rozlewu_h, 1),
                         "Wąskie gardło": "Pompa" if q_pump_m3h < sekcja_nalewania_m3_h else "Sekcja nalewania"
                     })
+
+        st.session_state["logistics_results"] = real_split_rows
 
         if real_split_rows:
             st.markdown("##### 🔀 Wyniki Symulacji Logistyczno-Magazynowej")
@@ -822,6 +855,7 @@ with tab5:
     else:
         active_chemical_ratio = st.slider("Średni udział fazy ciekłej (baza + woda) w recepturze [%]:", 50, 95, 85) / 100.0
         days_of_stock = st.number_input("Wymagany zapas bezpieczeństwa surowca [dni]:", min_value=5, value=14)
+        st.session_state["days_of_stock_tab5"] = days_of_stock
 
         raw_material_summary = []
         silos_aggregation = {"Mineralne (Gr. I/II)": 0.0, "Syntetyczne (Gr. III/IV)": 0.0, "Woda Procesowa DEMI": 0.0, "Inne / Pakiety płynne": 0.0}
@@ -863,3 +897,308 @@ with tab5:
                 })
         st.dataframe(pd.DataFrame(silos_rows), hide_index=True, use_container_width=True)
         st.metric("🧱 Całkowita wymagana liczba silosów surowcowych", f"{total_tanks} szt.")
+
+# ==========================================
+# ZAKŁADKA 6: MAPA STRUMIENIA WARTOŚCI (VSM)
+# ==========================================
+with tab6:
+    st.header("🧵 Mapa Strumienia Wartości (Value Stream Mapping)")
+    st.caption("Ta zakładka **nie liczy niczego od nowa** — składa w jeden łańcuch czasy już policzone w Zakładkach 2-5 "
+               "(hydraulika/bilans cieplny, rozlew, bufory magazynowe), więc automatycznie aktualizuje się razem z nimi.")
+
+    if not st.session_state.confirmed_mixers:
+        st.warning("⚠️ Najpierw zatwierdź flotę w Zakładce 1.")
+    else:
+        rodziny_w_flocie = sorted(set(m["product_family"] for m in st.session_state.confirmed_mixers))
+        selected_vsm_family = st.selectbox("Wybierz linię produktową do mapowania:", rodziny_w_flocie, key="vsm_family_select")
+
+        # --- KONFIGURACJA PANELU ZWOLNIENIA QC ---
+        st.markdown("##### 🧪 Panel testów QC do zwolnienia szarży")
+        st.caption("Wybierz testy z katalogu laboratoryjnego wchodzące w standardowy panel zwolnienia dla tej linii. "
+                   "Czasy trwania są edytowalnymi wartościami domyślnymi — popraw je na rzeczywiste, jeśli różnią się w Twoim laboratorium.")
+
+        if "vsm_qc_config" not in st.session_state:
+            st.session_state.vsm_qc_config = {}
+        qc_cfg = st.session_state.vsm_qc_config.setdefault(selected_vsm_family, {
+            "tests": ["Lepkość kinematyczna @40°C", "Barwa ASTM", "Temp. zapłonu - tygiel otwarty"],
+            "mode": "Sekwencyjnie (jeden technik, jedno stanowisko)",
+            "custom_durations": {},
+        })
+
+        c_qc1, c_qc2 = st.columns([2, 1])
+        with c_qc1:
+            qc_cfg["tests"] = st.multiselect(
+                "Testy w panelu zwolnienia:", list(QC_TEST_CATALOG.keys()),
+                default=[t for t in qc_cfg["tests"] if t in QC_TEST_CATALOG],
+                key=f"qc_tests_{selected_vsm_family}"
+            )
+        with c_qc2:
+            qc_cfg["mode"] = st.radio(
+                "Sposób wykonania:",
+                ["Sekwencyjnie (jeden technik, jedno stanowisko)", "Równolegle (kilku techników / aparatów)"],
+                index=0 if qc_cfg["mode"].startswith("Sekw") else 1,
+                key=f"qc_mode_{selected_vsm_family}"
+            )
+
+        if qc_cfg["tests"]:
+            df_qc = pd.DataFrame([{
+                "Test": t,
+                "Czas [min]": qc_cfg["custom_durations"].get(t, QC_TEST_CATALOG[t]["duration_min"]),
+                "Sprzęt": QC_TEST_CATALOG[t]["equipment"],
+            } for t in qc_cfg["tests"]])
+
+            edited_qc = st.data_editor(
+                df_qc, hide_index=True, use_container_width=True,
+                disabled=["Test", "Sprzęt"], key=f"qc_dur_editor_{selected_vsm_family}"
+            )
+            for _, r in edited_qc.iterrows():
+                qc_cfg["custom_durations"][r["Test"]] = float(r["Czas [min]"])
+
+            durations_min = [qc_cfg["custom_durations"][t] for t in qc_cfg["tests"]]
+            qc_time_h = (sum(durations_min) if qc_cfg["mode"].startswith("Sekw") else max(durations_min)) / 60.0
+        else:
+            qc_time_h = 0.0
+            st.info("Brak wybranych testów — czas zwolnienia QC przyjęto jako 0h.")
+
+        # Kolejka laboratoryjna: czas oczekiwania próbki na wolne stanowisko/technika,
+        # ODDZIELNY od czasu samego wykonania testów (qc_time_h powyżej).
+        if "vsm_qc_queue_days" not in st.session_state:
+            st.session_state.vsm_qc_queue_days = {}
+        qc_queue_days = st.number_input(
+            "⏳ Kolejka laboratoryjna przed rozpoczęciem testów [dni]:", min_value=0.0,
+            value=float(st.session_state.vsm_qc_queue_days.get(selected_vsm_family, 0.0)), step=0.5,
+            key=f"qc_queue_{selected_vsm_family}"
+        )
+        st.session_state.vsm_qc_queue_days[selected_vsm_family] = qc_queue_days
+
+        st.markdown("---")
+
+        # --- CZASY PROCESOWE DLA WYBRANEJ RODZINY (średnia z floty tej linii, z Zakładki 2) ---
+        mixers_in_family = [m for m in st.session_state.confirmed_mixers if m["product_family"] == selected_vsm_family]
+        calc_times_family = [st.session_state.calculated_times.get(m["tag"]) for m in mixers_in_family]
+        calc_times_family = [c for c in calc_times_family if c is not None]
+
+        if not calc_times_family:
+            st.info("ℹ️ Skonfiguruj hydraulikę i bilans cieplny dla tej linii w Zakładce 2, aby uzyskać rzeczywiste czasy "
+                    "grzania/pompowania/chłodzenia (poniżej użyto bezpiecznych wartości domyślnych).")
+            heating_h, pumping_h, cooling_h = 1.5, 0.75, 0.5
+        else:
+            heating_h = sum(c["heating"] for c in calc_times_family) / len(calc_times_family)
+            pumping_h = sum(c["pumping"] for c in calc_times_family) / len(calc_times_family)
+            cooling_h = sum(c.get("cooling_h", 0.0) for c in calc_times_family) / len(calc_times_family)
+
+        # Dozowanie / homogenizacja — wprowadzane w Zakładce 4 per urządzenie; użyj reprezentatywnego
+        # urządzenia tej rodziny (pierwszy tag), z domyślnymi wartościami jeśli jeszcze nie odwiedzono Zakładki 4.
+        rep_tag = mixers_in_family[0]["tag"]
+        t_dosing = st.session_state.get(f"tdos_{rep_tag}", 1.0)
+        t_homog = st.session_state.get(f"thom_{rep_tag}", 2.0)
+        st.caption(f"Dozowanie i homogenizacja pobrane z konfiguracji urządzenia **{rep_tag}** w Zakładce 4 "
+                   "(jeśli nie skonfigurowano tam jeszcze tej rodziny, użyto wartości domyślnych 1h / 2h).")
+
+        # Czas rozlewu — suma po opakowaniach dla tej rodziny, z Zakładki 3.
+        logistics_rows = st.session_state.get("logistics_results", [])
+        filling_h = sum(r["Czas rozlewu strumienia [h] ⏱️"] for r in logistics_rows if r["Linia 🔒"] == selected_vsm_family)
+        if filling_h == 0.0:
+            st.info("ℹ️ Skonfiguruj podział opakowań w panelu bocznym i odwiedź Zakładkę 3, aby uzyskać rzeczywisty czas rozlewu dla tej rodziny.")
+
+        # Bufory magazynowe — założenia globalne z Zakładek 3 i 5 (te wejścia nie są dziś różnicowane per rodzina).
+        raw_material_buffer_days = st.session_state.get("days_of_stock_tab5", 14)
+        fg_storage_days = st.session_state.get("czas_skladowania_tab3", 14)
+
+        HOURS_PER_DAY = 24.0
+        raw_material_buffer_h = raw_material_buffer_days * HOURS_PER_DAY
+        fg_storage_h = fg_storage_days * HOURS_PER_DAY
+        qc_queue_h = qc_queue_days * HOURS_PER_DAY
+
+        process_steps = [
+            {"name": "Dozowanie", "hours": t_dosing, "value_added": True},
+            {"name": "Grzanie", "hours": heating_h, "value_added": True},
+            {"name": "Homogenizacja", "hours": t_homog, "value_added": True},
+            {"name": "Zwolnienie QC", "hours": qc_time_h, "value_added": False, "extra_wait_h": qc_queue_h},
+            {"name": "Pompowanie", "hours": pumping_h, "value_added": True},
+            {"name": "Chłodzenie", "hours": cooling_h, "value_added": True},
+            {"name": "Rozlew", "hours": filling_h, "value_added": True},
+        ]
+        for s in process_steps:
+            s.setdefault("extra_wait_h", 0.0)
+
+        # --- OEE: C/O, Uptime, Dostępność, Pass rate per etap (edytowalne, domyślnie neutralne) ---
+        st.markdown("##### ⚙️ Zmiana, Dostępność i Jakość per Etap (OEE)")
+        st.caption("Domyślnie C/O=0h i Uptime/Dostępność/Pass=100% (brak strat) — popraw na wartości rzeczywiste tam, "
+                   "gdzie mają znaczenie (typowo: Grzanie/Homogenizacja przy zmianie produktu w reaktorze, oraz Rozlew "
+                   "przy zmianie SKU na linii pakującej). **C/O jest wliczane do Lead Time** — zajmuje realny czas "
+                   "na reaktorze/linii, nawet jeśli księgowane jest jako strata, a nie czas procesu.")
+
+        if "vsm_oee" not in st.session_state:
+            st.session_state.vsm_oee = {}
+        oee_cfg = st.session_state.vsm_oee.setdefault(selected_vsm_family, {})
+        for s in process_steps:
+            oee_cfg.setdefault(s["name"], {"co_h": 0.0, "uptime_pct": 100.0, "availability_pct": 100.0, "pass_pct": 100.0})
+
+        df_oee_in = pd.DataFrame([{
+            "Etap": s["name"],
+            "C/T [h]": round(s["hours"], 2),
+            "C/O [h]": oee_cfg[s["name"]]["co_h"],
+            "Uptime [%]": oee_cfg[s["name"]]["uptime_pct"],
+            "Dostępność [%]": oee_cfg[s["name"]]["availability_pct"],
+            "Pass [%]": oee_cfg[s["name"]]["pass_pct"],
+        } for s in process_steps])
+
+        edited_oee = st.data_editor(
+            df_oee_in, hide_index=True, use_container_width=True,
+            disabled=["Etap", "C/T [h]"], key=f"oee_editor_{selected_vsm_family}",
+            column_config={
+                "Uptime [%]": st.column_config.NumberColumn(min_value=0.0, max_value=100.0),
+                "Dostępność [%]": st.column_config.NumberColumn(min_value=0.0, max_value=100.0),
+                "Pass [%]": st.column_config.NumberColumn(min_value=0.0, max_value=100.0),
+                "C/O [h]": st.column_config.NumberColumn(min_value=0.0),
+            }
+        )
+        for _, r in edited_oee.iterrows():
+            oee_cfg[r["Etap"]] = {
+                "co_h": float(r["C/O [h]"]),
+                "uptime_pct": float(r["Uptime [%]"]),
+                "availability_pct": float(r["Dostępność [%]"]),
+                "pass_pct": float(r["Pass [%]"]),
+            }
+
+        for s in process_steps:
+            o = oee_cfg[s["name"]]
+            s["co_h"] = o["co_h"]
+            s["oee_pct"] = (o["uptime_pct"] / 100.0) * (o["availability_pct"] / 100.0) * (o["pass_pct"] / 100.0) * 100.0
+
+        st.markdown("---")
+
+        # --- WIDOK: szczegółowy (7 etapów) lub zbiorczy (4 etapy, jak w dashboardzie referencyjnym) ---
+        widok = st.radio(
+            "Widok:", ["Szczegółowy (7 etapów)", "Zbiorczy (4 etapy, jak w dashboardzie referencyjnym)"],
+            horizontal=True, key=f"vsm_widok_{selected_vsm_family}"
+        )
+
+        if widok.startswith("Szczegółowy"):
+            display_steps = [{
+                "name": s["name"], "hours": s["hours"], "value_added": s["value_added"],
+                "co_h": s["co_h"], "wait_h": s["extra_wait_h"], "oee_pct": s["oee_pct"],
+            } for s in process_steps]
+            lead_start_wait = ("Bufor surowców", raw_material_buffer_h)
+            lead_end_wait = ("Bufor wyrobów gotowych", fg_storage_h)
+        else:
+            # Grupowanie 4 makro-etapów zgodnie z układem dashboardu referencyjnego.
+            def group_stats(names):
+                members = [s for s in process_steps if s["name"] in names]
+                ct_h = sum(m["hours"] for m in members)
+                co_h = sum(m["co_h"] for m in members)
+                wait_h = sum(m["extra_wait_h"] for m in members)
+                va = any(m["value_added"] for m in members)
+                if ct_h > 0:
+                    uptime = sum(oee_cfg[m["name"]]["uptime_pct"] * m["hours"] for m in members) / ct_h
+                    avail = sum(oee_cfg[m["name"]]["availability_pct"] * m["hours"] for m in members) / ct_h
+                else:
+                    uptime = avail = 100.0
+                pass_combined = 100.0
+                for m in members:
+                    pass_combined *= oee_cfg[m["name"]]["pass_pct"] / 100.0
+                pass_combined *= 100.0
+                oee_pct = (uptime / 100.0) * (avail / 100.0) * (pass_combined / 100.0) * 100.0
+                return {"hours": ct_h, "co_h": co_h, "wait_h": wait_h, "value_added": va, "oee_pct": oee_pct}
+
+            blending = group_stats(["Dozowanie", "Grzanie", "Homogenizacja", "Pompowanie", "Chłodzenie"])
+            qc_group = group_stats(["Zwolnienie QC"])
+            filling_group = group_stats(["Rozlew"])
+
+            display_steps = [
+                {"name": "Blending/Cooking", **blending},
+                {"name": "QC", **qc_group},
+                {"name": "Filling/Packing", **filling_group},
+            ]
+            lead_start_wait = ("Receiving & Staging", raw_material_buffer_h)
+            lead_end_wait = (None, 0.0)  # bufor WG dołączony do Filling/Packing, jak w dashboardzie referencyjnym
+            display_steps[-1]["wait_h"] += fg_storage_h
+
+        total_process_h = sum(s["hours"] for s in display_steps)
+        total_co_h = sum(s["co_h"] for s in display_steps)
+        total_wait_h = lead_start_wait[1] + lead_end_wait[1] + sum(s["wait_h"] for s in display_steps)
+        value_added_h = sum(s["hours"] for s in display_steps if s["value_added"])
+        total_lead_time_h = total_process_h + total_co_h + total_wait_h
+        pce_pct = (value_added_h / total_lead_time_h * 100.0) if total_lead_time_h > 0 else 0.0
+
+        st.markdown("### 📈 Kluczowe Metryki Strumienia Wartości")
+        m1, m2, m3, m4, m5 = st.columns(5)
+        with m1: st.metric("⏳ Całkowity Lead Time", f"{total_lead_time_h / 24.0:.1f} dni")
+        with m2: st.metric("⚙️ Czas przetwarzania (VA)", f"{value_added_h:.1f} h")
+        with m3: st.metric("🔄 Suma C/O", f"{total_co_h:.1f} h")
+        with m4: st.metric("🎯 Process Cycle Efficiency", f"{pce_pct:.1f}%")
+        with m5: st.metric("🧪 Czas zwolnienia QC", f"{qc_time_h:.2f} h")
+
+        if pce_pct < 10.0 and total_lead_time_h > 0:
+            st.warning("⚠️ PCE poniżej 10% jest typowe dla procesów wsadowych z dużym buforowaniem magazynowym — "
+                       "największa dźwignia poprawy leży zwykle w skróceniu dni bufora surowców/wyrobów gotowych "
+                       "lub kolejki laboratoryjnej, a nie w przyspieszaniu samego procesu w reaktorze.")
+
+        # --- DIAGRAM VSM: proste boksy/strzałki w HTML+CSS (bez zależności od graphviz) ---
+        st.markdown("### 🗺️ Diagram Strumienia Wartości")
+
+        def render_box(title, ct_txt, co_h=0.0, oee_pct=None, va=True):
+            color = "#2E7D32" if va else "#B45309"
+            bg = "#E8F5E9" if va else "#FEF3C7"
+            extra = f'<div style="font-size:10px; color:#555;">C/O {co_h:.2f}h</div>' if co_h > 0 else ""
+            oee_line = f'<div style="font-size:10px; color:#555;">OEE {oee_pct:.0f}%</div>' if oee_pct is not None else ""
+            return (f'<div style="border:2px solid {color}; border-radius:6px; padding:8px 10px; min-width:118px; '
+                    f'text-align:center; background:{bg}; flex-shrink:0;">'
+                    f'<div style="font-size:12px; font-weight:600; color:#111;">{title}</div>'
+                    f'<div style="font-size:14px; font-weight:700; color:{color};">{ct_txt}</div>{extra}{oee_line}</div>')
+
+        def render_triangle(label, days_txt):
+            return (f'<div style="display:flex; flex-direction:column; align-items:center; flex-shrink:0; margin:0 4px;">'
+                    f'<div style="width:0; height:0; border-left:20px solid transparent; border-right:20px solid transparent; '
+                    f'border-bottom:34px solid #FDE68A;"></div>'
+                    f'<div style="font-size:11px; font-weight:600; margin-top:2px; white-space:nowrap;">{label} {days_txt}</div></div>')
+
+        def render_arrow():
+            return '<div style="display:flex; align-items:center; padding:0 2px; flex-shrink:0; color:#555; font-size:18px;">➜</div>'
+
+        pieces = [render_triangle(lead_start_wait[0], f"{lead_start_wait[1] / 24.0:.0f} dni"), render_arrow()]
+        for s in display_steps:
+            pieces.append(render_box(s["name"], f"{s['hours']:.2f} h", co_h=s["co_h"], oee_pct=s.get("oee_pct"), va=s["value_added"]))
+            if s.get("wait_h", 0.0) > 0:
+                pieces.append(render_arrow())
+                pieces.append(render_triangle("oczekiwanie", f"{s['wait_h'] / 24.0:.1f} dni"))
+            pieces.append(render_arrow())
+        if lead_end_wait[0] is not None:
+            pieces.append(render_triangle(lead_end_wait[0], f"{lead_end_wait[1] / 24.0:.0f} dni"))
+        else:
+            pieces.pop()  # usuń ostatnią, niepotrzebną strzałkę, gdy nie ma końcowego bufora
+
+        diagram_html = f'<div style="display:flex; align-items:center; overflow-x:auto; padding:14px 4px;">{"".join(pieces)}</div>'
+        st.markdown(diagram_html, unsafe_allow_html=True)
+
+        st.caption("🟢 Zielone pola = czas dodający wartość (przetwarzanie produktu). 🟠 Pomarańczowe pola = czas "
+                   "niedodający wartości bezpośrednio produktowi (kontrola jakości, magazynowanie) — często konieczny "
+                   "operacyjnie, ale to właśnie tu zwykle leży potencjał skrócenia lead time. **C/O** i **OEE** "
+                   "pokazane pod nazwą etapu, gdy dotyczy.")
+
+        # --- DRABINKA CZASU: pełny rozkład lead time vs. czas przetwarzania ---
+        st.markdown("### ⏱️ Drabinka Czasu (Lead Time vs. Czas Przetwarzania)")
+        ladder_rows = [{"Etap": lead_start_wait[0], "Waiting [dni]": round(lead_start_wait[1] / 24.0, 2),
+                        "C/T [h]": 0.0, "C/O [h]": 0.0, "Typ": "Magazynowanie"}]
+        for s in display_steps:
+            ladder_rows.append({
+                "Etap": s["name"], "Waiting [dni]": round(s.get("wait_h", 0.0) / 24.0, 2),
+                "C/T [h]": round(s["hours"], 2), "C/O [h]": round(s["co_h"], 2),
+                "Typ": "Wartość dodana" if s["value_added"] else "Kontrola / Oczekiwanie"
+            })
+        if lead_end_wait[0] is not None:
+            ladder_rows.append({"Etap": lead_end_wait[0], "Waiting [dni]": round(lead_end_wait[1] / 24.0, 2),
+                                 "C/T [h]": 0.0, "C/O [h]": 0.0, "Typ": "Magazynowanie"})
+
+        df_ladder = pd.DataFrame(ladder_rows)
+        st.dataframe(df_ladder, hide_index=True, use_container_width=True)
+
+        total_waiting_days = df_ladder["Waiting [dni]"].sum()
+        total_ct_days = df_ladder["C/T [h]"].sum() / 24.0
+        total_co_days = df_ladder["C/O [h]"].sum() / 24.0
+        st.markdown(
+            f"**TOTAL** — Waiting: `{total_waiting_days:.2f} dni` · C/T: `{total_ct_days:.2f} dni` · "
+            f"C/O: `{total_co_days:.2f} dni` · **Lead Time: `{(total_waiting_days + total_ct_days + total_co_days):.2f} dni`** · "
+            f"**VA ratio: `{pce_pct:.1f}%`**"
+        )
