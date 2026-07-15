@@ -319,7 +319,7 @@ for kat in wybrane_kategorie:
 # --- STRUKTURA INTERFEJSU ---
 tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
     "📊 1. Główne Zestawienie i Utylizacja",
-    "📐 2. Karta Maszyn i Dobór Pomp",
+    "📐 2. Karta Maszyn, Kocioł i Zasilanie",
     "📦 3. Logistyka i Czas Rozlewu",
     "💰 4. Analiza Finansowa i Koszty Produkcji",
     "🛢️ 5. Surowce i Park Zbiorników",
@@ -565,6 +565,10 @@ with tab2:
                     "t_max_mix": p["t_product_out"],
                     "t_rozlew": p["t_discharge_c"],
                     "cooling_h": cooling_time_h if cooling_status == "ok" else 0.0,
+                    "power_heating_kw": thermal["power_heating_kw"],
+                    "power_cooling_kw": cooling_power_kw,
+                    "medium_grz": p["utility_type_heat"],
+                    "is_steam": thermal["is_steam"],
                 }
 
                 cooling_txt = f"{cooling_time_h:.2f}" if cooling_status == "ok" else ("—" if cooling_status == "brak_potrzeby" else "⚠️ N/A")
@@ -672,6 +676,151 @@ with tab2:
                     p["process_time_h"] = st.number_input(f"Czas grzania [h]:", min_value=0.1, value=float(p["process_time_h"]), key=f"time_adv_{m_id}")
 
         st.markdown("---")
+
+        # ============================================================
+        # DOBÓR KOTŁA GRZEWCZEGO (agregacja zapotrzebowania cieplnego floty)
+        # ============================================================
+        st.markdown("### 🔥 Dobór Kotła Grzewczego")
+        st.caption("Sumuje moc grzania (Zakładka 2) po wszystkich mieszalnikach, z uwzględnieniem tego, że nie wszystkie "
+                   "reaktory grzeją jednocześnie (współczynnik jednoczesności).")
+
+        heat_by_medium = {}
+        for m in st.session_state.confirmed_mixers:
+            ct = st.session_state.calculated_times.get(m["tag"])
+            if ct is None:
+                continue
+            medium = ct.get("medium_grz", "Woda technologiczna")
+            heat_by_medium.setdefault(medium, {"power_kw": 0.0, "is_steam": ct.get("is_steam", False)})
+            heat_by_medium[medium]["power_kw"] += ct.get("power_heating_kw", 0.0)
+
+        if not heat_by_medium:
+            st.info("ℹ️ Skonfiguruj bilans cieplny mieszalników powyżej, aby dobrać kocioł.")
+            total_heating_power_installed = 0.0
+        else:
+            c_b1, c_b2 = st.columns(2)
+            with c_b1:
+                wspolczynnik_jednoczesnosci_cieplny = st.slider(
+                    "Współczynnik jednoczesności grzania [%]:", min_value=20, max_value=100, value=70,
+                    help="Odsetek zainstalowanej mocy grzania, który realnie występuje jednocześnie w szczycie "
+                         "(rzadko wszystkie reaktory grzeją w tej samej minucie).") / 100.0
+            with c_b2:
+                margines_kotla = st.slider("Margines bezpieczeństwa kotła [%]:", min_value=0, max_value=50, value=20) / 100.0
+
+            boiler_rows = []
+            total_heating_power_installed = 0.0
+            for medium, data in heat_by_medium.items():
+                installed = data["power_kw"]
+                total_heating_power_installed += installed
+                needed = installed * wspolczynnik_jednoczesnosci_cieplny * (1 + margines_kotla)
+                STANDARD_BOILER_SIZES_KW = [50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 800, 1000, 1250, 1600, 2000]
+                recommended = next((s for s in STANDARD_BOILER_SIZES_KW if s >= needed), needed)
+                row = {
+                    "Medium": medium,
+                    "Moc zainstalowana [kW]": round(installed, 1),
+                    "Moc wymagana (ze wsp. jednocz.) [kW]": round(needed, 1),
+                    "Zalecana moc kotła [kW]": round(recommended, 1),
+                }
+                if data["is_steam"]:
+                    row["Wydajność pary [kg/h]"] = round(recommended * 3600 / STEAM_LATENT_HEAT_KJKG, 1)
+                boiler_rows.append(row)
+            st.dataframe(pd.DataFrame(boiler_rows), hide_index=True, use_container_width=True)
+
+        st.markdown("##### ⛽ Typ Kotła i Koszt Paliwa")
+        c_f1, c_f2, c_f3 = st.columns(3)
+        with c_f1:
+            typ_kotla = st.radio("Typ kotła centralnego:", ["Gazowy", "Elektryczny"], horizontal=True, key="typ_kotla")
+        with c_f2:
+            if typ_kotla == "Gazowy":
+                cena_gazu_mwh = st.number_input("Cena gazu [PLN/MWh]:", min_value=1.0, value=250.0, key="cena_gazu")
+                sprawnosc_kotla = st.number_input("Sprawność kotła gazowego [%]:", min_value=50.0, max_value=100.0, value=90.0, key="sprawnosc_gaz") / 100.0
+            else:
+                cena_gazu_mwh = None
+                sprawnosc_kotla = st.number_input("Sprawność kotła elektrycznego [%]:", min_value=50.0, max_value=100.0, value=98.0, key="sprawnosc_el") / 100.0
+        with c_f3:
+            st.metric("Moc zainstalowana grzania (suma floty)", f"{total_heating_power_installed:.1f} kW")
+
+        # Miesięczny koszt paliwa grzewczego — energia użyteczna (Q grzania) / sprawność kotła.
+        total_heating_energy_mwh_month = 0.0
+        for m in st.session_state.confirmed_mixers:
+            ct = st.session_state.calculated_times.get(m["tag"])
+            if ct is None:
+                continue
+            energy_kwh_batch = ct.get("power_heating_kw", 0.0) * ct.get("heating", 0.0)
+            total_heating_energy_mwh_month += (energy_kwh_batch * m["batches_count"]) / 1000.0
+
+        fuel_price_for_calc = cena_gazu_mwh if typ_kotla == "Gazowy" else st.session_state.get("cena_mwh_tab4", 750.0)
+        koszt_paliwa_grzewczego_month = (total_heating_energy_mwh_month / sprawnosc_kotla) * fuel_price_for_calc if sprawnosc_kotla > 0 else 0.0
+
+        st.session_state["koszt_paliwa_grzewczego_month"] = koszt_paliwa_grzewczego_month
+        st.session_state["typ_kotla"] = typ_kotla
+        st.session_state["boiler_capacity_installed_kw"] = total_heating_power_installed
+        st.session_state["sprawnosc_kotla_frac"] = sprawnosc_kotla
+        st.session_state["cena_gazu_mwh"] = cena_gazu_mwh
+
+        st.caption(f"Szacowany miesięczny koszt paliwa grzewczego: **{koszt_paliwa_grzewczego_month:,.2f}** "
+                   f"({'gaz' if typ_kotla=='Gazowy' else 'energia elektryczna'}) — pozycja ta trafia teraz do "
+                   f"Zakładki 4 (Analiza Finansowa) jako osobny koszt.")
+
+        st.markdown("---")
+
+        # ============================================================
+        # ZAPOTRZEBOWANIE NA MOC ELEKTRYCZNĄ I DOBÓR TRANSFORMATORA
+        # ============================================================
+        st.markdown("### ⚡ Zapotrzebowanie na Moc Elektryczną i Dobór Transformatora")
+        st.caption("Sumuje moc silników mieszadeł i pomp z floty, ewentualny kocioł elektryczny oraz (opcjonalnie) "
+                   "szacunkowe zapotrzebowanie elektryczne chłodzenia (przez współczynnik COP), z uwzględnieniem "
+                   "współczynnika jednoczesności i mocy transformatora w kVA.")
+
+        total_mix_power = sum(st.session_state.calculated_times.get(m["tag"], {}).get("power_mix_kw", 0.0)
+                               for m in st.session_state.confirmed_mixers)
+        total_pump_power = sum(st.session_state.calculated_times.get(m["tag"], {}).get("power_pump_kw", 0.0)
+                                for m in st.session_state.confirmed_mixers)
+        total_cooling_duty = sum(st.session_state.calculated_times.get(m["tag"], {}).get("power_cooling_kw", 0.0)
+                                  for m in st.session_state.confirmed_mixers)
+
+        c_e1, c_e2, c_e3 = st.columns(3)
+        with c_e1:
+            uwzglednij_chlodzenie_el = st.checkbox("Uwzględnij elektryczne chłodzenie (agregaty/chillery)", value=True)
+            cop_chlodzenia = st.number_input("COP chłodzenia [-]:", min_value=1.0, value=3.0,
+                                              disabled=not uwzglednij_chlodzenie_el,
+                                              help="Współczynnik wydajności chłodniczej — moc elektryczna = moc chłodzenia / COP.")
+        with c_e2:
+            wspolczynnik_jednoczesnosci_el = st.slider("Współczynnik jednoczesności elektrycznej [%]:",
+                                                         min_value=20, max_value=100, value=65) / 100.0
+            cos_phi = st.number_input("cos φ (współczynnik mocy):", min_value=0.5, max_value=1.0, value=0.90, step=0.01)
+        with c_e3:
+            margines_transformatora = st.slider("Margines bezpieczeństwa transformatora [%]:",
+                                                  min_value=0, max_value=100, value=25) / 100.0
+
+        electric_boiler_load = total_heating_power_installed if typ_kotla == "Elektryczny" else 0.0
+        cooling_electric_load = (total_cooling_duty / cop_chlodzenia) if uwzglednij_chlodzenie_el and cop_chlodzenia > 0 else 0.0
+
+        installed_electric_load_kw = total_mix_power + total_pump_power + electric_boiler_load + cooling_electric_load
+        demand_kw = installed_electric_load_kw * wspolczynnik_jednoczesnosci_el
+        demand_kva = (demand_kw / cos_phi) * (1 + margines_transformatora) if cos_phi > 0 else 0.0
+
+        STANDARD_TRANSFORMER_SIZES_KVA = [100, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000, 2500]
+        recommended_transformer = next((s for s in STANDARD_TRANSFORMER_SIZES_KVA if s >= demand_kva), demand_kva)
+
+        load_rows = [
+            {"Odbiornik": "Silniki mieszadeł (suma floty)", "Moc [kW]": round(total_mix_power, 1)},
+            {"Odbiornik": "Silniki pomp (suma floty)", "Moc [kW]": round(total_pump_power, 1)},
+            {"Odbiornik": "Kocioł elektryczny" if typ_kotla == "Elektryczny" else "Kocioł (gazowy — brak obciążenia elektrycznego)",
+             "Moc [kW]": round(electric_boiler_load, 1)},
+            {"Odbiornik": "Chłodzenie (agregaty, przez COP)" if uwzglednij_chlodzenie_el else "Chłodzenie (nieuwzględnione)",
+             "Moc [kW]": round(cooling_electric_load, 1)},
+        ]
+        st.dataframe(pd.DataFrame(load_rows), hide_index=True, use_container_width=True)
+
+        m_e1, m_e2, m_e3, m_e4 = st.columns(4)
+        with m_e1: st.metric("Moc zainstalowana", f"{installed_electric_load_kw:.1f} kW")
+        with m_e2: st.metric("Moc szczytowa (ze wsp. jednocz.)", f"{demand_kw:.1f} kW")
+        with m_e3: st.metric("Moc pozorna wymagana", f"{demand_kva:.1f} kVA")
+        with m_e4: st.metric("🔌 Zalecany transformator", f"{recommended_transformer:.0f} kVA")
+
+        st.caption("Uwaga: sekcja rozlewu/pakowania nie ma dziś modelowanych mocy silników (tylko wydajność kg/min), "
+                   "więc nie jest tu ujęta — jeśli chcesz uwzględnić linie napełniające w bilansie elektrycznym, "
+                   "podaj ich orientacyjną moc zainstalowaną do doliczenia ręcznego.")
 
         if not df_filtered.empty:
             csv_buffer = io.StringIO()
@@ -792,11 +941,22 @@ with tab4:
     else:
         waluta = st.selectbox("Wybierz walutę operacyjną:", ["PLN", "EUR", "USD"])
         manuf_cost_per_kg = st.number_input(f"Bazowy Manufacturing Cost [za kg] w {waluta}:", min_value=0.01, value=2.12, format="%.3f")
-        cena_mwh = st.number_input(f"Cena energii elektrycznej i cieplnej [{waluta}/MWh]:", min_value=1.0, value=750.0)
+        cena_mwh = st.number_input(f"Cena energii elektrycznej (mieszanie/pompowanie) [{waluta}/MWh]:", min_value=1.0, value=750.0)
+        st.session_state["cena_mwh_tab4"] = cena_mwh
 
         if not st.session_state.calculated_times:
             st.info("ℹ️ Skonfiguruj urządzenia w Zakładce 2, aby koszty energii odzwierciedlały rzeczywistą hydraulikę i bilans cieplny "
                     "(w przeciwnym razie poniżej używane są bezpieczne wartości domyślne).")
+
+        # Cena i sprawność "paliwa grzewczego" (gaz lub prąd, zależnie od wyboru kotła w Zakładce 2)
+        # — używana zarówno do kosztu ogrzewania, jak i do wyceny odzysku ciepła (fizycznie
+        # spójniej niż stosowanie ogólnej ceny elektrycznej do oszczędności cieplnej).
+        heating_fuel_price = st.session_state.get("cena_mwh_tab4", cena_mwh)
+        heating_fuel_efficiency = st.session_state.get("sprawnosc_kotla_frac", 0.98)
+        if st.session_state.get("typ_kotla") == "Gazowy":
+            heating_fuel_price = st.session_state.get("cena_gazu_mwh", 250.0)
+        heating_fuel_price = heating_fuel_price if heating_fuel_price else cena_mwh
+        heating_fuel_efficiency = heating_fuel_efficiency if heating_fuel_efficiency else 1.0
 
         financial_summary = []
         total_monthly_saving_thermal = 0.0
@@ -827,7 +987,7 @@ with tab4:
 
             oszczednosc_cieplna = 0.0
             if m_data["t_rozlew"] < m_data["t_max_mix"]:
-                oszczednosc_cieplna = ((m_monthly_kg * prod_info["cp"] * (m_data["t_max_mix"] - m_data["t_rozlew"])) / 3_600_000.0) * cena_mwh
+                oszczednosc_cieplna = ((m_monthly_kg * prod_info["cp"] * (m_data["t_max_mix"] - m_data["t_rozlew"])) / 3_600_000.0) * heating_fuel_price / heating_fuel_efficiency
                 total_monthly_saving_thermal += oszczednosc_cieplna
 
             financial_summary.append({
@@ -838,7 +998,17 @@ with tab4:
             })
 
         st.dataframe(pd.DataFrame(financial_summary), hide_index=True, use_container_width=True)
-        final_cost = total_base_manuf_cost + total_energy_cost_el - total_monthly_saving_thermal
+
+        koszt_paliwa_grzewczego = st.session_state.get("koszt_paliwa_grzewczego_month", 0.0)
+        if koszt_paliwa_grzewczego > 0:
+            typ_kotla_disp = st.session_state.get("typ_kotla", "—")
+            st.metric(label=f"🔥 Koszt paliwa grzewczego ({typ_kotla_disp}, z Zakładki 2)",
+                      value=f"{koszt_paliwa_grzewczego:,.2f} {waluta}")
+        else:
+            st.info("ℹ️ Skonfiguruj kocioł i typ paliwa w Zakładce 2 (sekcja 'Dobór Kotła Grzewczego'), aby doliczyć "
+                    "koszt ogrzewania do kosztu wytworzenia.")
+
+        final_cost = total_base_manuf_cost + total_energy_cost_el + koszt_paliwa_grzewczego - total_monthly_saving_thermal
         st.metric(label="🚀 ZOPTYMALIZOWANY REALNY KOSZT WYTWORZENIA (Miesięcznie)", value=f"{final_cost:,.2f} {waluta}")
 
         st.info("💡 Pełna analiza czasu cyklu szarży (dozowanie, grzanie, homogenizacja, QC, pompowanie, chłodzenie, "
