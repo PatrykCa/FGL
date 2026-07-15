@@ -752,7 +752,6 @@ with tab2:
         koszt_paliwa_grzewczego_month = (total_heating_energy_mwh_month / sprawnosc_kotla) * fuel_price_for_calc if sprawnosc_kotla > 0 else 0.0
 
         st.session_state["koszt_paliwa_grzewczego_month"] = koszt_paliwa_grzewczego_month
-        st.session_state["typ_kotla"] = typ_kotla
         st.session_state["boiler_capacity_installed_kw"] = total_heating_power_installed
         st.session_state["sprawnosc_kotla_frac"] = sprawnosc_kotla
         st.session_state["cena_gazu_mwh"] = cena_gazu_mwh
