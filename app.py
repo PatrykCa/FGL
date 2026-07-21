@@ -475,6 +475,7 @@ with tab2:
     else:
         summary_combined_rows = []
 
+        # --- KROK 1: Inicjalizacja domyślnych parametrów (bez widgetów) dla każdego urządzenia ---
         for mixer in st.session_state.confirmed_mixers:
             m_id = mixer["tag"]
             kat = mixer["product_family"]
@@ -517,6 +518,62 @@ with tab2:
             for key, val in defaults.items():
                 if key not in p:
                     p[key] = val
+
+        # --- KROK 2: Parametryzatory (widgety) — MUSZĄ wykonać się PRZED przeliczeniem poniżej. ---
+        # POPRAWKA: wcześniej te widgety renderowały się PO pętli obliczeniowej, więc każda
+        # zmiana wartości (np. DN rury) była widoczna w tabeli zbiorczej dopiero po KOLEJNEJ
+        # interakcji — do tego czasu tabela pokazywała wynik dla poprzedniej wartości. Stąd
+        # pozornie "odwrócona" fizyka (większe DN pokazujące większą prędkość) — to był efekt
+        # przestarzałych danych, nie błąd wzoru.
+        st.markdown("### ⚙️ Parametryzatory Szczegółowe Maszyn i Mediów")
+
+        for mixer in st.session_state.confirmed_mixers:
+            m_id = mixer["tag"]
+            kat = mixer["product_family"]
+            p = st.session_state.mixer_tech_advanced_details[m_id]
+
+            with st.expander(f"🛠️ Konfiguracja hydrauliki, mieszania i bilansu energii: {m_id}", expanded=False):
+                c1, c2, c3, c4 = st.columns(4)
+                with c1:
+                    st.markdown("**🌊 Średnice, Przepływ i Reologia**")
+                    p["pipe_dn"] = st.number_input(f"Średnica rury [DN]:", min_value=15, value=int(p["pipe_dn"]), key=f"dn_adv_{m_id}")
+                    p["pump_flow_m3h"] = st.number_input(f"Przepływ pompy [m³/h]:", min_value=1.0, value=float(p["pump_flow_m3h"]), key=f"q_adv_{m_id}")
+                    p["viscosity_min_cst"] = st.number_input(f"Lepkość MIN [cSt]:", min_value=0.5, value=float(p["viscosity_min_cst"]), key=f"v_min_{m_id}")
+                    p["viscosity_max_cst"] = st.number_input(f"Lepkość MAX [cSt]:", min_value=1.0, value=float(p["viscosity_max_cst"]), key=f"v_max_{m_id}")
+                with c2:
+                    st.markdown("**📐 Geometria Rurociągu**")
+                    p["pipe_length_m"] = st.number_input(f"Długość rury L [m]:", min_value=0.1, value=float(p["pipe_length_m"]), key=f"l_len_{m_id}")
+                    p["delta_h_m"] = st.number_input(f"Różnica wysokości Δh [m]:", min_value=0.0, value=float(p["delta_h_m"]), key=f"h_delta_{m_id}")
+                    p["count_elbows_90"] = st.number_input(f"Liczba kolan 90°:", min_value=0, value=int(p["count_elbows_90"]), key=f"elb_{m_id}")
+                    p["count_valves"] = st.number_input(f"Liczba zaworów:", min_value=0, value=int(p["count_valves"]), key=f"val_{m_id}")
+                with c3:
+                    st.markdown("**🌀 Mieszadło**")
+                    p["agitator_type"] = st.selectbox("Typ mieszadła:", list(AGITATOR_TYPES.keys()),
+                                                        index=list(AGITATOR_TYPES.keys()).index(p["agitator_type"]), key=f"ag_type_{m_id}")
+                    p["agitator_rpm"] = st.number_input("Prędkość obrotowa [obr/min]:", min_value=1.0, value=float(p["agitator_rpm"]), key=f"ag_rpm_{m_id}")
+                    p["agitator_diameter_m"] = st.number_input("Średnica mieszadła [m]:", min_value=0.05, value=float(p["agitator_diameter_m"]), key=f"ag_d_{m_id}")
+                with c4:
+                    st.markdown("**🔥 Wymiennik Ciepła i Nośniki Energii**")
+                    p["utility_type_heat"] = st.selectbox(f"Medium grzewcze:", list(MEDIA_PROCESOWE.keys()), index=list(MEDIA_PROCESOWE.keys()).index(p["utility_type_heat"]), key=f"ut_h_type_{m_id}")
+                    p["t_utility_heat_in"] = st.number_input(f"Temp. zasilania medium grzewczego [°C]:", value=float(p["t_utility_heat_in"]), key=f"t_ut_h_{m_id}")
+                    if MEDIA_PROCESOWE[p["utility_type_heat"]].get("steam"):
+                        st.caption("ℹ️ Para nasycona: bilans liczony przez ciepło skraplania, nie cp·ΔT.")
+                    p["utility_type_cool"] = st.selectbox(f"Medium chłodzące:", list(MEDIA_PROCESOWE.keys()), index=list(MEDIA_PROCESOWE.keys()).index(p["utility_type_cool"]), key=f"ut_c_type_{m_id}")
+                    p["t_utility_cool_in"] = st.number_input(f"Temp. wody chłodzącej [°C]:", value=float(p["t_utility_cool_in"]), key=f"t_ut_c_{m_id}")
+                    p["exchange_area_m2"] = st.number_input(f"Powierzchnia wymiany [m²]:", min_value=0.1, value=float(p["exchange_area_m2"]), key=f"area_{m_id}")
+                    p["utility_flow_lmin"] = st.number_input(f"Przepływ medium [l/min]:", min_value=1.0, value=float(p["utility_flow_lmin"]), key=f"ut_flow_{m_id}")
+                    p["t_product_in"] = st.number_input(f"Temp. początkowa płynu [°C]:", value=float(p["t_product_in"]), key=f"tpin_adv_{m_id}")
+                    p["t_product_out"] = st.number_input(f"Temp. procesu (gorący) [°C]:", value=float(p["t_product_out"]), key=f"tpout_adv_{m_id}")
+                    p["t_discharge_c"] = st.number_input(f"Temp. rozlewu (docelowa) [°C]:", value=float(p["t_discharge_c"]), key=f"tdisc_{m_id}")
+                    p["process_time_h"] = st.number_input(f"Czas grzania [h]:", min_value=0.1, value=float(p["process_time_h"]), key=f"time_adv_{m_id}")
+
+        st.markdown("---")
+
+        # --- KROK 3: Przeliczenie hydrauliki/bilansu cieplnego — TERAZ z aktualnymi wartościami z KROKU 2. ---
+        for mixer in st.session_state.confirmed_mixers:
+            m_id = mixer["tag"]
+            kat = mixer["product_family"]
+            p = st.session_state.mixer_tech_advanced_details[m_id]
 
             try:
                 # --- 1. HYDRAULIKA POMPY (Re / opór / moc), po 3 punktach lepkości ---
@@ -581,10 +638,10 @@ with tab2:
                     "Moc Pompy [kW] (Min/Śr/Max)": f"{power_kw_min:.2f}/{power_kw_avg:.2f}/{power_kw_max:.2f}",
                     "Moc Mieszania [kW]": round(agitator_power_kw, 2),
                     "Reżim mieszania": mix_regime,
-                    "Energia Grzania [MJ]": round(thermal["q_heating_mj"], 1),
                     "Moc Grzania [kW]": round(thermal["power_heating_kw"], 1),
+                    "Czas Grzania [h]": round(p["process_time_h"], 2),
                     "LMTD Grzania [K]": round(thermal["lmtd_h"], 1),
-                    "Energia Chłodzenia [MJ]": round(q_cooling_mj, 1),
+                    "Moc Chłodzenia [kW]": round(cooling_power_kw, 1),
                     "Czas chłodzenia [h]": cooling_txt,
                     "_velocity_val": velocity,
                     "_lmtd_trigger": thermal["lmtd_trigger"],
@@ -631,49 +688,6 @@ with tab2:
         else:
             df_filtered = pd.DataFrame()
             st.warning("Brak poprawnie policzonych urządzeń — sprawdź komunikaty o błędach powyżej.")
-
-        st.markdown("---")
-        st.markdown("### ⚙️ Parametryzatory Szczegółowe Maszyn i Mediów")
-
-        for mixer in st.session_state.confirmed_mixers:
-            m_id = mixer["tag"]
-            kat = mixer["product_family"]
-            p = st.session_state.mixer_tech_advanced_details[m_id]
-
-            with st.expander(f"🛠️ Konfiguracja hydrauliki, mieszania i bilansu energii: {m_id}", expanded=False):
-                c1, c2, c3, c4 = st.columns(4)
-                with c1:
-                    st.markdown("**🌊 Średnice, Przepływ i Reologia**")
-                    p["pipe_dn"] = st.number_input(f"Średnica rury [DN]:", min_value=15, value=int(p["pipe_dn"]), key=f"dn_adv_{m_id}")
-                    p["pump_flow_m3h"] = st.number_input(f"Przepływ pompy [m³/h]:", min_value=1.0, value=float(p["pump_flow_m3h"]), key=f"q_adv_{m_id}")
-                    p["viscosity_min_cst"] = st.number_input(f"Lepkość MIN [cSt]:", min_value=0.5, value=float(p["viscosity_min_cst"]), key=f"v_min_{m_id}")
-                    p["viscosity_max_cst"] = st.number_input(f"Lepkość MAX [cSt]:", min_value=1.0, value=float(p["viscosity_max_cst"]), key=f"v_max_{m_id}")
-                with c2:
-                    st.markdown("**📐 Geometria Rurociągu**")
-                    p["pipe_length_m"] = st.number_input(f"Długość rury L [m]:", min_value=0.1, value=float(p["pipe_length_m"]), key=f"l_len_{m_id}")
-                    p["delta_h_m"] = st.number_input(f"Różnica wysokości Δh [m]:", min_value=0.0, value=float(p["delta_h_m"]), key=f"h_delta_{m_id}")
-                    p["count_elbows_90"] = st.number_input(f"Liczba kolan 90°:", min_value=0, value=int(p["count_elbows_90"]), key=f"elb_{m_id}")
-                    p["count_valves"] = st.number_input(f"Liczba zaworów:", min_value=0, value=int(p["count_valves"]), key=f"val_{m_id}")
-                with c3:
-                    st.markdown("**🌀 Mieszadło**")
-                    p["agitator_type"] = st.selectbox("Typ mieszadła:", list(AGITATOR_TYPES.keys()),
-                                                        index=list(AGITATOR_TYPES.keys()).index(p["agitator_type"]), key=f"ag_type_{m_id}")
-                    p["agitator_rpm"] = st.number_input("Prędkość obrotowa [obr/min]:", min_value=1.0, value=float(p["agitator_rpm"]), key=f"ag_rpm_{m_id}")
-                    p["agitator_diameter_m"] = st.number_input("Średnica mieszadła [m]:", min_value=0.05, value=float(p["agitator_diameter_m"]), key=f"ag_d_{m_id}")
-                with c4:
-                    st.markdown("**🔥 Wymiennik Ciepła i Nośniki Energii**")
-                    p["utility_type_heat"] = st.selectbox(f"Medium grzewcze:", list(MEDIA_PROCESOWE.keys()), index=list(MEDIA_PROCESOWE.keys()).index(p["utility_type_heat"]), key=f"ut_h_type_{m_id}")
-                    p["t_utility_heat_in"] = st.number_input(f"Temp. zasilania medium grzewczego [°C]:", value=float(p["t_utility_heat_in"]), key=f"t_ut_h_{m_id}")
-                    if MEDIA_PROCESOWE[p["utility_type_heat"]].get("steam"):
-                        st.caption("ℹ️ Para nasycona: bilans liczony przez ciepło skraplania, nie cp·ΔT.")
-                    p["utility_type_cool"] = st.selectbox(f"Medium chłodzące:", list(MEDIA_PROCESOWE.keys()), index=list(MEDIA_PROCESOWE.keys()).index(p["utility_type_cool"]), key=f"ut_c_type_{m_id}")
-                    p["t_utility_cool_in"] = st.number_input(f"Temp. wody chłodzącej [°C]:", value=float(p["t_utility_cool_in"]), key=f"t_ut_c_{m_id}")
-                    p["exchange_area_m2"] = st.number_input(f"Powierzchnia wymiany [m²]:", min_value=0.1, value=float(p["exchange_area_m2"]), key=f"area_{m_id}")
-                    p["utility_flow_lmin"] = st.number_input(f"Przepływ medium [l/min]:", min_value=1.0, value=float(p["utility_flow_lmin"]), key=f"ut_flow_{m_id}")
-                    p["t_product_in"] = st.number_input(f"Temp. początkowa płynu [°C]:", value=float(p["t_product_in"]), key=f"tpin_adv_{m_id}")
-                    p["t_product_out"] = st.number_input(f"Temp. procesu (gorący) [°C]:", value=float(p["t_product_out"]), key=f"tpout_adv_{m_id}")
-                    p["t_discharge_c"] = st.number_input(f"Temp. rozlewu (docelowa) [°C]:", value=float(p["t_discharge_c"]), key=f"tdisc_{m_id}")
-                    p["process_time_h"] = st.number_input(f"Czas grzania [h]:", min_value=0.1, value=float(p["process_time_h"]), key=f"time_adv_{m_id}")
 
         st.markdown("---")
 
