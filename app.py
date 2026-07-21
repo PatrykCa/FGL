@@ -176,19 +176,33 @@ def compute_agitator_power(agitator_type, rpm, impeller_d_m, density_kgm3, visco
     return re_mix, regime, power_w / 1000.0
 
 
-def compute_thermal_balance(mass_product_kg, cp_product, t_in, t_out, process_time_h,
+def compute_thermal_balance(mass_product_kg, cp_product, t_in, t_out, k_coeff_grzania, exchange_area_m2,
                              tank_mass_kg, cp_steel, utility_type_heat, utility_flow_lmin,
                              t_utility_heat_in):
     """
-    Bilans grzania. Dla mediów sensybilnych (woda/olej termiczny) liczy klasyczny
-    bilans cp*dT. Dla pary nasyconej liczy zapotrzebowanie przez ciepło skraplania,
+    Bilans grzania — analogicznie do compute_cooling: moc grzania wynika z fizyki wymiennika
+    (k*A*ΔT), a CZAS grzania jest z niej WYLICZANY (Q/moc), a nie odwrotnie. ΔT liczone jest
+    w uproszczeniu jako różnica temperatury medium grzewczego i średniej temperatury produktu
+    (wejście/wyjście), tak samo jak w compute_cooling.
+    Dla mediów sensybilnych (woda/olej termiczny) dalej liczy klasyczny bilans cp*dT dla
+    strony medium. Dla pary nasyconej liczy zapotrzebowanie przez ciepło skraplania,
     ponieważ para oddaje energię głównie w procesie kondensacji, a nie schładzania.
-    Zwraca dict z energią, mocą, temperaturą wyjścia medium i LMTD.
+    Zwraca dict z energią, mocą, wyliczonym czasem grzania, temperaturą wyjścia medium i LMTD.
     """
     delta_t_heating = t_out - t_in
     q_heating_kj = (mass_product_kg * cp_product * delta_t_heating) + (tank_mass_kg * cp_steel * delta_t_heating)
     q_heating_mj = q_heating_kj / 1000.0
-    power_heating_kw = q_heating_kj / (process_time_h * 3600.0) if process_time_h > 0 else 0.0
+
+    approx_dt_heating = t_utility_heat_in - ((t_in + t_out) / 2.0)
+    if approx_dt_heating <= 0:
+        # Medium grzewcze jest zbyt zimne względem produktu - wymiennik nie zadziała.
+        power_heating_kw = 0.0
+        process_time_h = float("nan")
+        heating_status = "niewystarczajace_dt"
+    else:
+        power_heating_kw = (k_coeff_grzania * exchange_area_m2 * approx_dt_heating) / 1000.0
+        process_time_h = q_heating_kj / (power_heating_kw * 3600.0) if power_heating_kw > 0 else float("nan")
+        heating_status = "ok"
 
     media_cfg = MEDIA_PROCESOWE[utility_type_heat]
     is_steam = media_cfg.get("steam", False)
@@ -199,7 +213,7 @@ def compute_thermal_balance(mass_product_kg, cp_product, t_in, t_out, process_ti
         t_utility_heat_out = t_utility_heat_in  # kondensat opuszcza wymiennik ~w temp. nasycenia
     else:
         cp_heat_utility = media_cfg["cp"]
-        mass_utility_heat_kg = utility_flow_lmin * (process_time_h * 60.0)
+        mass_utility_heat_kg = utility_flow_lmin * (process_time_h * 60.0) if heating_status == "ok" else 0.0
         if mass_utility_heat_kg > 0 and cp_heat_utility > 0:
             delta_t_utility_heat = q_heating_kj / (mass_utility_heat_kg * cp_heat_utility)
             t_utility_heat_out = t_utility_heat_in - delta_t_utility_heat
@@ -219,6 +233,8 @@ def compute_thermal_balance(mass_product_kg, cp_product, t_in, t_out, process_ti
     return {
         "q_heating_mj": q_heating_mj,
         "power_heating_kw": power_heating_kw,
+        "process_time_h": process_time_h,
+        "heating_status": heating_status,
         "mass_utility_heat_kg": mass_utility_heat_kg,
         "t_utility_heat_out": t_utility_heat_out,
         "lmtd_h": lmtd_h,
@@ -500,7 +516,7 @@ with tab2:
                 "cp_product": 2.10,
                 "t_product_in": 20.0,
                 "t_product_out": 70.0,
-                "process_time_h": 1.5,
+                "k_coeff_grzania": 450.0,
                 "tank_mass": 1200.0,
                 "cp_steel": 0.46,
                 "t_discharge_c": 30.0,
@@ -558,14 +574,16 @@ with tab2:
                     p["t_utility_heat_in"] = st.number_input(f"Temp. zasilania medium grzewczego [°C]:", value=float(p["t_utility_heat_in"]), key=f"t_ut_h_{m_id}")
                     if MEDIA_PROCESOWE[p["utility_type_heat"]].get("steam"):
                         st.caption("ℹ️ Para nasycona: bilans liczony przez ciepło skraplania, nie cp·ΔT.")
+                    p["k_coeff_grzania"] = st.number_input(f"Współczynnik przenikania ciepła — grzanie k [W/m²K]:", min_value=1.0, value=float(p["k_coeff_grzania"]), key=f"k_grz_{m_id}")
                     p["utility_type_cool"] = st.selectbox(f"Medium chłodzące:", list(MEDIA_PROCESOWE.keys()), index=list(MEDIA_PROCESOWE.keys()).index(p["utility_type_cool"]), key=f"ut_c_type_{m_id}")
                     p["t_utility_cool_in"] = st.number_input(f"Temp. wody chłodzącej [°C]:", value=float(p["t_utility_cool_in"]), key=f"t_ut_c_{m_id}")
-                    p["exchange_area_m2"] = st.number_input(f"Powierzchnia wymiany [m²]:", min_value=0.1, value=float(p["exchange_area_m2"]), key=f"area_{m_id}")
+                    p["exchange_area_m2"] = st.number_input(f"Powierzchnia wymiany (wspólny płaszcz) [m²]:", min_value=0.1, value=float(p["exchange_area_m2"]), key=f"area_{m_id}")
                     p["utility_flow_lmin"] = st.number_input(f"Przepływ medium [l/min]:", min_value=1.0, value=float(p["utility_flow_lmin"]), key=f"ut_flow_{m_id}")
                     p["t_product_in"] = st.number_input(f"Temp. początkowa płynu [°C]:", value=float(p["t_product_in"]), key=f"tpin_adv_{m_id}")
                     p["t_product_out"] = st.number_input(f"Temp. procesu (gorący) [°C]:", value=float(p["t_product_out"]), key=f"tpout_adv_{m_id}")
                     p["t_discharge_c"] = st.number_input(f"Temp. rozlewu (docelowa) [°C]:", value=float(p["t_discharge_c"]), key=f"tdisc_{m_id}")
-                    p["process_time_h"] = st.number_input(f"Czas grzania [h]:", min_value=0.1, value=float(p["process_time_h"]), key=f"time_adv_{m_id}")
+                    st.caption("ℹ️ Czas grzania nie jest już wpisywany ręcznie — jest wyliczany z mocy grzania "
+                               "(k × A × ΔT) i wymaganej energii, tak samo jak czas chłodzenia.")
 
         st.markdown("---")
 
@@ -602,7 +620,7 @@ with tab2:
                 mass_product = mixer["mass_per_batch"]
                 thermal = compute_thermal_balance(
                     mass_product, p["cp_product"], p["t_product_in"], p["t_product_out"],
-                    p["process_time_h"], p["tank_mass"], p["cp_steel"],
+                    p["k_coeff_grzania"], p["exchange_area_m2"], p["tank_mass"], p["cp_steel"],
                     p["utility_type_heat"], p["utility_flow_lmin"], p["t_utility_heat_in"])
 
                 # --- 4. CHŁODZENIE DO ROZLEWU ---
@@ -617,7 +635,7 @@ with tab2:
                 st.session_state.calculated_times[m_id] = {
                     "power_mix_kw": agitator_power_kw,
                     "power_pump_kw": power_kw_avg,
-                    "heating": p["process_time_h"],
+                    "heating": thermal["process_time_h"] if thermal["heating_status"] == "ok" else 0.0,
                     "pumping": pumping_time_h,
                     "t_max_mix": p["t_product_out"],
                     "t_rozlew": p["t_discharge_c"],
@@ -629,6 +647,7 @@ with tab2:
                 }
 
                 cooling_txt = f"{cooling_time_h:.2f}" if cooling_status == "ok" else ("—" if cooling_status == "brak_potrzeby" else "⚠️ N/A")
+                heating_txt = f"{thermal['process_time_h']:.2f}" if thermal["heating_status"] == "ok" else "⚠️ N/A"
 
                 summary_combined_rows.append({
                     "ID Urządzenia": m_id,
@@ -639,13 +658,14 @@ with tab2:
                     "Moc Mieszania [kW]": round(agitator_power_kw, 2),
                     "Reżim mieszania": mix_regime,
                     "Moc Grzania [kW]": round(thermal["power_heating_kw"], 1),
-                    "Czas Grzania [h]": round(p["process_time_h"], 2),
+                    "Czas Grzania [h]": heating_txt,
                     "LMTD Grzania [K]": round(thermal["lmtd_h"], 1),
                     "Moc Chłodzenia [kW]": round(cooling_power_kw, 1),
                     "Czas chłodzenia [h]": cooling_txt,
                     "_velocity_val": velocity,
                     "_lmtd_trigger": thermal["lmtd_trigger"],
                     "_cooling_status": cooling_status,
+                    "_heating_status": thermal["heating_status"],
                 })
             except Exception as exc:
                 st.error(f"⚠️ Błąd obliczeń dla urządzenia {m_id}: {exc}. Sprawdź parametry w sekcji poniżej.")
@@ -654,7 +674,7 @@ with tab2:
         st.markdown("### 📋 Zbiorcza Specyfikacja Techniczna Maszyn, Pompy i Mieszania")
         st.info("💡 **Kryteria inżynieryjne:** Czerwonym kolorem podświetlane są **wyłącznie komórki**, które wykraczają poza normy "
                 f"(Prędkość poza przedziałem **{VELOCITY_MIN_MS} - {VELOCITY_MAX_MS} m/s**, błąd profilu termicznego LMTD, lub "
-                "niewystarczające ΔT chłodzenia).")
+                "niewystarczające ΔT grzania/chłodzenia).")
 
         if summary_combined_rows:
             df_summary = pd.DataFrame(summary_combined_rows)
@@ -679,6 +699,10 @@ with tab2:
                     if df_summary.loc[idx, "_cooling_status"] == "niewystarczajace_dt":
                         if "Czas chłodzenia [h]" in style_matrix.columns:
                             style_matrix.loc[idx, "Czas chłodzenia [h]"] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
+
+                    if df_summary.loc[idx, "_heating_status"] == "niewystarczajace_dt":
+                        if "Czas Grzania [h]" in style_matrix.columns:
+                            style_matrix.loc[idx, "Czas Grzania [h]"] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
                 return style_matrix
 
             df_filtered = df_summary[columns_to_show]
