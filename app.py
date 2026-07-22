@@ -267,7 +267,7 @@ def compute_cooling(mass_product_kg, cp_product, t_out, t_discharge, t_utility_c
 # --- 2. INICJALIZACJA STRUKTUR W SESJI ---
 if "prod_dict" not in st.session_state:
     st.session_state.prod_dict = {
-        k: {"roczna": 1200000, "user_vol_m3": 15.0, "skus": 1, "num_tanks": 1} for k in FUCHS_PORTFOLIO.keys()
+        k: {"roczna": 1200000, "user_vol_m3": 15.0, "skus": 1, "num_tanks": 1, "tank_volumes": [15.0]} for k in FUCHS_PORTFOLIO.keys()
     }
 
 if "confirmed_mixers" not in st.session_state:
@@ -361,7 +361,8 @@ with tab1:
             )
         with c_ed2:
             st.session_state.prod_dict[selected_family_to_edit]["user_vol_m3"] = st.number_input(
-                "Pojemność Mieszalnika [m³]:", min_value=0.5, value=float(st.session_state.prod_dict[selected_family_to_edit]["user_vol_m3"]), step=0.5
+                "Pojemność Mieszalnika (bazowa) [m³]:", min_value=0.5, value=float(st.session_state.prod_dict[selected_family_to_edit]["user_vol_m3"]), step=0.5,
+                help="Używana bezpośrednio, gdy linia ma jeden zbiornik. Przy kilku zbiornikach to wartość domyślna dla nowo dodanych — każdy można potem zróżnicować poniżej."
             )
         with c_ed3:
             st.session_state.prod_dict[selected_family_to_edit]["skus"] = st.number_input(
@@ -378,25 +379,64 @@ with tab1:
         else:
             st.session_state.prod_dict[selected_family_to_edit]["num_tanks"] = 1
 
+        # --- Pojemności poszczególnych zbiorników, gdy linia jest rozbita na kilka mieszalników ---
+        # Domyślnie każdy nowy zbiornik dziedziczy pojemność bazową ("Pojemność Mieszalnika" powyżej),
+        # ale można ją zróżnicować per zbiornik — np. jeden mniejszy dla niskowolumenowego SKU.
+        tanks_count_selected = st.session_state.prod_dict[selected_family_to_edit]["num_tanks"]
+        base_vol = st.session_state.prod_dict[selected_family_to_edit]["user_vol_m3"]
+        tank_volumes_sel = st.session_state.prod_dict[selected_family_to_edit].setdefault("tank_volumes", [base_vol])
+        if len(tank_volumes_sel) < tanks_count_selected:
+            tank_volumes_sel.extend([base_vol] * (tanks_count_selected - len(tank_volumes_sel)))
+        elif len(tank_volumes_sel) > tanks_count_selected:
+            del tank_volumes_sel[tanks_count_selected:]
+
+        if tanks_count_selected == 1:
+            tank_volumes_sel[0] = base_vol  # przy jednym zbiorniku pole bazowe jest jedynym źródłem prawdy
+        else:
+            st.markdown("###### 🧪 Pojemności poszczególnych zbiorników")
+            st.caption("Domyślnie każdy zbiornik dziedziczy pojemność bazową powyżej — edytuj poniżej, jeśli zbiorniki mają różnić się wielkością "
+                       "(np. jeden większy dla wysokowolumenowego SKU, jeden mniejszy dla niszowego). Roczna produkcja rodziny jest wtedy dzielona "
+                       "między zbiorniki proporcjonalnie do ich pojemności, a nie po równo.")
+            cols_tanks = st.columns(min(tanks_count_selected, 6))
+            for i in range(tanks_count_selected):
+                with cols_tanks[i % len(cols_tanks)]:
+                    tank_volumes_sel[i] = st.number_input(
+                        f"Zbiornik #{i + 1} [m³]:", min_value=0.5, value=float(tank_volumes_sel[i]), step=0.5,
+                        key=f"tankvol_{selected_family_to_edit}_{i}"
+                    )
+
         final_fleet_rows = []
         tag_counter = 101
 
         for kat in wybrane_kategorie:
             m_annual = st.session_state.prod_dict[kat]["roczna"]
-            v_tank_user = st.session_state.prod_dict[kat]["user_vol_m3"]
             tanks_count = st.session_state.prod_dict[kat].get("num_tanks", 1)
+            base_vol_kat = st.session_state.prod_dict[kat]["user_vol_m3"]
+
+            tank_volumes = st.session_state.prod_dict[kat].setdefault("tank_volumes", [base_vol_kat])
+            if len(tank_volumes) < tanks_count:
+                tank_volumes.extend([base_vol_kat] * (tanks_count - len(tank_volumes)))
+            elif len(tank_volumes) > tanks_count:
+                del tank_volumes[tanks_count:]
+            if tanks_count == 1:
+                tank_volumes[0] = base_vol_kat
 
             rho_product = FUCHS_PORTFOLIO[kat]["density"]
             cyc_h = FUCHS_PORTFOLIO[kat]["cycle_h"]
+            total_capacity = sum(tank_volumes)
 
-            mass_per_batch = v_tank_user * rho_product * 1000.0
-            annual_per_tank = m_annual / tanks_count
-            monthly_per_tank = annual_per_tank / MONTHS_PER_YEAR
+            for t_idx, v_tank_user in enumerate(tank_volumes):
+                # Podział rocznej produkcji rodziny między zbiorniki PROPORCJONALNIE do ich pojemności —
+                # jeśli zbiorniki mają różne wielkości, większy zbiornik przejmuje większą część wolumenu
+                # zamiast wymuszania tej samej liczby szarż co na małym zbiorniku.
+                capacity_share = (v_tank_user / total_capacity) if total_capacity > 0 else (1.0 / tanks_count)
+                annual_per_tank = m_annual * capacity_share
+                monthly_per_tank = annual_per_tank / MONTHS_PER_YEAR
 
-            batches_per_tank = math.ceil(monthly_per_tank / mass_per_batch) if mass_per_batch > 0 else 0
-            real_utilization = (batches_per_tank * cyc_h) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
+                mass_per_batch = v_tank_user * rho_product * 1000.0
+                batches_per_tank = math.ceil(monthly_per_tank / mass_per_batch) if mass_per_batch > 0 else 0
+                real_utilization = (batches_per_tank * cyc_h) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
 
-            for t_idx in range(tanks_count):
                 tag_id = f"MT-{tag_counter}" + (f"-Z{t_idx+1}" if tanks_count > 1 else "")
                 status_txt = "🟢 Optymalna" if real_utilization <= MAX_TANK_UTILIZATION_PCT else "⚠️ Przeciążenie (>85%)"
                 if v_tank_user < MIN_TANK_VOLUME_M3:
