@@ -354,7 +354,7 @@ with tab1:
 
         selected_family_to_edit = st.selectbox("Wybierz linię produktową do modyfikacji:", wybrane_kategorie)
 
-        c_ed1, c_ed2, c_ed3 = st.columns(3)
+        c_ed1, c_ed2, c_ed3, c_ed4 = st.columns(4)
         with c_ed1:
             st.session_state.prod_dict[selected_family_to_edit]["roczna"] = st.number_input(
                 "Roczna produkcja [kg]:", min_value=0, value=int(st.session_state.prod_dict[selected_family_to_edit]["roczna"]), step=50000
@@ -365,6 +365,14 @@ with tab1:
                 help="Używana bezpośrednio, gdy linia ma jeden zbiornik. Przy kilku zbiornikach to wartość domyślna dla nowo dodanych — każdy można potem zróżnicować poniżej."
             )
         with c_ed3:
+            st.session_state.prod_dict[selected_family_to_edit].setdefault("cycle_h_base", FUCHS_PORTFOLIO[selected_family_to_edit]["cycle_h"])
+            st.session_state.prod_dict[selected_family_to_edit]["cycle_h_base"] = st.number_input(
+                "Cykl Procesowy (bazowy, szacunkowy) [h]:", min_value=0.5, value=float(st.session_state.prod_dict[selected_family_to_edit]["cycle_h_base"]), step=0.5,
+                help="Szacunkowy czas cyklu jednej szarży (dozowanie + grzanie + homogenizacja + chłodzenie + rozlew), do wstępnego wymiarowania floty — "
+                     "różne receptury/wielkości szarży realnie różnią się czasem cyklu. Po skonfigurowaniu inżynierii w Zakładce 2/6 zobaczysz obok "
+                     "rzeczywisty, policzony czas cyklu do porównania."
+            )
+        with c_ed4:
             st.session_state.prod_dict[selected_family_to_edit]["skus"] = st.number_input(
                 "Liczba aktywnych SKUs:", min_value=1, value=int(st.session_state.prod_dict[selected_family_to_edit]["skus"]), step=1
             )
@@ -379,30 +387,41 @@ with tab1:
         else:
             st.session_state.prod_dict[selected_family_to_edit]["num_tanks"] = 1
 
-        # --- Pojemności poszczególnych zbiorników, gdy linia jest rozbita na kilka mieszalników ---
-        # Domyślnie każdy nowy zbiornik dziedziczy pojemność bazową ("Pojemność Mieszalnika" powyżej),
-        # ale można ją zróżnicować per zbiornik — np. jeden mniejszy dla niskowolumenowego SKU.
+        # --- Pojemności i cykle poszczególnych zbiorników, gdy linia jest rozbita na kilka mieszalników ---
+        # Domyślnie każdy nowy zbiornik dziedziczy wartości bazowe powyżej, ale można je zróżnicować per
+        # zbiornik — np. mniejsza szarża o krótszym cyklu dla niskowolumenowego SKU.
         tanks_count_selected = st.session_state.prod_dict[selected_family_to_edit]["num_tanks"]
         base_vol = st.session_state.prod_dict[selected_family_to_edit]["user_vol_m3"]
+        base_cycle = st.session_state.prod_dict[selected_family_to_edit]["cycle_h_base"]
         tank_volumes_sel = st.session_state.prod_dict[selected_family_to_edit].setdefault("tank_volumes", [base_vol])
+        tank_cycles_sel = st.session_state.prod_dict[selected_family_to_edit].setdefault("tank_cycles", [base_cycle])
         if len(tank_volumes_sel) < tanks_count_selected:
             tank_volumes_sel.extend([base_vol] * (tanks_count_selected - len(tank_volumes_sel)))
         elif len(tank_volumes_sel) > tanks_count_selected:
             del tank_volumes_sel[tanks_count_selected:]
+        if len(tank_cycles_sel) < tanks_count_selected:
+            tank_cycles_sel.extend([base_cycle] * (tanks_count_selected - len(tank_cycles_sel)))
+        elif len(tank_cycles_sel) > tanks_count_selected:
+            del tank_cycles_sel[tanks_count_selected:]
 
         if tanks_count_selected == 1:
-            tank_volumes_sel[0] = base_vol  # przy jednym zbiorniku pole bazowe jest jedynym źródłem prawdy
+            tank_volumes_sel[0] = base_vol  # przy jednym zbiorniku pola bazowe są jedynym źródłem prawdy
+            tank_cycles_sel[0] = base_cycle
         else:
-            st.markdown("###### 🧪 Pojemności poszczególnych zbiorników")
-            st.caption("Domyślnie każdy zbiornik dziedziczy pojemność bazową powyżej — edytuj poniżej, jeśli zbiorniki mają różnić się wielkością "
-                       "(np. jeden większy dla wysokowolumenowego SKU, jeden mniejszy dla niszowego). Roczna produkcja rodziny jest wtedy dzielona "
-                       "między zbiorniki proporcjonalnie do ich pojemności, a nie po równo.")
-            cols_tanks = st.columns(min(tanks_count_selected, 6))
+            st.markdown("###### 🧪 Pojemności i Cykle Poszczególnych Zbiorników")
+            st.caption("Domyślnie każdy zbiornik dziedziczy wartości bazowe powyżej — edytuj poniżej, jeśli zbiorniki różnią się wielkością szarży "
+                       "i/lub czasem cyklu (np. mała szarża niszowego SKU z krótszym cyklem vs. duża szarża wysokowolumenowego SKU z dłuższym). "
+                       "Roczna produkcja rodziny jest wtedy dzielona między zbiorniki proporcjonalnie do ich pojemności, a nie po równo.")
+            cols_tanks = st.columns(min(tanks_count_selected, 4))
             for i in range(tanks_count_selected):
                 with cols_tanks[i % len(cols_tanks)]:
                     tank_volumes_sel[i] = st.number_input(
-                        f"Zbiornik #{i + 1} [m³]:", min_value=0.5, value=float(tank_volumes_sel[i]), step=0.5,
+                        f"Zbiornik #{i + 1} — Pojemność [m³]:", min_value=0.5, value=float(tank_volumes_sel[i]), step=0.5,
                         key=f"tankvol_{selected_family_to_edit}_{i}"
+                    )
+                    tank_cycles_sel[i] = st.number_input(
+                        f"Zbiornik #{i + 1} — Cykl [h]:", min_value=0.5, value=float(tank_cycles_sel[i]), step=0.5,
+                        key=f"tankcyc_{selected_family_to_edit}_{i}"
                     )
 
         final_fleet_rows = []
@@ -412,20 +431,28 @@ with tab1:
             m_annual = st.session_state.prod_dict[kat]["roczna"]
             tanks_count = st.session_state.prod_dict[kat].get("num_tanks", 1)
             base_vol_kat = st.session_state.prod_dict[kat]["user_vol_m3"]
+            base_cycle_kat = st.session_state.prod_dict[kat].setdefault("cycle_h_base", FUCHS_PORTFOLIO[kat]["cycle_h"])
 
             tank_volumes = st.session_state.prod_dict[kat].setdefault("tank_volumes", [base_vol_kat])
+            tank_cycles = st.session_state.prod_dict[kat].setdefault("tank_cycles", [base_cycle_kat])
             if len(tank_volumes) < tanks_count:
                 tank_volumes.extend([base_vol_kat] * (tanks_count - len(tank_volumes)))
             elif len(tank_volumes) > tanks_count:
                 del tank_volumes[tanks_count:]
+            if len(tank_cycles) < tanks_count:
+                tank_cycles.extend([base_cycle_kat] * (tanks_count - len(tank_cycles)))
+            elif len(tank_cycles) > tanks_count:
+                del tank_cycles[tanks_count:]
             if tanks_count == 1:
                 tank_volumes[0] = base_vol_kat
+                tank_cycles[0] = base_cycle_kat
 
             rho_product = FUCHS_PORTFOLIO[kat]["density"]
-            cyc_h = FUCHS_PORTFOLIO[kat]["cycle_h"]
             total_capacity = sum(tank_volumes)
 
             for t_idx, v_tank_user in enumerate(tank_volumes):
+                cyc_h = tank_cycles[t_idx]
+
                 # Podział rocznej produkcji rodziny między zbiorniki PROPORCJONALNIE do ich pojemności —
                 # jeśli zbiorniki mają różne wielkości, większy zbiornik przejmuje większą część wolumenu
                 # zamiast wymuszania tej samej liczby szarż co na małym zbiorniku.
@@ -442,11 +469,25 @@ with tab1:
                 if v_tank_user < MIN_TANK_VOLUME_M3:
                     status_txt = "❌ Poniżej min. fabryki (<5 m³)"
 
+                # Rzeczywisty, policzony czas cyklu (dozowanie+grzanie+homog.+pompowanie+chłodzenie) z
+                # Zakładki 2/6 — pokazany obok szacunku wyłącznie do porównania, jeśli już skonfigurowano
+                # inżynierię dla tego urządzenia (w pierwszym uruchomieniu floty jeszcze go nie będzie).
+                real_cycle_txt = "—"
+                ct = st.session_state.calculated_times.get(tag_id)
+                bt = st.session_state.batch_time_components.get(tag_id)
+                if ct is not None:
+                    real_cycle_h = ct.get("heating", 0.0) + ct.get("pumping", 0.0) + ct.get("cooling_h", 0.0)
+                    if bt is not None:
+                        real_cycle_h += bt.get("dosing", 0.0) + bt.get("homog", 0.0)
+                    real_cycle_txt = f"{real_cycle_h:.2f}"
+
                 final_fleet_rows.append({
                     "ID Urządzenia": tag_id,
                     "Przypisana Linia": kat,
                     "Pojemność [m³]": round(v_tank_user, 1),
                     "Masa Szarży [kg]": int(mass_per_batch),
+                    "Cykl Szacowany [h]": round(cyc_h, 2),
+                    "Cykl Rzeczywisty [h]": real_cycle_txt,
                     "Szarż / miesiąc (per aparat)": int(batches_per_tank),
                     "Utylizacja Czasowa": f"{real_utilization:.1f}%",
                     "Status": status_txt
@@ -492,7 +533,7 @@ with tab1:
                 # Walidacja wierszy dodanych/edytowanych ręcznie w data_editor, aby uniknąć
                 # KeyError przy próbie odczytu nieistniejącej linii z FUCHS_PORTFOLIO.
                 invalid_rows = edited_df[~edited_df["Przypisana Linia"].isin(FUCHS_PORTFOLIO.keys())]
-                numeric_cols = ["Pojemność [m³]", "Masa Szarży [kg]", "Szarż / miesiąc (per aparat)"]
+                numeric_cols = ["Pojemność [m³]", "Masa Szarży [kg]", "Cykl Szacowany [h]", "Szarż / miesiąc (per aparat)"]
                 bad_numeric = edited_df[numeric_cols].apply(pd.to_numeric, errors="coerce").isna().any(axis=1)
 
                 if not invalid_rows.empty:
@@ -512,6 +553,7 @@ with tab1:
                             "material": FUCHS_PORTFOLIO[kat]["material"],
                             "batches_count": int(row["Szarż / miesiąc (per aparat)"]),
                             "mass_per_batch": int(row["Masa Szarży [kg]"]),
+                            "cycle_h": float(row["Cykl Szacowany [h]"]),
                             "annual_volume": int(row["Masa Szarży [kg]"]) * int(row["Szarż / miesiąc (per aparat)"]) * MONTHS_PER_YEAR
                         })
 
@@ -1005,6 +1047,42 @@ with tab3:
             st.caption("Kolumna **Wąskie gardło** pokazuje, czy czas rozlewu jest dziś limitowany przez wydajność pompy z Zakładki 2, "
                        "czy przez sekcję głowic nalewczych skonfigurowaną powyżej.")
             st.dataframe(pd.DataFrame(real_split_rows), hide_index=True, use_container_width=True)
+
+            # ============================================================
+            # PODSUMOWANIE POWIERZCHNI MAGAZYNOWEJ (suma miejsc paletowych -> m²)
+            # ============================================================
+            st.markdown("##### 📐 Podsumowanie Powierzchni Magazynowej")
+            st.caption("Powierzchnia na jedno miejsce paletowe zależy od typu składowania — regały selektywne wymagają dużo więcej "
+                       "przestrzeni na alejki niż składowanie blokowe. Wybierz typ poniżej lub wpisz własną wartość.")
+
+            RACKING_PRESETS_M2 = {
+                "Składowanie blokowe (block stacking)": 1.3,
+                "Regały wjezdne (drive-in)": 1.8,
+                "Regały paletowe selektywne (standardowe)": 3.0,
+                "Własna wartość": None,
+            }
+            c_wh1, c_wh2 = st.columns(2)
+            with c_wh1:
+                typ_skladowania = st.selectbox("Typ składowania:", list(RACKING_PRESETS_M2.keys()), index=2, key="typ_skladowania_tab3")
+            with c_wh2:
+                domyslna_powierzchnia = RACKING_PRESETS_M2[typ_skladowania]
+                powierzchnia_na_miejsce = st.number_input(
+                    "Powierzchnia na 1 miejsce paletowe [m²]:", min_value=0.5,
+                    value=float(domyslna_powierzchnia) if domyslna_powierzchnia is not None else 3.0,
+                    step=0.1, disabled=domyslna_powierzchnia is not None,
+                    help="Odblokowuje się przy wyborze 'Własna wartość' powyżej. Wartość obejmuje udział alejek i dróg transportowych, nie tylko odcisk samej palety."
+                )
+
+            total_miejsca_magazynowe = sum(r["Miejsca magazynowe [szt] 📐"] for r in real_split_rows)
+            total_powierzchnia_m2 = total_miejsca_magazynowe * powierzchnia_na_miejsce
+
+            m_wh1, m_wh2, m_wh3 = st.columns(3)
+            with m_wh1: st.metric("📦 Łączna liczba miejsc paletowych", f"{total_miejsca_magazynowe:,} szt.")
+            with m_wh2: st.metric("📐 Wymagana powierzchnia magazynowa", f"{total_powierzchnia_m2:,.0f} m²")
+            with m_wh3: st.metric("📏 Powierzchnia / miejsce paletowe", f"{powierzchnia_na_miejsce:.2f} m²")
+
+            st.caption("💡 Powyższa suma to zapotrzebowanie na miejsca paletowe **wyrobów gotowych** (Zakładka 3). Bufor **surowców** "
+                       "(zbiorniki/silosy) jest liczony i wymiarowany osobno w Zakładce 5 (Surowce i Park Zbiorników).")
         else:
             st.info("Brak skonfigurowanego podziału opakowań o niezerowym udziale — uzupełnij procenty w panelu bocznym.")
 
@@ -1054,7 +1132,7 @@ with tab4:
             # nie odwiedził Zakładki 2 dla danego urządzenia.
             m_data = calculated_times.get(tag, {"power_mix_kw": 5.5, "power_pump_kw": 1.5, "heating": 1.5, "pumping": 0.75, "t_max_mix": 60.0, "t_rozlew": 30.0})
 
-            mixing_energy = m_data["power_mix_kw"] * prod_info["cycle_h"] * batches_per_month
+            mixing_energy = m_data["power_mix_kw"] * mixer.get("cycle_h", prod_info["cycle_h"]) * batches_per_month
             pumping_energy = m_data["power_pump_kw"] * m_data["pumping"] * batches_per_month
             cost_el = ((mixing_energy + pumping_energy) / 1000.0) * cena_mwh
             total_energy_cost_el += cost_el
