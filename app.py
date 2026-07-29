@@ -102,6 +102,344 @@ QC_TEST_CATALOG = {
 }
 
 
+# Lista surowców receptury produktowej (Zakładka 7 / Receptury) - dozowanie w kg na tonę
+# produktu gotowego [kg/t], kolejność zgodna z szablonem Excel wgrywanym przez użytkownika.
+RECIPE_RAW_MATERIALS = [
+    "Base Oil Group I [kg/t]", "Base Oil Group II [kg/t]", "Base Oil Group III [kg/t]",
+    "Base Oil Group IV (PAO) [kg/t]", "Base Oil Group V (Estry/PAG) [kg/t]",
+    "RRBO (Re-refined) [kg/t]", "Bio-Base Oil (Ester/Vegetable) [kg/t]",
+    "Modyfikator Lepkości (VI Improver) [kg/t]", "Depresator (PPD) [kg/t]",
+    "Dodatek Smarnościowy / Anti-wear (AW) [kg/t]", "Dodatek Wysokociśnieniowy (EP) [kg/t]",
+    "Inhibitor Utleniania (AO) [kg/t]", "Inhibitor Korozji / Pasywator [kg/t]",
+    "Detergenty (TBN Boosters) [kg/t]", "Dyspergatory Bezpopiołowe [kg/t]",
+    "Dodatek Przeciwpienny (Antifoam) [kg/t]", "Modyfikator Tarcia (FM) [kg/t]",
+    "Deemulgatory / Emulgatory [kg/t]", "Modyfikator Uszczelek (Seal Swell) [kg/t]",
+    "Pakiet Silnikowy (PCMO/HDDO) [kg/t]", "Pakiet Przekładniowy (Gear) [kg/t]",
+    "Pakiet Hydrauliczny (Hydraulic) [kg/t]", "Zagęszczacz Mydłowy (Li/Ca/Complex) [kg/t]",
+    "Zagęszczacz Niemydłowy (Polyurea/Bentonit) [kg/t]", "Smar Stały: MoS2 / Grafit [kg/t]",
+    "Smar Stały: PTFE / Boron Nitride [kg/t]", "Barwnik / Znacznik / Zapach [kg/t]",
+    "Woda Demineralizowana [kg/t]", "Biocyd / Fungicyd [kg/t]",
+]
+
+# Grupy produktowe do wyboru (lista rozwijana w szablonie Excel + walidacja przy imporcie).
+RECIPE_PRODUCT_GROUPS = ["Cleaners", "Engine Oils", "Glycols", "Greases", "Hydraulic Oils", "Watermiscibles"]
+
+RECIPE_GROUP_COL = "Grupa Produktowa"
+RECIPE_PRODUCT_COL = "Produkt"
+RECIPE_ANNUAL_COL = "Roczne Zapotrzebowanie Produktu [tony]"
+RECIPE_SUM_COL = "Suma Udziałów Składników [kg]"
+RECIPE_DENSITY_COL = "Gęstość 15°C [g/cm³]"
+RECIPE_LOSS_COL = "Szacowane Straty Procesowe [%]"
+RECIPE_RAW_DEMAND_COL = "Roczne Zapotrzebowanie Surowcowe [tony]"
+RECIPE_NOTES_COL = "Uwagi Technologiczne / Status QA"
+
+# Docelowa suma dozowania składników na tonę produktu - 1000 kg/t (1 tona), z tolerancją na
+# zaokrąglenia ręcznego wpisywania receptur.
+RECIPE_TARGET_SUM_KG = 1000.0
+RECIPE_SUM_TOLERANCE_KG = 50.0
+
+# Informacja, czy dany surowiec nadaje się fizycznie/praktycznie do magazynowania
+# w zbiorniku (płyn luzem) czy zawsze zostaje w beczkach/IBC/workach - niezależnie od
+# wolumenu (ciała stałe, bardzo niskie dozowania, ograniczona trwałość po otwarciu itp.).
+# To jest orientacyjna reguła inżynierska do podpowiedzi w aplikacji, nie sztywna norma -
+# użytkownik może ją zignorować dla konkretnego przypadku.
+RAW_MATERIAL_STORAGE_INFO = {
+    "Base Oil Group I [kg/t]": {"bulk_eligible": True, "note": "Baza mineralna - standardowo magazynowana luzem w zbiornikach."},
+    "Base Oil Group II [kg/t]": {"bulk_eligible": True, "note": "Baza mineralna - standardowo magazynowana luzem w zbiornikach."},
+    "Base Oil Group III [kg/t]": {"bulk_eligible": True, "note": "Baza syntetyczna - standardowo magazynowana luzem w zbiornikach."},
+    "Base Oil Group IV (PAO) [kg/t]": {"bulk_eligible": True, "note": "PAO - magazynowanie luzem możliwe, zwykle droższe medium więc warto pilnować rotacji."},
+    "Base Oil Group V (Estry/PAG) [kg/t]": {"bulk_eligible": True, "note": "Estry/PAG - higroskopijne, magazynowanie luzem OK, ale zbiornik wymaga osuszania/inertyzacji i krótszej rotacji."},
+    "RRBO (Re-refined) [kg/t]": {"bulk_eligible": True, "note": "Baza re-refinowana - magazynowanie luzem jak dla baz mineralnych."},
+    "Bio-Base Oil (Ester/Vegetable) [kg/t]": {"bulk_eligible": True, "note": "Podatna na utlenianie - luzem możliwe, ale przy niższej rotacji zalecana krótsza autonomia zapasu."},
+    "Modyfikator Lepkości (VI Improver) [kg/t]": {"bulk_eligible": True, "note": "Przy dużym wolumenie opłacalny zbiornik dedykowany; przy małym - beczki/IBC."},
+    "Depresator (PPD) [kg/t]": {"bulk_eligible": True, "note": "Zwykle niskie dozowanie - zbiornik opłacalny dopiero przy dużym wolumenie."},
+    "Dodatek Smarnościowy / Anti-wear (AW) [kg/t]": {"bulk_eligible": True, "note": "Zbiornik opłacalny przy dużym wolumenie."},
+    "Dodatek Wysokociśnieniowy (EP) [kg/t]": {"bulk_eligible": True, "note": "Zbiornik opłacalny przy dużym wolumenie (typowo oleje przekładniowe)."},
+    "Inhibitor Utleniania (AO) [kg/t]": {"bulk_eligible": True, "note": "Zbiornik opłacalny przy dużym wolumenie."},
+    "Inhibitor Korozji / Pasywator [kg/t]": {"bulk_eligible": True, "note": "Zbiornik opłacalny przy dużym wolumenie."},
+    "Detergenty (TBN Boosters) [kg/t]": {"bulk_eligible": True, "note": "Przy wysokowolumenowych olejach silnikowych zbiornik dedykowany jest standardem branżowym."},
+    "Dyspergatory Bezpopiołowe [kg/t]": {"bulk_eligible": True, "note": "Zbiornik opłacalny przy dużym wolumenie."},
+    "Dodatek Przeciwpienny (Antifoam) [kg/t]": {"bulk_eligible": False, "note": "Bardzo niskie dozowanie (dziesiąte części %) - zawsze beczki/małe pojemniki, precyzja dozowania ważniejsza niż koszt logistyki."},
+    "Modyfikator Tarcia (FM) [kg/t]": {"bulk_eligible": True, "note": "Zbiornik opłacalny dopiero przy dużym wolumenie, zwykle beczki/IBC."},
+    "Deemulgatory / Emulgatory [kg/t]": {"bulk_eligible": True, "note": "Zbiornik opłacalny przy dużym wolumenie."},
+    "Modyfikator Uszczelek (Seal Swell) [kg/t]": {"bulk_eligible": False, "note": "Niskie dozowanie i wysoka cena jednostkowa - zwykle beczki/IBC nawet przy większych wolumenach."},
+    "Pakiet Silnikowy (PCMO/HDDO) [kg/t]": {"bulk_eligible": True, "note": "Gotowy pakiet dodatków - przy wysokim wolumenie standardowo dedykowany zbiornik (dostawy cysternami)."},
+    "Pakiet Przekładniowy (Gear) [kg/t]": {"bulk_eligible": True, "note": "Gotowy pakiet dodatków - zbiornik opłacalny przy dużym wolumenie."},
+    "Pakiet Hydrauliczny (Hydraulic) [kg/t]": {"bulk_eligible": True, "note": "Gotowy pakiet dodatków - zbiornik opłacalny przy dużym wolumenie."},
+    "Zagęszczacz Mydłowy (Li/Ca/Complex) [kg/t]": {"bulk_eligible": False, "note": "Pasta/proszek do produkcji smarów - magazynowany w beczkach/workach, nie w zbiorniku cieczy."},
+    "Zagęszczacz Niemydłowy (Polyurea/Bentonit) [kg/t]": {"bulk_eligible": False, "note": "Ciało stałe/proszek - beczki/worki, nie zbiornik cieczy."},
+    "Smar Stały: MoS2 / Grafit [kg/t]": {"bulk_eligible": False, "note": "Proszek stały - zawsze worki/beczki, nie nadaje się do zbiornika."},
+    "Smar Stały: PTFE / Boron Nitride [kg/t]": {"bulk_eligible": False, "note": "Proszek stały - zawsze worki/beczki, nie nadaje się do zbiornika."},
+    "Barwnik / Znacznik / Zapach [kg/t]": {"bulk_eligible": False, "note": "Śladowe dozowanie - zawsze małe pojemniki/beczki, zbiornik nieopłacalny przy żadnym wolumenie."},
+    "Woda Demineralizowana [kg/t]": {"bulk_eligible": True, "note": "Zawsze warto trzymać w zbiorniku/cysternie - tani, wysokowolumenowy nośnik."},
+    "Biocyd / Fungicyd [kg/t]": {"bulk_eligible": False, "note": "Ograniczona trwałość i niskie dozowanie - zalecane beczki/IBC z szybką rotacją, nie długie magazynowanie luzem."},
+}
+
+
+def generate_recipe_template_bytes():
+    """
+    Buduje w pamięci szablon Excel (openpyxl) do uzupełnienia przez użytkownika: grupa
+    produktowa, nazwa produktu, roczne zapotrzebowanie na produkt [tony], dozowanie
+    surowców [kg/t] (29 pozycji: bazy olejowe, dodatki, pakiety, zagęszczacze, smary stałe,
+    woda DEMI, biocyd), oraz gęstość, szacowane straty procesowe, wyliczone roczne
+    zapotrzebowanie surowcowe i pole na uwagi technologiczne/status QA.
+    Kolumny 'Suma Udziałów Składników' i 'Roczne Zapotrzebowanie Surowcowe' są formułami
+    Excela (nie sztywnymi wartościami z Pythona), żeby przeliczały się po edycji w arkuszu.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+    from openpyxl.formatting.rule import CellIsRule, FormulaRule
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = "Receptury"
+
+    header_font = Font(bold=True, name="Arial", size=10, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    input_fill = PatternFill("solid", fgColor="DDEBF7")
+    computed_fill = PatternFill("solid", fgColor="F2F2F2")
+    example_font = Font(name="Arial", size=10, italic=True, color="0000FF")
+    normal_font = Font(name="Arial", size=10)
+    wrap_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    headers = ([RECIPE_GROUP_COL, RECIPE_PRODUCT_COL, RECIPE_ANNUAL_COL] + RECIPE_RAW_MATERIALS +
+               [RECIPE_SUM_COL, RECIPE_DENSITY_COL, RECIPE_LOSS_COL, RECIPE_RAW_DEMAND_COL, RECIPE_NOTES_COL])
+    n_fixed_left = 3          # Grupa, Produkt, Roczne Zapotrzebowanie Produktu
+    n_materials = len(RECIPE_RAW_MATERIALS)
+    first_mat_col = n_fixed_left + 1
+    last_mat_col = n_fixed_left + n_materials
+    sum_col = last_mat_col + 1
+    density_col = sum_col + 1
+    loss_col = density_col + 1
+    raw_demand_col = loss_col + 1
+    notes_col = raw_demand_col + 1
+
+    for col_idx, h in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = wrap_center
+    ws.freeze_panes = get_column_letter(n_fixed_left + 1) + "2"
+    ws.row_dimensions[1].height = 50
+
+    ws_info = wb.create_sheet("Instrukcja")
+    info_lines = [
+        "INSTRUKCJA WYPEŁNIANIA:",
+        "1. Nie zmieniaj nazw ani kolejności kolumn w arkuszu 'Receptury'.",
+        f"2. '{RECIPE_GROUP_COL}' - wybierz z listy rozwijanej: {', '.join(RECIPE_PRODUCT_GROUPS)}.",
+        f"3. '{RECIPE_ANNUAL_COL}' - roczny wolumen produkcji GOTOWEGO produktu (bez strat procesowych).",
+        "4. Kolumny surowcowe [kg/t] - ile kg danego surowca zużywa się na 1 tonę GOTOWEGO produktu.",
+        f"5. '{RECIPE_SUM_COL}' liczy się sama (formuła) - powinna wynosić ok. 1000 kg (tolerancja +/-{RECIPE_SUM_TOLERANCE_KG:.0f} kg).",
+        f"6. '{RECIPE_DENSITY_COL}' i '{RECIPE_LOSS_COL}' wpisz ręcznie dla każdego produktu.",
+        f"7. '{RECIPE_RAW_DEMAND_COL}' liczy się sama (formuła) = zapotrzebowanie produktu / (1 - straty%)"
+        " - to ILE SUROWCA trzeba faktycznie zakupić, uwzględniając straty procesowe.",
+        "8. Puste komórki w kolumnach surowcowych są traktowane jako 0 kg/t.",
+        "9. Dodaj tyle wierszy produktów, ile potrzebujesz - przeciągnij formuły w dół.",
+        "10. Przykładowe wiersze (niebieska kursywa) pokazują format - usuń je lub nadpisz własnymi danymi.",
+    ]
+    for i, line in enumerate(info_lines, start=1):
+        c = ws_info.cell(row=i, column=1, value=line)
+        c.font = Font(bold=(i == 1), name="Arial", size=11)
+    ws_info.column_dimensions["A"].width = 110
+
+    example_rows = [
+        {
+            RECIPE_GROUP_COL: "Hydraulic Oils", RECIPE_PRODUCT_COL: "Przykład: Hydraulic Oil 46",
+            RECIPE_ANNUAL_COL: 500, RECIPE_DENSITY_COL: 0.876, RECIPE_LOSS_COL: 1.5,
+            RECIPE_NOTES_COL: "Receptura referencyjna - status QA: zatwierdzona",
+            "Base Oil Group II [kg/t]": 965, "Depresator (PPD) [kg/t]": 5,
+            "Inhibitor Utleniania (AO) [kg/t]": 8, "Inhibitor Korozji / Pasywator [kg/t]": 3,
+            "Dodatek Przeciwpienny (Antifoam) [kg/t]": 1, "Deemulgatory / Emulgatory [kg/t]": 18,
+        },
+        {
+            RECIPE_GROUP_COL: "Engine Oils", RECIPE_PRODUCT_COL: "Przykład: Engine Oil 5W-30",
+            RECIPE_ANNUAL_COL: 800, RECIPE_DENSITY_COL: 0.855, RECIPE_LOSS_COL: 2.0,
+            RECIPE_NOTES_COL: "Receptura referencyjna - status QA: w walidacji",
+            "Base Oil Group III [kg/t]": 820, "Modyfikator Lepkości (VI Improver) [kg/t]": 80,
+            "Depresator (PPD) [kg/t]": 3, "Dodatek Smarnościowy / Anti-wear (AW) [kg/t]": 10,
+            "Inhibitor Utleniania (AO) [kg/t]": 12, "Inhibitor Korozji / Pasywator [kg/t]": 5,
+            "Pakiet Silnikowy (PCMO/HDDO) [kg/t]": 68, "Dodatek Przeciwpienny (Antifoam) [kg/t]": 1,
+            "Modyfikator Tarcia (FM) [kg/t]": 1,
+        },
+    ]
+
+    start_data_row = 2
+    n_blank_rows = 20
+    total_rows = len(example_rows) + n_blank_rows
+    sum_col_letter = get_column_letter(sum_col)
+    density_col_letter = get_column_letter(density_col)
+    loss_col_letter = get_column_letter(loss_col)
+    raw_demand_col_letter = get_column_letter(raw_demand_col)
+    annual_col_letter = get_column_letter(n_fixed_left)
+    first_mat_letter = get_column_letter(first_mat_col)
+    last_mat_letter = get_column_letter(last_mat_col)
+
+    group_dv = DataValidation(type="list", formula1='"' + ",".join(RECIPE_PRODUCT_GROUPS) + '"', allow_blank=True)
+    ws.add_data_validation(group_dv)
+
+    for r_offset in range(total_rows):
+        row = start_data_row + r_offset
+        is_example = r_offset < len(example_rows)
+        font_to_use = example_font if is_example else normal_font
+
+        if is_example:
+            data = example_rows[r_offset]
+            ws.cell(row=row, column=1, value=data.get(RECIPE_GROUP_COL, "")).font = font_to_use
+            ws.cell(row=row, column=2, value=data.get(RECIPE_PRODUCT_COL, "")).font = font_to_use
+            ws.cell(row=row, column=3, value=data.get(RECIPE_ANNUAL_COL, "")).font = font_to_use
+            for m_idx, mat in enumerate(RECIPE_RAW_MATERIALS, start=first_mat_col):
+                ws.cell(row=row, column=m_idx, value=data.get(mat, 0)).font = font_to_use
+            ws.cell(row=row, column=density_col, value=data.get(RECIPE_DENSITY_COL, "")).font = font_to_use
+            ws.cell(row=row, column=loss_col, value=data.get(RECIPE_LOSS_COL, "")).font = font_to_use
+            ws.cell(row=row, column=notes_col, value=data.get(RECIPE_NOTES_COL, "")).font = font_to_use
+        else:
+            prod_num = r_offset - len(example_rows) + 1
+            ws.cell(row=row, column=1).font = normal_font
+            ws.cell(row=row, column=1).fill = input_fill
+            ws.cell(row=row, column=2, value=f"Product {prod_num}").font = normal_font
+            ws.cell(row=row, column=2).fill = input_fill
+            for col_idx in range(3, last_mat_col + 1):
+                cell = ws.cell(row=row, column=col_idx)
+                cell.font = normal_font
+                cell.fill = input_fill
+            ws.cell(row=row, column=density_col).fill = input_fill
+            ws.cell(row=row, column=loss_col).fill = input_fill
+            ws.cell(row=row, column=notes_col).fill = input_fill
+            group_dv.add(f"A{row}")
+
+        sum_formula = f"=SUM({first_mat_letter}{row}:{last_mat_letter}{row})"
+        sum_cell = ws.cell(row=row, column=sum_col, value=sum_formula)
+        sum_cell.font = font_to_use
+        sum_cell.number_format = '0.0" kg"'
+        sum_cell.fill = computed_fill
+
+        raw_demand_formula = (f'=IF({loss_col_letter}{row}>=100,"błąd: straty>=100%",'
+                               f'{annual_col_letter}{row}/(1-{loss_col_letter}{row}/100))')
+        rd_cell = ws.cell(row=row, column=raw_demand_col, value=raw_demand_formula)
+        rd_cell.font = font_to_use
+        rd_cell.number_format = '0.00" t"'
+        rd_cell.fill = computed_fill
+
+    red_fill = PatternFill("solid", fgColor="FFC7CE")
+    rng = f"{sum_col_letter}{start_data_row}:{sum_col_letter}{start_data_row + total_rows - 1}"
+    ws.conditional_formatting.add(
+        rng,
+        FormulaRule(formula=[f"ABS({sum_col_letter}{start_data_row}-{RECIPE_TARGET_SUM_KG})>{RECIPE_SUM_TOLERANCE_KG}"], fill=red_fill)
+    )
+
+    ws.column_dimensions["A"].width = 18
+    ws.column_dimensions["B"].width = 28
+    ws.column_dimensions["C"].width = 16
+    for col_idx in range(first_mat_col, last_mat_col + 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 13
+    ws.column_dimensions[sum_col_letter].width = 14
+    ws.column_dimensions[density_col_letter].width = 12
+    ws.column_dimensions[loss_col_letter].width = 12
+    ws.column_dimensions[raw_demand_col_letter].width = 16
+    ws.column_dimensions[get_column_letter(notes_col)].width = 30
+
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    return bio.getvalue()
+
+
+def parse_recipe_excel(uploaded_file):
+    """
+    Wczytuje wgrany plik Excel z arkusza 'Receptury' (lub pierwszego arkusza, jeśli nazwa
+    inna) i zwraca (df_czysty, lista_bledow). Waliduje: obecność wymaganych kolumn, brak
+    wartości ujemnych, brak pustego produktu/rocznego zapotrzebowania, poprawność grupy
+    produktowej, oraz sumę dozowania surowców w tolerancji wokół 1000 kg/t. Kolumny
+    wyliczane ('Suma Udziałów Składników', 'Roczne Zapotrzebowanie Surowcowe') są PRZELICZANE
+    w Pythonie (nie czytane z formuł Excela), żeby działać niezależnie od tego, czy plik był
+    wcześniej przeliczony przez Excel/LibreOffice.
+    """
+    errors = []
+    try:
+        xls = pd.ExcelFile(uploaded_file)
+        sheet_name = "Receptury" if "Receptury" in xls.sheet_names else xls.sheet_names[0]
+        df = pd.read_excel(xls, sheet_name=sheet_name)
+    except Exception as exc:
+        return None, [f"Nie udało się odczytać pliku Excel: {exc}"]
+
+    required_cols = [RECIPE_GROUP_COL, RECIPE_PRODUCT_COL, RECIPE_ANNUAL_COL] + RECIPE_RAW_MATERIALS + [
+        RECIPE_DENSITY_COL, RECIPE_LOSS_COL]
+    missing_cols = [c for c in required_cols if c not in df.columns]
+    if missing_cols:
+        return None, [f"W pliku brakuje wymaganych kolumn: {', '.join(missing_cols)}. "
+                       f"Pobierz i użyj oficjalnego szablonu, nie zmieniając nazw kolumn."]
+
+    if RECIPE_NOTES_COL not in df.columns:
+        df[RECIPE_NOTES_COL] = ""
+
+    df = df[df[RECIPE_PRODUCT_COL].notna()].copy()
+    df = df[~df[RECIPE_PRODUCT_COL].astype(str).str.startswith("Przykład")].copy()
+
+    if df.empty:
+        return None, ["Plik nie zawiera żadnych wierszy produktów poza przykładami."]
+
+    for mat in RECIPE_RAW_MATERIALS:
+        df[mat] = pd.to_numeric(df[mat], errors="coerce").fillna(0.0)
+
+    df[RECIPE_ANNUAL_COL] = pd.to_numeric(df[RECIPE_ANNUAL_COL], errors="coerce")
+    missing_annual = df[df[RECIPE_ANNUAL_COL].isna()][RECIPE_PRODUCT_COL].tolist()
+    if missing_annual:
+        errors.append(f"Brak / niepoprawne roczne zapotrzebowanie dla: {', '.join(map(str, missing_annual))}.")
+        df = df[df[RECIPE_ANNUAL_COL].notna()].copy()
+
+    df[RECIPE_DENSITY_COL] = pd.to_numeric(df[RECIPE_DENSITY_COL], errors="coerce")
+    missing_density = df[df[RECIPE_DENSITY_COL].isna()][RECIPE_PRODUCT_COL].tolist()
+    if missing_density:
+        errors.append(f"Brak / niepoprawna gęstość dla: {', '.join(map(str, missing_density))} - przyjęto 0.88 g/cm³.")
+        df[RECIPE_DENSITY_COL] = df[RECIPE_DENSITY_COL].fillna(0.88)
+
+    df[RECIPE_LOSS_COL] = pd.to_numeric(df[RECIPE_LOSS_COL], errors="coerce").fillna(0.0)
+    invalid_loss = df[(df[RECIPE_LOSS_COL] < 0) | (df[RECIPE_LOSS_COL] >= 100)][RECIPE_PRODUCT_COL].tolist()
+    if invalid_loss:
+        errors.append(f"Nieprawidłowe straty procesowe (muszą być 0-99.9%) dla: {', '.join(map(str, invalid_loss))} - przyjęto 0%.")
+        df.loc[(df[RECIPE_LOSS_COL] < 0) | (df[RECIPE_LOSS_COL] >= 100), RECIPE_LOSS_COL] = 0.0
+
+    unknown_group_mask = ~df[RECIPE_GROUP_COL].astype(str).isin(RECIPE_PRODUCT_GROUPS)
+    if unknown_group_mask.any():
+        bad = df.loc[unknown_group_mask, RECIPE_PRODUCT_COL].tolist()
+        errors.append(f"Nieznana/brakująca grupa produktowa (musi być jedną z: {', '.join(RECIPE_PRODUCT_GROUPS)}) dla: "
+                       f"{', '.join(map(str, bad))}. Wiersze pominięte.")
+        df = df[~unknown_group_mask].copy()
+
+    negative_mask = (df[RECIPE_RAW_MATERIALS] < 0).any(axis=1)
+    if negative_mask.any():
+        bad = df.loc[negative_mask, RECIPE_PRODUCT_COL].tolist()
+        errors.append(f"Ujemne wartości dozowania [kg/t] dla: {', '.join(map(str, bad))}.")
+        df = df[~negative_mask].copy()
+
+    df[RECIPE_SUM_COL] = df[RECIPE_RAW_MATERIALS].sum(axis=1)
+    bad_sum_mask = (df[RECIPE_SUM_COL] - RECIPE_TARGET_SUM_KG).abs() > RECIPE_SUM_TOLERANCE_KG
+    if bad_sum_mask.any():
+        bad_rows = df.loc[bad_sum_mask, [RECIPE_PRODUCT_COL, RECIPE_SUM_COL]]
+        details = ", ".join(f"{r[RECIPE_PRODUCT_COL]} ({r[RECIPE_SUM_COL]:.0f} kg/t)" for _, r in bad_rows.iterrows())
+        errors.append(f"Suma dozowania surowców odbiega od 1000 kg/t o więcej niż {RECIPE_SUM_TOLERANCE_KG:.0f} kg dla: "
+                       f"{details}. Te wiersze zostały pominięte.")
+        df = df[~bad_sum_mask].copy()
+
+    dup_mask = df[RECIPE_PRODUCT_COL].duplicated(keep=False)
+    if dup_mask.any():
+        dups = sorted(set(df.loc[dup_mask, RECIPE_PRODUCT_COL].astype(str)))
+        errors.append(f"Zduplikowane nazwy produktów (potraktowane jako oddzielne pozycje): {', '.join(dups)}.")
+
+    if df.empty:
+        return None, errors
+
+    # Roczne zapotrzebowanie surowcowe = zapotrzebowanie na GOTOWY produkt / (1 - straty%) -
+    # ile surowca faktycznie trzeba zakupić, żeby po stratach procesowych uzyskać zakładany
+    # wolumen produktu. Liczone w Pythonie, nie czytane z formuły Excela (patrz docstring).
+    df[RECIPE_RAW_DEMAND_COL] = df[RECIPE_ANNUAL_COL] / (1.0 - df[RECIPE_LOSS_COL] / 100.0)
+
+    return df.reset_index(drop=True), errors
+
+
+
 # ==========================================
 # FUNKCJE POMOCNICZE (wydzielone z pętli UI, aby dało się je testować niezależnie)
 # ==========================================
@@ -300,6 +638,12 @@ if "mixer_tech_advanced_details" not in st.session_state:
 if "batch_time_components" not in st.session_state:
     st.session_state.batch_time_components = {}
 
+if "recipes_df" not in st.session_state:
+    st.session_state.recipes_df = None  # DataFrame wgranych receptur (produkt, roczne zapotrzebowanie, % surowców)
+
+if "recipe_raw_material_consumption" not in st.session_state:
+    st.session_state.recipe_raw_material_consumption = None  # dict: surowiec -> t/rok, liczone z recipes_df
+
 # ==========================================
 # PANEL BOCZNY (Wybór Rodzin i Opakowań)
 # ==========================================
@@ -351,13 +695,14 @@ for kat in wybrane_kategorie:
     st.sidebar.markdown("---")
 
 # --- STRUKTURA INTERFEJSU ---
-tab1, tab2, tab3, tab4, tab5, tab6 = st.tabs([
+tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
     "📊 1. Główne Zestawienie i Utylizacja",
     "📐 2. Karta Maszyn, Kocioł i Zasilanie",
     "📦 3. Logistyka i Czas Rozlewu",
     "💰 4. Analiza Finansowa i Koszty Produkcji",
     "🛢️ 5. Surowce i Park Zbiorników",
-    "🧵 6. Mapa Strumienia Wartości (VSM)"
+    "🧵 6. Mapa Strumienia Wartości (VSM)",
+    "📋 7. Receptury Produktów"
 ])
 
 # ==========================================
@@ -1359,6 +1704,41 @@ with tab5:
         st.dataframe(pd.DataFrame(silos_rows), hide_index=True, use_container_width=True)
         st.metric("🧱 Całkowita wymagana liczba silosów surowcowych", f"{total_tanks} szt.")
 
+        # ============================================================
+        # WYMIAROWANIE PER-SUROWIEC NA PODSTAWIE WGRANYCH RECEPTUR (Zakładka 7)
+        # ============================================================
+        recipe_consumption = st.session_state.get("recipe_raw_material_consumption")
+        if recipe_consumption:
+            st.markdown("---")
+            st.markdown("### 🧪 Wymiarowanie Silosów per Surowiec (na podstawie wgranych receptur)")
+            st.caption("To zestawienie NIE zastępuje powyższego (grupowego, opartego o flotę mieszalników) — pochodzi z "
+                       "receptur wgranych w **Zakładce 7** i daje realny rozkład zużycia na poziomie pojedynczego "
+                       "surowca (np. osobno Base Oil II i Base Oil III), zamiast tylko grup 'Mineralne/Syntetyczne'.")
+
+            recipe_silos_rows = []
+            recipe_total_tanks = 0
+            for material, annual_tony in recipe_consumption.items():
+                if annual_tony <= 0:
+                    continue
+                daily_t = annual_tony / WORKING_DAYS_YEAR
+                fill_factor = OIL_FILL_FACTOR
+                required_m3 = (daily_t * days_of_stock) / fill_factor
+                needed_tanks = math.ceil(required_m3 / (selected_tank_capacity_m3 * TANK_SAFETY_FILL))
+                recipe_total_tanks += needed_tanks
+                recipe_silos_rows.append({
+                    "Surowiec": material, "Konsumpcja [t/rok]": round(annual_tony, 2),
+                    "Wymagany Bufor [m³]": round(required_m3, 1), "Liczba silosów": f"{needed_tanks} szt."
+                })
+
+            if recipe_silos_rows:
+                st.dataframe(pd.DataFrame(recipe_silos_rows), hide_index=True, use_container_width=True)
+                st.metric("🧱 Silosy surowcowe wg receptur (per surowiec)", f"{recipe_total_tanks} szt.")
+            else:
+                st.info("Wgrane receptury nie zawierają jeszcze niezerowego zużycia żadnego surowca.")
+        else:
+            st.info("💡 Wgraj receptury produktów w **Zakładce 7**, aby zobaczyć tu również wymiarowanie silosów "
+                    "per pojedynczy surowiec (a nie tylko wg grup olejowych).")
+
 # ==========================================
 # ZAKŁADKA 6: MAPA STRUMIENIA WARTOŚCI (VSM)
 # ==========================================
@@ -1645,7 +2025,7 @@ with tab6:
         st.markdown(diagram_html, unsafe_allow_html=True)
 
         st.caption("🟢 Zielone pola = czas dodający wartość (przetwarzanie produktu). 🟠 Pomarańczowe pola = czas "
-                   "niedodający wartości bezpośrednio produktowi (kontrola jakości, magazynowanie) — często konieczny "
+                   "niedodający wartości bezpośrednio produktowi (kontrola jakości, magazynowanie) — often konieczny "
                    "operacyjnie, ale to właśnie tu zwykle leży potencjał skrócenia lead time. **C/O** i **OEE** "
                    "pokazane pod nazwą etapu, gdy dotyczy.")
 
@@ -1674,3 +2054,184 @@ with tab6:
             f"C/O: `{total_co_days:.2f} dni` · **Lead Time: `{(total_waiting_days + total_ct_days + total_co_days):.2f} dni`** · "
             f"**VA ratio: `{pce_pct:.1f}%`**"
         )
+
+# ==========================================
+# ==========================================
+# ZAKŁADKA 7: RECEPTURY PRODUKTÓW (import z Excela)
+# ==========================================
+with tab7:
+    st.header("📋 Receptury Produktów: Import z Excela")
+    st.caption("Wgraj plik Excel z listą produktów (przypisanych do grupy produktowej), rocznym zapotrzebowaniem "
+               "i dozowaniem surowców [kg/t] (bazy olejowe, dodatki, pakiety, zagęszczacze, smary stałe, woda DEMI, "
+               "biocyd). Dane z tej zakładki zasilają dodatkowo wymiarowanie silosów **per surowiec** w Zakładce 5 "
+               "oraz podpowiedź, dla których surowców opłaca się dedykowany zbiornik, a które lepiej zostawić "
+               "w beczkach/IBC/workach.")
+
+    st.markdown("### 📥 Krok 1: Pobierz szablon")
+    st.caption("Szablon zawiera dokładną strukturę kolumn wymaganą przez aplikację (nie zmieniaj nazw/kolejności "
+               "kolumn), listę rozwijaną grup produktowych, dwa przykładowe wiersze pokazujące format oraz formuły "
+               "kontrolne — 'Suma Udziałów Składników' podświetla się na czerwono, jeśli odbiega od 1000 kg/t o "
+               "więcej niż tolerancja, a 'Roczne Zapotrzebowanie Surowcowe' wylicza się z uwzględnieniem strat "
+               "procesowych.")
+
+    template_bytes = generate_recipe_template_bytes()
+    st.download_button(
+        label="⬇️ Pobierz szablon Excel (Receptury_Szablon.xlsx)",
+        data=template_bytes,
+        file_name="Receptury_Szablon.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="btn_download_recipe_template"
+    )
+
+    st.markdown("---")
+    st.markdown("### 📤 Krok 2: Wgraj uzupełniony plik")
+    uploaded_recipe_file = st.file_uploader(
+        "Wybierz plik .xlsx z recepturami:", type=["xlsx"], key="recipe_uploader"
+    )
+
+    if uploaded_recipe_file is not None:
+        parsed_df, parse_errors = parse_recipe_excel(uploaded_recipe_file)
+
+        if parse_errors:
+            for err in parse_errors:
+                st.warning(f"⚠️ {err}")
+
+        if parsed_df is not None and not parsed_df.empty:
+            st.session_state.recipes_df = parsed_df
+            st.success(f"✅ Wczytano {len(parsed_df)} poprawnych receptur produktowych.")
+        elif parsed_df is None:
+            st.error("❌ Nie udało się wczytać żadnych poprawnych receptur z tego pliku — popraw błędy powyżej i wgraj ponownie.")
+
+    st.markdown("---")
+
+    if st.session_state.recipes_df is not None and not st.session_state.recipes_df.empty:
+        st.markdown("### 📊 Krok 3: Wczytane receptury (edytowalne)")
+        st.caption("Możesz jeszcze poprawić wartości tutaj przed przeliczeniem — zmiany nie są zapisywane z powrotem "
+                   "do pliku Excel, tylko do tej sesji aplikacji. 'Suma Udziałów Składników' i 'Roczne Zapotrzebowanie "
+                   "Surowcowe' przeliczają się na żywo pod tabelą.")
+
+        edited_recipes_df = st.data_editor(
+            st.session_state.recipes_df,
+            hide_index=True,
+            use_container_width=True,
+            num_rows="dynamic",
+            key="recipes_data_editor",
+            column_config={
+                RECIPE_GROUP_COL: st.column_config.SelectboxColumn(options=RECIPE_PRODUCT_GROUPS),
+            }
+        )
+        st.session_state.recipes_df = edited_recipes_df
+
+        # Przeliczenie kolumn wyliczanych na żywo po edycji w tabeli (niezależnie od tego,
+        # co ewentualnie zostało wpisane ręcznie w tych kolumnach w Excelu).
+        edited_recipes_df[RECIPE_SUM_COL] = edited_recipes_df[RECIPE_RAW_MATERIALS].sum(axis=1)
+        loss_safe = edited_recipes_df[RECIPE_LOSS_COL].clip(lower=0, upper=99.9)
+        edited_recipes_df[RECIPE_RAW_DEMAND_COL] = edited_recipes_df[RECIPE_ANNUAL_COL] / (1.0 - loss_safe / 100.0)
+
+        bad_sum_live = edited_recipes_df[(edited_recipes_df[RECIPE_SUM_COL] - RECIPE_TARGET_SUM_KG).abs() > RECIPE_SUM_TOLERANCE_KG]
+        if not bad_sum_live.empty:
+            zle_produkty = ", ".join(f"{p} ({s:.0f} kg/t)" for p, s in zip(bad_sum_live[RECIPE_PRODUCT_COL], bad_sum_live[RECIPE_SUM_COL]))
+            st.error(f"❌ Suma dozowania surowców odbiega od 1000 kg/t (± {RECIPE_SUM_TOLERANCE_KG:.0f} kg) dla: "
+                     f"{zle_produkty}. Popraw przed dalszą analizą.")
+
+        st.markdown("---")
+        st.markdown("### 🧮 Krok 4: Zagregowane roczne zużycie surowców")
+        st.caption("Roczne zużycie surowca = Σ (roczne zapotrzebowanie SUROWCOWE produktu [t], czyli już z doliczonymi "
+                   "stratami procesowymi × jego dozowanie [kg/t] / 1000), sumowane po wszystkich wgranych produktach.")
+
+        consumption_tony = {}
+        for mat in RECIPE_RAW_MATERIALS:
+            consumption_tony[mat] = (edited_recipes_df[RECIPE_RAW_DEMAND_COL] * (edited_recipes_df[mat] / 1000.0)).sum()
+
+        st.session_state.recipe_raw_material_consumption = consumption_tony
+
+        consumption_rows = [
+            {"Surowiec": mat, "Zużycie [t/rok]": round(t, 2)}
+            for mat, t in sorted(consumption_tony.items(), key=lambda x: -x[1]) if t > 0
+        ]
+        if consumption_rows:
+            st.dataframe(pd.DataFrame(consumption_rows), hide_index=True, use_container_width=True)
+        else:
+            st.info("Wszystkie dozowania [kg/t] są obecnie zerowe — sprawdź dane w tabeli powyżej.")
+
+        total_annual_t_recipes = edited_recipes_df[RECIPE_ANNUAL_COL].sum()
+        total_raw_demand_t = edited_recipes_df[RECIPE_RAW_DEMAND_COL].sum()
+        c_r1, c_r2, c_r3, c_r4 = st.columns(4)
+        with c_r1:
+            st.metric("📦 Liczba produktów w recepturach", f"{len(edited_recipes_df)}")
+        with c_r2:
+            st.metric("📈 Roczne zapotrzebowanie (produkt)", f"{total_annual_t_recipes:,.0f} t")
+        with c_r3:
+            st.metric("🧪 Roczne zapotrzebowanie surowcowe (ze stratami)", f"{total_raw_demand_t:,.0f} t")
+        with c_r4:
+            st.metric("🛢️ Surowce z niezerowym zużyciem", f"{len(consumption_rows)}")
+
+        st.markdown("##### 📦 Zestawienie po grupach produktowych")
+        group_summary = (edited_recipes_df.groupby(RECIPE_GROUP_COL)[RECIPE_ANNUAL_COL]
+                          .sum().reset_index().rename(columns={RECIPE_ANNUAL_COL: "Roczne zapotrzebowanie [t]"}))
+        st.dataframe(group_summary, hide_index=True, use_container_width=True)
+
+        st.info("💡 Przejdź do **Zakładki 5 (Surowce i Park Zbiorników)**, aby zobaczyć wymiarowanie silosów "
+                "per pojedynczy surowiec na podstawie tego zużycia.")
+
+        # ============================================================
+        # KROK 5: REKOMENDACJA SPOSOBU MAGAZYNOWANIA (zbiornik dedykowany vs. beczki/IBC/worki)
+        # ============================================================
+        st.markdown("---")
+        st.markdown("### 🏗️ Krok 5: Rekomendacja Sposobu Magazynowania Surowców")
+        st.caption("Dla każdego surowca sprawdzana jest (a) czy fizycznie/praktycznie nadaje się do magazynowania "
+                   "luzem w zbiorniku, oraz (b) czy roczne zużycie przekracza próg opłacalności dedykowanego "
+                   "zbiornika. Jeśli oba warunki są spełnione — proponowany jest zbiornik o określonej pojemności; "
+                   "w przeciwnym razie zalecane jest magazynowanie w beczkach/IBC/workach.")
+
+        c_s1, c_s2 = st.columns(2)
+        with c_s1:
+            prog_zbiornika_t = st.number_input(
+                "Próg rocznego zużycia do zbiornika dedykowanego [t/rok]:", min_value=1.0, value=50.0, step=5.0,
+                key="prog_zbiornika_recipe",
+                help="Poniżej tego wolumenu zbiornik dedykowany zwykle się nie zwraca — surowiec zostaje w beczkach/IBC, "
+                     "nawet jeśli fizycznie nadaje się do magazynowania luzem."
+            )
+        with c_s2:
+            dni_zapasu_recipe = st.number_input(
+                "Zakładany zapas bezpieczeństwa [dni]:", min_value=3, value=int(st.session_state.get("days_of_stock_tab5", 14)),
+                step=1, key="dni_zapasu_recipe"
+            )
+
+        STANDARD_SMALL_TANK_SIZES_M3 = [5, 10, 15, 20, 30, 50, 60, 80, 100, 150, 200]
+
+        storage_rows = []
+        for mat, annual_t in sorted(consumption_tony.items(), key=lambda x: -x[1]):
+            if annual_t <= 0:
+                continue
+            info = RAW_MATERIAL_STORAGE_INFO.get(mat, {"bulk_eligible": True, "note": "Brak danych - domyślnie traktowany jak ciecz magazynowalna luzem."})
+            bulk_ok = info["bulk_eligible"]
+            recommend_tank = bulk_ok and annual_t >= prog_zbiornika_t
+
+            if recommend_tank:
+                daily_t = annual_t / WORKING_DAYS_YEAR
+                required_m3 = (daily_t * dni_zapasu_recipe) / OIL_FILL_FACTOR
+                recommended_capacity = next((s for s in STANDARD_SMALL_TANK_SIZES_M3 if s >= required_m3 / TANK_SAFETY_FILL), required_m3 / TANK_SAFETY_FILL)
+                rekomendacja = f"🛢️ Zbiornik dedykowany ({recommended_capacity:.0f} m³)"
+                uzasadnienie = f"Zużycie {annual_t:.1f} t/rok ≥ próg {prog_zbiornika_t:.0f} t/rok, surowiec nadaje się do magazynowania luzem."
+            else:
+                rekomendacja = "🧴 Beczki / IBC / worki"
+                if not bulk_ok:
+                    uzasadnienie = info["note"]
+                else:
+                    uzasadnienie = f"Zużycie {annual_t:.1f} t/rok < próg {prog_zbiornika_t:.0f} t/rok — zbiornik dedykowany się nie opłaca."
+
+            storage_rows.append({
+                "Surowiec": mat, "Zużycie [t/rok]": round(annual_t, 2),
+                "Rekomendacja": rekomendacja, "Uzasadnienie": uzasadnienie
+            })
+
+        if storage_rows:
+            st.dataframe(pd.DataFrame(storage_rows), hide_index=True, use_container_width=True)
+            n_tanks_recommended = sum(1 for r in storage_rows if "Zbiornik" in r["Rekomendacja"])
+            st.metric("🛢️ Surowce rekomendowane do zbiornika dedykowanego", f"{n_tanks_recommended} / {len(storage_rows)}")
+        else:
+            st.info("Brak surowców z niezerowym zużyciem do oceny sposobu magazynowania.")
+
+    else:
+        st.info("💡 Wgraj plik z recepturami powyżej, aby zobaczyć tu zagregowane zużycie surowców i rekomendacje magazynowania.")
