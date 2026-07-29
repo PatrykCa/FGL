@@ -1147,67 +1147,71 @@ if "equipment_df" not in st.session_state:
 if "equipment_install_counts" not in st.session_state:
     st.session_state.equipment_install_counts = {}  # dict: Grupa Produktowa -> liczba planowanych instalacji
 
-if "recipe_products_seen" not in st.session_state:
-    st.session_state.recipe_products_seen = set()  # produkty z receptury już raz zsynchronizowane z flotą
+if "recipe_groups_seen" not in st.session_state:
+    st.session_state.recipe_groups_seen = set()  # grupy produktowe z receptury już raz zsynchronizowane z flotą
+
+if "_last_recipe_group_signature" not in st.session_state:
+    st.session_state._last_recipe_group_signature = None
 
 
 def sync_recipes_into_fleet_defaults():
     """
-    Spina Zakładkę 1 (Receptury) z Zakładką 2 (Flota) automatycznie: każdy unikalny produkt
-    z wgranej receptury dostaje wpis w active_portfolio (gęstość z receptury, reszta
-    właściwości domyślna dla jego grupy produktowej) oraz wpis w prod_dict (roczna produkcja,
-    pojemność mieszalnika, cykl - z receptury, z sensownymi fallbackami gdy puste). Wartości w
-    prod_dict są ustawiane z receptury TYLKO przy pierwszym pojawieniu się danego produktu -
-    późniejsze ręczne poprawki użytkownika w Zakładce 2 nie są nadpisywane przy kolejnych
-    edycjach receptury. Nowo zsynchronizowane produkty są też dopisywane do domyślnego wyboru
-    linii w panelu bocznym, żeby flota pojawiła się "z automatu" bez ręcznego zaznaczania.
+    Spina Zakładkę 1 (Receptury) z Zakładką 2 (Flota) NA POZIOMIE GRUPY PRODUKTOWEJ - tak jak
+    w pliku Excel (Cleaners/Engine Oils/Glycols/Greases/Hydraulic Oils/Watermiscibles/Waxes),
+    a nie per pojedynczy produkt czy stara szczegółowa linia FUCHS_PORTFOLIO. Każda grupa
+    obecna w recepturze staje się JEDNĄ pozycją do wyboru w panelu bocznym; poszczególne
+    produkty tej grupy stają się osobnymi zbiornikami (mechanizm 'wiele SKU / wiele
+    zbiorników' już istniejący w Zakładce 2), z ich WŁASNYMI pojemnościami i cyklami z
+    receptury. Gęstość/materiał/cp linii to średnia ważona produkcją / wartości domyślne grupy.
+
+    active_portfolio odświeża się przy każdym uruchomieniu (bezpieczne - nic w Zakładce 2 tego
+    ręcznie nie edytuje). prod_dict dla danej grupy ustawiany jest z receptury TYLKO przy jej
+    pierwszym pojawieniu się - późniejsze ręczne poprawki w Zakładce 2 nie są nadpisywane przy
+    kolejnych edycjach receptury. Wybór w panelu bocznym jest resetowany do dokładnie grup z
+    receptury TYLKO gdy zmieni się sam ZESTAW grup w recepturze (nowa/usunięta grupa) - między
+    takimi zmianami można swobodnie dopisać ręcznie inne linie bez ich utraty.
     """
     df = st.session_state.get("recipes_df")
     if df is None or df.empty:
         return
 
-    for _, row in df.iterrows():
-        product_name = str(row[RECIPE_PRODUCT_COL])
-        group = row.get(RECIPE_GROUP_COL, "Hydraulic Oils")
-        group_defaults = GROUP_PHYSICAL_DEFAULTS.get(group, GROUP_PHYSICAL_DEFAULTS["Hydraulic Oils"])
+    groups_in_recipe = sorted(df[RECIPE_GROUP_COL].dropna().unique().tolist())
 
-        cycle_h = row.get(RECIPE_CYCLE_COL, 0) or 0
-        if cycle_h <= 0:
-            cycle_h = group_defaults["cycle_h"]
-        mixer_vol = row.get(RECIPE_MIXER_VOL_COL, 0) or 0
-        if mixer_vol <= 0:
-            mixer_vol = 15.0
-        density = row.get(RECIPE_DENSITY_COL, 0) or 0.88
+    for group_name in groups_in_recipe:
+        group_rows = df[df[RECIPE_GROUP_COL] == group_name]
+        defaults = GROUP_PHYSICAL_DEFAULTS.get(group_name, GROUP_PHYSICAL_DEFAULTS["Hydraulic Oils"])
 
-        st.session_state.active_portfolio[product_name] = {
-            "material": group_defaults["material"],
-            "density": float(density),
-            "cycle_h": float(cycle_h),
-            "cp": group_defaults["cp"],
-            "oil_group": group_defaults["oil_group"],
-            "water_content": group_defaults["water_content"],
+        weights = group_rows[RECIPE_ANNUAL_COL].clip(lower=0.001)
+        avg_density = float((group_rows[RECIPE_DENSITY_COL] * weights).sum() / weights.sum()) if weights.sum() > 0 else 0.88
+        total_annual_kg = float(group_rows[RECIPE_ANNUAL_COL].sum()) * 1000.0
+
+        tank_volumes, tank_cycles = [], []
+        for _, r in group_rows.iterrows():
+            v = r.get(RECIPE_MIXER_VOL_COL, 0) or 0
+            tank_volumes.append(float(v) if v > 0 else 15.0)
+            c = r.get(RECIPE_CYCLE_COL, 0) or 0
+            tank_cycles.append(float(c) if c > 0 else defaults["cycle_h"])
+        avg_vol = sum(tank_volumes) / len(tank_volumes) if tank_volumes else 15.0
+        avg_cycle = sum(tank_cycles) / len(tank_cycles) if tank_cycles else defaults["cycle_h"]
+        n_products = len(group_rows)
+
+        # active_portfolio - bezpieczne do odświeżania co przebieg (nic tego ręcznie nie edytuje).
+        st.session_state.active_portfolio[group_name] = {
+            "material": defaults["material"], "density": avg_density, "cycle_h": avg_cycle,
+            "cp": defaults["cp"], "oil_group": defaults["oil_group"], "water_content": defaults["water_content"],
         }
 
-        is_new = product_name not in st.session_state.recipe_products_seen
-        annual_kg = float(row.get(RECIPE_ANNUAL_COL, 0) or 0) * 1000.0
-
-        if product_name not in st.session_state.prod_dict:
-            st.session_state.prod_dict[product_name] = {
-                "roczna": annual_kg, "user_vol_m3": float(mixer_vol), "skus": 1, "num_tanks": 1,
-                "tank_volumes": [float(mixer_vol)], "cycle_h_base": float(cycle_h),
+        if group_name not in st.session_state.recipe_groups_seen:
+            st.session_state.prod_dict[group_name] = {
+                "roczna": total_annual_kg, "user_vol_m3": avg_vol, "skus": n_products, "num_tanks": n_products,
+                "tank_volumes": tank_volumes, "tank_cycles": tank_cycles, "cycle_h_base": avg_cycle,
             }
-        elif is_new:
-            pd_entry = st.session_state.prod_dict[product_name]
-            pd_entry["roczna"] = annual_kg
-            pd_entry["user_vol_m3"] = float(mixer_vol)
-            pd_entry["cycle_h_base"] = float(cycle_h)
-            pd_entry["tank_volumes"] = [float(mixer_vol)]
+            st.session_state.recipe_groups_seen.add(group_name)
 
-        if is_new:
-            st.session_state.recipe_products_seen.add(product_name)
-            ms_key = "wybrane_kategorie_ms"
-            if ms_key in st.session_state and product_name not in st.session_state[ms_key]:
-                st.session_state[ms_key] = st.session_state[ms_key] + [product_name]
+    group_signature = tuple(groups_in_recipe)
+    if st.session_state._last_recipe_group_signature != group_signature:
+        st.session_state["wybrane_kategorie_ms"] = groups_in_recipe
+        st.session_state._last_recipe_group_signature = group_signature
 
 
 sync_recipes_into_fleet_defaults()
@@ -1218,17 +1222,20 @@ if st.session_state.recipes_df is None:
             "żeby dalej skonfigurować flotę i instalację. Możesz też pominąć ten krok i pracować w pełni ręcznie "
             "w kolejnych zakładkach.")
 else:
-    st.success("✅ Receptura wgrana — produkty pojawiły się automatycznie w Zakładce 2 (panel boczny, "
-               "Krok 1: Wybór Rodzin) z wypełnionymi wartościami startowymi. Możesz je tam dalej edytować.")
+    st.success("✅ Receptura wgrana — grupy produktowe pojawiły się automatycznie w Zakładce 2 (panel boczny, "
+               "Krok 1: Wybór Rodzin), każda z liczbą zbiorników = liczbie produktów tej grupy w recepturze. "
+               "Możesz je tam dalej edytować.")
 
 # ==========================================
 # PANEL BOCZNY (Wybór Rodzin i Opakowań)
 # ==========================================
 st.sidebar.header("📋 KROK 1: Wybór Rodzin")
+_default_lines = (sorted(st.session_state.recipe_groups_seen) if st.session_state.recipe_groups_seen
+                   else ["Hydraulic Oils (RENOLIN)", "Engine Oils (TITAN)", "Water-miscible (ECOCOOL)"])
 wybrane_kategorie = st.sidebar.multiselect(
-    "Wybierz aktywne linie produktowe (wbudowane + z wgranej receptury):",
+    "Wybierz aktywne linie produktowe (grupy z receptury + wbudowane linie FUCHS):",
     list(st.session_state.active_portfolio.keys()),
-    default=["Hydraulic Oils (RENOLIN)", "Engine Oils (TITAN)", "Water-miscible (ECOCOOL)"] + sorted(st.session_state.recipe_products_seen),
+    default=_default_lines,
     key="wybrane_kategorie_ms"
 )
 
