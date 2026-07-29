@@ -124,6 +124,16 @@ RECIPE_RAW_MATERIALS = [
 # Grupy produktowe do wyboru (lista rozwijana w szablonie Excel + walidacja przy imporcie).
 RECIPE_PRODUCT_GROUPS = ["Cleaners", "Engine Oils", "Glycols", "Greases", "Hydraulic Oils", "Watermiscibles"]
 
+# Arkusz opakowań (opcjonalny, w tym samym pliku co receptury) - pozwala predefiniować
+# typy opakowań i ich pojemności w Excelu; po wgraniu nadpisują/uzupełniają wbudowane
+# domyślne wartości (PACK_CONFIGS), a dalej pozostają w pełni edytowalne w samej aplikacji.
+PACKAGING_SHEET_NAME = "Opakowania"
+PACKAGING_NAME_COL = "Nazwa Opakowania"
+PACKAGING_SIZE_COL = "Pojemność [L]"
+PACKAGING_PER_PALLET_COL = "Sztuk na Palecie"
+PACKAGING_RATE_COL = "Wydajność 1 głowicy [kg/min]"
+PACKAGING_NOZZLES_COL = "Liczba głowic (domyślna)"
+
 RECIPE_GROUP_COL = "Grupa Produktowa"
 RECIPE_PRODUCT_COL = "Produkt"
 RECIPE_ANNUAL_COL = "Roczne Zapotrzebowanie Produktu [tony]"
@@ -133,10 +143,31 @@ RECIPE_LOSS_COL = "Szacowane Straty Procesowe [%]"
 RECIPE_RAW_DEMAND_COL = "Roczne Zapotrzebowanie Surowcowe [tony]"
 RECIPE_NOTES_COL = "Uwagi Technologiczne / Status QA"
 
+# Wymiarowanie mieszalnika i szacowane wykorzystanie zdolności produkcyjnej - wpisywane
+# bezpośrednio w Excelu, żeby dać natychmiastową (choć uproszczoną) informację zwrotną, zanim
+# w ogóle dojdzie do konfiguracji floty w Zakładce 1/2 (tam wykorzystanie liczone jest w pełni,
+# z rzeczywistą hydrauliką/bilansem cieplnym - to tutaj to szybki szacunek wstępny).
+RECIPE_MIXER_VOL_COL = "Pojemność Mieszalnika [m³]"
+RECIPE_CYCLE_COL = "Szacowany Cykl Szarży [h]"
+RECIPE_AVAIL_HOURS_COL = "Dostępne Godziny Pracy / Rok [h]"
+RECIPE_BATCH_MASS_COL = "Masa Szarży [kg]"
+RECIPE_BATCHES_YEAR_COL = "Szarż / Rok"
+RECIPE_UTILIZATION_COL = "Wykorzystanie Mieszalnika [%]"
+RECIPE_UTILIZATION_WARN_PCT = 85.0  # spójne z MAX_TANK_UTILIZATION_PCT w Zakładce 1
+
+# Rozbicie procentowe na typy opakowań - kolumny generowane dynamicznie z aktualnej listy
+# opakowań (domyślne PACK_CONFIGS lub to, co użytkownik ma w arkuszu 'Opakowania').
+RECIPE_PACK_SUM_COL = "Suma % Opakowań (kontrola)"
+
 # Docelowa suma dozowania składników na tonę produktu - 1000 kg/t (1 tona), z tolerancją na
 # zaokrąglenia ręcznego wpisywania receptur.
 RECIPE_TARGET_SUM_KG = 1000.0
 RECIPE_SUM_TOLERANCE_KG = 50.0
+
+
+def recipe_pack_pct_col(pack_name):
+    """Nazwa kolumny procentowego udziału danego opakowania w arkuszu receptur."""
+    return f"Opak: {pack_name} [%]"
 
 # Informacja, czy dany surowiec nadaje się fizycznie/praktycznie do magazynowania
 # w zbiorniku (płyn luzem) czy zawsze zostaje w beczkach/IBC/workach - niezależnie od
@@ -179,12 +210,14 @@ RAW_MATERIAL_STORAGE_INFO = {
 def generate_recipe_template_bytes():
     """
     Buduje w pamięci szablon Excel (openpyxl) do uzupełnienia przez użytkownika: grupa
-    produktowa, nazwa produktu, roczne zapotrzebowanie na produkt [tony], dozowanie
-    surowców [kg/t] (29 pozycji: bazy olejowe, dodatki, pakiety, zagęszczacze, smary stałe,
-    woda DEMI, biocyd), oraz gęstość, szacowane straty procesowe, wyliczone roczne
-    zapotrzebowanie surowcowe i pole na uwagi technologiczne/status QA.
-    Kolumny 'Suma Udziałów Składników' i 'Roczne Zapotrzebowanie Surowcowe' są formułami
-    Excela (nie sztywnymi wartościami z Pythona), żeby przeliczały się po edycji w arkuszu.
+    produktowa, nazwa produktu, roczne zapotrzebowanie na produkt [tony], wstępny dobór
+    mieszalnika (pojemność/cykl/dostępne godziny -> wyliczone wykorzystanie zdolności
+    produkcyjnej w %), dozowanie surowców [kg/t] (29 pozycji), gęstość, szacowane straty
+    procesowe, wyliczone roczne zapotrzebowanie surowcowe, rozbicie procentowe na typy
+    opakowań, oraz pole na uwagi technologiczne/status QA.
+    Kolumny wyliczane (Masa Szarży, Szarż/Rok, Wykorzystanie Mieszalnika, Suma Udziałów
+    Składników, Roczne Zapotrzebowanie Surowcowe, Suma % Opakowań) są formułami Excela (nie
+    sztywnymi wartościami z Pythona), żeby przeliczały się po edycji w arkuszu.
     """
     from openpyxl import Workbook
     from openpyxl.styles import Font, PatternFill, Alignment
@@ -204,17 +237,38 @@ def generate_recipe_template_bytes():
     normal_font = Font(name="Arial", size=10)
     wrap_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
 
-    headers = ([RECIPE_GROUP_COL, RECIPE_PRODUCT_COL, RECIPE_ANNUAL_COL] + RECIPE_RAW_MATERIALS +
-               [RECIPE_SUM_COL, RECIPE_DENSITY_COL, RECIPE_LOSS_COL, RECIPE_RAW_DEMAND_COL, RECIPE_NOTES_COL])
-    n_fixed_left = 3          # Grupa, Produkt, Roczne Zapotrzebowanie Produktu
+    try:
+        current_pack_defaults = st.session_state.get("pack_configs", PACK_CONFIGS)
+    except Exception:
+        current_pack_defaults = PACK_CONFIGS
+    pack_names = list(current_pack_defaults.keys())
+    pack_pct_cols = [recipe_pack_pct_col(n) for n in pack_names]
+
+    headers = ([RECIPE_GROUP_COL, RECIPE_PRODUCT_COL, RECIPE_ANNUAL_COL,
+                RECIPE_MIXER_VOL_COL, RECIPE_CYCLE_COL, RECIPE_AVAIL_HOURS_COL,
+                RECIPE_BATCH_MASS_COL, RECIPE_BATCHES_YEAR_COL, RECIPE_UTILIZATION_COL] +
+               RECIPE_RAW_MATERIALS +
+               [RECIPE_SUM_COL, RECIPE_DENSITY_COL, RECIPE_LOSS_COL, RECIPE_RAW_DEMAND_COL] +
+               pack_pct_cols + [RECIPE_PACK_SUM_COL, RECIPE_NOTES_COL])
+
+    n_fixed_left = 3                      # Grupa, Produkt, Roczne Zapotrzebowanie Produktu
+    mixer_vol_col = n_fixed_left + 1
+    cycle_col = mixer_vol_col + 1
+    avail_hours_col = cycle_col + 1
+    batch_mass_col = avail_hours_col + 1
+    batches_year_col = batch_mass_col + 1
+    utilization_col = batches_year_col + 1
     n_materials = len(RECIPE_RAW_MATERIALS)
-    first_mat_col = n_fixed_left + 1
-    last_mat_col = n_fixed_left + n_materials
+    first_mat_col = utilization_col + 1
+    last_mat_col = first_mat_col + n_materials - 1
     sum_col = last_mat_col + 1
     density_col = sum_col + 1
     loss_col = density_col + 1
     raw_demand_col = loss_col + 1
-    notes_col = raw_demand_col + 1
+    first_pack_col = raw_demand_col + 1
+    last_pack_col = first_pack_col + len(pack_names) - 1
+    pack_sum_col = last_pack_col + 1
+    notes_col = pack_sum_col + 1
 
     for col_idx, h in enumerate(headers, start=1):
         cell = ws.cell(row=1, column=col_idx, value=h)
@@ -230,14 +284,19 @@ def generate_recipe_template_bytes():
         "1. Nie zmieniaj nazw ani kolejności kolumn w arkuszu 'Receptury'.",
         f"2. '{RECIPE_GROUP_COL}' - wybierz z listy rozwijanej: {', '.join(RECIPE_PRODUCT_GROUPS)}.",
         f"3. '{RECIPE_ANNUAL_COL}' - roczny wolumen produkcji GOTOWEGO produktu (bez strat procesowych).",
-        "4. Kolumny surowcowe [kg/t] - ile kg danego surowca zużywa się na 1 tonę GOTOWEGO produktu.",
-        f"5. '{RECIPE_SUM_COL}' liczy się sama (formuła) - powinna wynosić ok. 1000 kg (tolerancja +/-{RECIPE_SUM_TOLERANCE_KG:.0f} kg).",
-        f"6. '{RECIPE_DENSITY_COL}' i '{RECIPE_LOSS_COL}' wpisz ręcznie dla każdego produktu.",
-        f"7. '{RECIPE_RAW_DEMAND_COL}' liczy się sama (formuła) = zapotrzebowanie produktu / (1 - straty%)"
+        f"4. '{RECIPE_MIXER_VOL_COL}', '{RECIPE_CYCLE_COL}', '{RECIPE_AVAIL_HOURS_COL}' - wstępny dobór mieszalnika; "
+        f"'{RECIPE_UTILIZATION_COL}' liczy się sama (formuła) i podświetla na czerwono powyżej {RECIPE_UTILIZATION_WARN_PCT:.0f}% "
+        "(przeciążenie) - to szybki szacunek, w Zakładce 2/3 aplikacji policzysz to dokładnie z rzeczywistą hydrauliką.",
+        "5. Kolumny surowcowe [kg/t] - ile kg danego surowca zużywa się na 1 tonę GOTOWEGO produktu.",
+        f"6. '{RECIPE_SUM_COL}' liczy się sama (formuła) - powinna wynosić ok. 1000 kg (tolerancja +/-{RECIPE_SUM_TOLERANCE_KG:.0f} kg).",
+        f"7. '{RECIPE_DENSITY_COL}' i '{RECIPE_LOSS_COL}' wpisz ręcznie dla każdego produktu.",
+        f"8. '{RECIPE_RAW_DEMAND_COL}' liczy się sama (formuła) = zapotrzebowanie produktu / (1 - straty%)"
         " - to ILE SUROWCA trzeba faktycznie zakupić, uwzględniając straty procesowe.",
-        "8. Puste komórki w kolumnach surowcowych są traktowane jako 0 kg/t.",
-        "9. Dodaj tyle wierszy produktów, ile potrzebujesz - przeciągnij formuły w dół.",
-        "10. Przykładowe wiersze (niebieska kursywa) pokazują format - usuń je lub nadpisz własnymi danymi.",
+        f"9. Kolumny 'Opak: ... [%]' - opcjonalne, jeśli chcesz z góry rozbić produkt na opakowania; "
+        f"'{RECIPE_PACK_SUM_COL}' liczy się sama i powinna wynosić 100%, jeśli używasz tego rozbicia (możesz zostawić 0, jeśli nie dotyczy).",
+        "10. Puste komórki w kolumnach surowcowych/opakowaniowych są traktowane jako 0.",
+        "11. Dodaj tyle wierszy produktów, ile potrzebujesz - przeciągnij formuły w dół.",
+        "12. Przykładowe wiersze (niebieska kursywa) pokazują format - usuń je lub nadpisz własnymi danymi.",
     ]
     for i, line in enumerate(info_lines, start=1):
         c = ws_info.cell(row=i, column=1, value=line)
@@ -247,34 +306,48 @@ def generate_recipe_template_bytes():
     example_rows = [
         {
             RECIPE_GROUP_COL: "Hydraulic Oils", RECIPE_PRODUCT_COL: "Przykład: Hydraulic Oil 46",
-            RECIPE_ANNUAL_COL: 500, RECIPE_DENSITY_COL: 0.876, RECIPE_LOSS_COL: 1.5,
+            RECIPE_ANNUAL_COL: 500, RECIPE_MIXER_VOL_COL: 15, RECIPE_CYCLE_COL: 4, RECIPE_AVAIL_HOURS_COL: 2000,
+            RECIPE_DENSITY_COL: 0.876, RECIPE_LOSS_COL: 1.5,
             RECIPE_NOTES_COL: "Receptura referencyjna - status QA: zatwierdzona",
             "Base Oil Group II [kg/t]": 965, "Depresator (PPD) [kg/t]": 5,
             "Inhibitor Utleniania (AO) [kg/t]": 8, "Inhibitor Korozji / Pasywator [kg/t]": 3,
             "Dodatek Przeciwpienny (Antifoam) [kg/t]": 1, "Deemulgatory / Emulgatory [kg/t]": 18,
+            recipe_pack_pct_col("5l (Karton)"): 30, recipe_pack_pct_col("200l (Beczka)"): 40,
+            recipe_pack_pct_col("1000l (IBC)"): 30,
         },
         {
             RECIPE_GROUP_COL: "Engine Oils", RECIPE_PRODUCT_COL: "Przykład: Engine Oil 5W-30",
-            RECIPE_ANNUAL_COL: 800, RECIPE_DENSITY_COL: 0.855, RECIPE_LOSS_COL: 2.0,
+            RECIPE_ANNUAL_COL: 800, RECIPE_MIXER_VOL_COL: 20, RECIPE_CYCLE_COL: 5, RECIPE_AVAIL_HOURS_COL: 2000,
+            RECIPE_DENSITY_COL: 0.855, RECIPE_LOSS_COL: 2.0,
             RECIPE_NOTES_COL: "Receptura referencyjna - status QA: w walidacji",
             "Base Oil Group III [kg/t]": 820, "Modyfikator Lepkości (VI Improver) [kg/t]": 80,
             "Depresator (PPD) [kg/t]": 3, "Dodatek Smarnościowy / Anti-wear (AW) [kg/t]": 10,
             "Inhibitor Utleniania (AO) [kg/t]": 12, "Inhibitor Korozji / Pasywator [kg/t]": 5,
             "Pakiet Silnikowy (PCMO/HDDO) [kg/t]": 68, "Dodatek Przeciwpienny (Antifoam) [kg/t]": 1,
             "Modyfikator Tarcia (FM) [kg/t]": 1,
+            recipe_pack_pct_col("5l (Karton)"): 60, recipe_pack_pct_col("1000l (IBC)"): 40,
         },
     ]
 
     start_data_row = 2
     n_blank_rows = 20
     total_rows = len(example_rows) + n_blank_rows
+    annual_col_letter = get_column_letter(n_fixed_left)
+    mixer_vol_letter = get_column_letter(mixer_vol_col)
+    cycle_letter = get_column_letter(cycle_col)
+    avail_hours_letter = get_column_letter(avail_hours_col)
+    batch_mass_letter = get_column_letter(batch_mass_col)
+    batches_year_letter = get_column_letter(batches_year_col)
+    utilization_letter = get_column_letter(utilization_col)
+    first_mat_letter = get_column_letter(first_mat_col)
+    last_mat_letter = get_column_letter(last_mat_col)
     sum_col_letter = get_column_letter(sum_col)
     density_col_letter = get_column_letter(density_col)
     loss_col_letter = get_column_letter(loss_col)
     raw_demand_col_letter = get_column_letter(raw_demand_col)
-    annual_col_letter = get_column_letter(n_fixed_left)
-    first_mat_letter = get_column_letter(first_mat_col)
-    last_mat_letter = get_column_letter(last_mat_col)
+    first_pack_letter = get_column_letter(first_pack_col) if pack_names else None
+    last_pack_letter = get_column_letter(last_pack_col) if pack_names else None
+    pack_sum_col_letter = get_column_letter(pack_sum_col)
 
     group_dv = DataValidation(type="list", formula1='"' + ",".join(RECIPE_PRODUCT_GROUPS) + '"', allow_blank=True)
     ws.add_data_validation(group_dv)
@@ -289,10 +362,15 @@ def generate_recipe_template_bytes():
             ws.cell(row=row, column=1, value=data.get(RECIPE_GROUP_COL, "")).font = font_to_use
             ws.cell(row=row, column=2, value=data.get(RECIPE_PRODUCT_COL, "")).font = font_to_use
             ws.cell(row=row, column=3, value=data.get(RECIPE_ANNUAL_COL, "")).font = font_to_use
+            ws.cell(row=row, column=mixer_vol_col, value=data.get(RECIPE_MIXER_VOL_COL, "")).font = font_to_use
+            ws.cell(row=row, column=cycle_col, value=data.get(RECIPE_CYCLE_COL, "")).font = font_to_use
+            ws.cell(row=row, column=avail_hours_col, value=data.get(RECIPE_AVAIL_HOURS_COL, "")).font = font_to_use
             for m_idx, mat in enumerate(RECIPE_RAW_MATERIALS, start=first_mat_col):
                 ws.cell(row=row, column=m_idx, value=data.get(mat, 0)).font = font_to_use
             ws.cell(row=row, column=density_col, value=data.get(RECIPE_DENSITY_COL, "")).font = font_to_use
             ws.cell(row=row, column=loss_col, value=data.get(RECIPE_LOSS_COL, "")).font = font_to_use
+            for p_idx, pname in enumerate(pack_names, start=first_pack_col):
+                ws.cell(row=row, column=p_idx, value=data.get(recipe_pack_pct_col(pname), 0)).font = font_to_use
             ws.cell(row=row, column=notes_col, value=data.get(RECIPE_NOTES_COL, "")).font = font_to_use
         else:
             prod_num = r_offset - len(example_rows) + 1
@@ -300,14 +378,42 @@ def generate_recipe_template_bytes():
             ws.cell(row=row, column=1).fill = input_fill
             ws.cell(row=row, column=2, value=f"Product {prod_num}").font = normal_font
             ws.cell(row=row, column=2).fill = input_fill
-            for col_idx in range(3, last_mat_col + 1):
+            for col_idx in [3, mixer_vol_col, cycle_col, avail_hours_col]:
+                ws.cell(row=row, column=col_idx).font = normal_font
+                ws.cell(row=row, column=col_idx).fill = input_fill
+            for col_idx in range(first_mat_col, last_mat_col + 1):
                 cell = ws.cell(row=row, column=col_idx)
                 cell.font = normal_font
                 cell.fill = input_fill
             ws.cell(row=row, column=density_col).fill = input_fill
             ws.cell(row=row, column=loss_col).fill = input_fill
+            for col_idx in range(first_pack_col, last_pack_col + 1) if pack_names else []:
+                cell = ws.cell(row=row, column=col_idx)
+                cell.font = normal_font
+                cell.fill = input_fill
             ws.cell(row=row, column=notes_col).fill = input_fill
             group_dv.add(f"A{row}")
+
+        # Masa Szarży [kg] = pojemność [m3] * 1000 (L/m3) * gęstość [kg/L, liczbowo = g/cm3]
+        batch_mass_formula = f"=IF(OR({mixer_vol_letter}{row}<=0,{density_col_letter}{row}<=0),0,{mixer_vol_letter}{row}*1000*{density_col_letter}{row})"
+        bm_cell = ws.cell(row=row, column=batch_mass_col, value=batch_mass_formula)
+        bm_cell.font = font_to_use
+        bm_cell.number_format = '#,##0" kg"'
+        bm_cell.fill = computed_fill
+
+        # Szarż / Rok = (roczne zapotrzebowanie [t] * 1000) / masa szarży [kg]
+        batches_year_formula = f"=IF({batch_mass_letter}{row}<=0,0,{annual_col_letter}{row}*1000/{batch_mass_letter}{row})"
+        by_cell = ws.cell(row=row, column=batches_year_col, value=batches_year_formula)
+        by_cell.font = font_to_use
+        by_cell.number_format = '0.0'
+        by_cell.fill = computed_fill
+
+        # Wykorzystanie Mieszalnika [%] = Szarż/Rok * Cykl [h] / Dostępne godziny/rok * 100
+        util_formula = f"=IF({avail_hours_letter}{row}<=0,0,{batches_year_letter}{row}*{cycle_letter}{row}/{avail_hours_letter}{row}*100)"
+        util_cell = ws.cell(row=row, column=utilization_col, value=util_formula)
+        util_cell.font = font_to_use
+        util_cell.number_format = '0.0"%"'
+        util_cell.fill = computed_fill
 
         sum_formula = f"=SUM({first_mat_letter}{row}:{last_mat_letter}{row})"
         sum_cell = ws.cell(row=row, column=sum_col, value=sum_formula)
@@ -322,6 +428,13 @@ def generate_recipe_template_bytes():
         rd_cell.number_format = '0.00" t"'
         rd_cell.fill = computed_fill
 
+        if pack_names:
+            pack_sum_formula = f"=SUM({first_pack_letter}{row}:{last_pack_letter}{row})"
+            ps_cell = ws.cell(row=row, column=pack_sum_col, value=pack_sum_formula)
+            ps_cell.font = font_to_use
+            ps_cell.number_format = '0.0"%"'
+            ps_cell.fill = computed_fill
+
     red_fill = PatternFill("solid", fgColor="FFC7CE")
     rng = f"{sum_col_letter}{start_data_row}:{sum_col_letter}{start_data_row + total_rows - 1}"
     ws.conditional_formatting.add(
@@ -329,16 +442,56 @@ def generate_recipe_template_bytes():
         FormulaRule(formula=[f"ABS({sum_col_letter}{start_data_row}-{RECIPE_TARGET_SUM_KG})>{RECIPE_SUM_TOLERANCE_KG}"], fill=red_fill)
     )
 
+    util_rng = f"{utilization_letter}{start_data_row}:{utilization_letter}{start_data_row + total_rows - 1}"
+    ws.conditional_formatting.add(util_rng, CellIsRule(operator="greaterThan", formula=[str(RECIPE_UTILIZATION_WARN_PCT)], fill=red_fill))
+
+    if pack_names:
+        pack_sum_rng = f"{pack_sum_col_letter}{start_data_row}:{pack_sum_col_letter}{start_data_row + total_rows - 1}"
+        ws.conditional_formatting.add(
+            pack_sum_rng,
+            FormulaRule(formula=[f"AND({pack_sum_col_letter}{start_data_row}<>0,ABS({pack_sum_col_letter}{start_data_row}-100)>0.5)"], fill=red_fill)
+        )
+
     ws.column_dimensions["A"].width = 18
     ws.column_dimensions["B"].width = 28
     ws.column_dimensions["C"].width = 16
+    for letter in [mixer_vol_letter, cycle_letter, avail_hours_letter, batch_mass_letter, batches_year_letter, utilization_letter]:
+        ws.column_dimensions[letter].width = 14
     for col_idx in range(first_mat_col, last_mat_col + 1):
         ws.column_dimensions[get_column_letter(col_idx)].width = 13
     ws.column_dimensions[sum_col_letter].width = 14
     ws.column_dimensions[density_col_letter].width = 12
     ws.column_dimensions[loss_col_letter].width = 12
     ws.column_dimensions[raw_demand_col_letter].width = 16
+    if pack_names:
+        for col_idx in range(first_pack_col, last_pack_col + 1):
+            ws.column_dimensions[get_column_letter(col_idx)].width = 14
+    ws.column_dimensions[pack_sum_col_letter].width = 14
     ws.column_dimensions[get_column_letter(notes_col)].width = 30
+
+    # --- Arkusz 'Opakowania' (opcjonalny) - predefiniowanie typów opakowań i pojemności ---
+    ws_pack = wb.create_sheet(PACKAGING_SHEET_NAME)
+    pack_headers = [PACKAGING_NAME_COL, PACKAGING_SIZE_COL, PACKAGING_PER_PALLET_COL, PACKAGING_RATE_COL, PACKAGING_NOZZLES_COL]
+    for col_idx, h in enumerate(pack_headers, start=1):
+        cell = ws_pack.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = wrap_center
+    ws_pack.row_dimensions[1].height = 32
+
+    pack_row = 2
+    for name, cfg in current_pack_defaults.items():
+        is_small_pack = "5l" in name.lower() or "1l" in name.lower() or "4l" in name.lower()
+        default_nozzles = 4 if is_small_pack else 1
+        default_rate_kg_min = 15.0 if is_small_pack else 60.0
+        ws_pack.cell(row=pack_row, column=1, value=name).fill = input_fill
+        ws_pack.cell(row=pack_row, column=2, value=cfg.get("size_l", 0)).fill = input_fill
+        ws_pack.cell(row=pack_row, column=3, value=cfg.get("per_pallet", 0)).fill = input_fill
+        ws_pack.cell(row=pack_row, column=4, value=default_rate_kg_min).fill = input_fill
+        ws_pack.cell(row=pack_row, column=5, value=default_nozzles).fill = input_fill
+        pack_row += 1
+    for col, w in zip("ABCDE", [22, 16, 16, 20, 20]):
+        ws_pack.column_dimensions[col].width = w
 
     bio = io.BytesIO()
     wb.save(bio)
@@ -401,6 +554,32 @@ def parse_recipe_excel(uploaded_file):
         errors.append(f"Nieprawidłowe straty procesowe (muszą być 0-99.9%) dla: {', '.join(map(str, invalid_loss))} - przyjęto 0%.")
         df.loc[(df[RECIPE_LOSS_COL] < 0) | (df[RECIPE_LOSS_COL] >= 100), RECIPE_LOSS_COL] = 0.0
 
+    # Wymiarowanie mieszalnika (opcjonalne - pliki wygenerowane starszą wersją szablonu mogą
+    # nie mieć tych kolumn; wtedy wykorzystanie po prostu nie jest liczone dla tych wierszy).
+    for col in [RECIPE_MIXER_VOL_COL, RECIPE_CYCLE_COL, RECIPE_AVAIL_HOURS_COL]:
+        if col not in df.columns:
+            df[col] = 0.0
+        else:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
+    # Rozbicie na opakowania (opcjonalne, dynamiczne - dowolna liczba kolumn 'Opak: ... [%]').
+    pack_cols_found = [c for c in df.columns if c.startswith("Opak: ") and c.endswith(" [%]")]
+    for c in pack_cols_found:
+        df[c] = pd.to_numeric(df[c], errors="coerce").fillna(0.0)
+        negative_pack = df[df[c] < 0][RECIPE_PRODUCT_COL].tolist()
+        if negative_pack:
+            errors.append(f"Ujemny udział opakowania '{c}' dla: {', '.join(map(str, negative_pack))} - przyjęto 0%.")
+            df.loc[df[c] < 0, c] = 0.0
+    if pack_cols_found:
+        df[RECIPE_PACK_SUM_COL] = df[pack_cols_found].sum(axis=1)
+        bad_pack_sum = df[(df[RECIPE_PACK_SUM_COL] != 0) & ((df[RECIPE_PACK_SUM_COL] - 100).abs() > 0.5)]
+        if not bad_pack_sum.empty:
+            details = ", ".join(f"{r[RECIPE_PRODUCT_COL]} ({r[RECIPE_PACK_SUM_COL]:.0f}%)" for _, r in bad_pack_sum.iterrows())
+            errors.append(f"Suma % opakowań różni się od 100% dla: {details} - rozbicie na opakowania dla tych wierszy zignorowane "
+                           f"(produkcja nadal zaliczona), popraw jeśli chcesz z niego korzystać.")
+    else:
+        df[RECIPE_PACK_SUM_COL] = 0.0
+
     unknown_group_mask = ~df[RECIPE_GROUP_COL].astype(str).isin(RECIPE_PRODUCT_GROUPS)
     if unknown_group_mask.any():
         bad = df.loc[unknown_group_mask, RECIPE_PRODUCT_COL].tolist()
@@ -435,6 +614,274 @@ def parse_recipe_excel(uploaded_file):
     # ile surowca faktycznie trzeba zakupić, żeby po stratach procesowych uzyskać zakładany
     # wolumen produktu. Liczone w Pythonie, nie czytane z formuły Excela (patrz docstring).
     df[RECIPE_RAW_DEMAND_COL] = df[RECIPE_ANNUAL_COL] / (1.0 - df[RECIPE_LOSS_COL] / 100.0)
+
+    # Masa Szarży [kg] = pojemność mieszalnika [m3] * 1000 (L/m3) * gęstość [kg/L] - liczone
+    # w Pythonie tak samo jak w Excelu, z zabezpieczeniem przed dzieleniem przez zero.
+    df[RECIPE_BATCH_MASS_COL] = df[RECIPE_MIXER_VOL_COL] * 1000.0 * df[RECIPE_DENSITY_COL]
+    df[RECIPE_BATCHES_YEAR_COL] = 0.0
+    has_batch_mass = df[RECIPE_BATCH_MASS_COL] > 0
+    df.loc[has_batch_mass, RECIPE_BATCHES_YEAR_COL] = (
+        df.loc[has_batch_mass, RECIPE_ANNUAL_COL] * 1000.0 / df.loc[has_batch_mass, RECIPE_BATCH_MASS_COL])
+
+    df[RECIPE_UTILIZATION_COL] = 0.0
+    has_avail_hours = df[RECIPE_AVAIL_HOURS_COL] > 0
+    df.loc[has_avail_hours, RECIPE_UTILIZATION_COL] = (
+        df.loc[has_avail_hours, RECIPE_BATCHES_YEAR_COL] * df.loc[has_avail_hours, RECIPE_CYCLE_COL]
+        / df.loc[has_avail_hours, RECIPE_AVAIL_HOURS_COL] * 100.0)
+
+    overloaded = df[df[RECIPE_UTILIZATION_COL] > RECIPE_UTILIZATION_WARN_PCT]
+    if not overloaded.empty:
+        details = ", ".join(f"{r[RECIPE_PRODUCT_COL]} ({r[RECIPE_UTILIZATION_COL]:.0f}%)" for _, r in overloaded.iterrows())
+        errors.append(f"⚠️ Wykorzystanie mieszalnika powyżej {RECIPE_UTILIZATION_WARN_PCT:.0f}% (przeciążenie) dla: {details}.")
+
+    return df.reset_index(drop=True), errors
+
+
+def parse_packaging_excel(uploaded_file):
+    """
+    Wczytuje opcjonalny arkusz 'Opakowania' z tego samego pliku Excel co receptury.
+    Zwraca (dict_opakowan, lista_bledow). dict_opakowan ma strukturę zgodną z PACK_CONFIGS
+    (size_l, per_pallet, rate_szt_h) rozszerzoną o domyślne nozzles/speed_kg_min do
+    prekonfiguracji sekcji rozlewu w Zakładce 3. Jeśli arkusz nie istnieje w pliku, zwraca
+    (None, []) po cichu - to pole jest opcjonalne, nie każdy plik musi go zawierać.
+    """
+    try:
+        xls = pd.ExcelFile(uploaded_file)
+    except Exception as exc:
+        return None, [f"Nie udało się odczytać pliku Excel (opakowania): {exc}"]
+
+    if PACKAGING_SHEET_NAME not in xls.sheet_names:
+        return None, []
+
+    try:
+        df = pd.read_excel(xls, sheet_name=PACKAGING_SHEET_NAME)
+    except Exception as exc:
+        return None, [f"Nie udało się odczytać arkusza '{PACKAGING_SHEET_NAME}': {exc}"]
+
+    required_cols = [PACKAGING_NAME_COL, PACKAGING_SIZE_COL, PACKAGING_PER_PALLET_COL]
+    missing_cols = [c for c in required_cols if c not in df.columns]
+    if missing_cols:
+        return None, [f"Arkusz '{PACKAGING_SHEET_NAME}' istnieje, ale brakuje kolumn: {', '.join(missing_cols)}. Pominięto import opakowań."]
+
+    df = df[df[PACKAGING_NAME_COL].notna()].copy()
+    if df.empty:
+        return None, []
+
+    errors = []
+    df[PACKAGING_SIZE_COL] = pd.to_numeric(df[PACKAGING_SIZE_COL], errors="coerce")
+    df[PACKAGING_PER_PALLET_COL] = pd.to_numeric(df[PACKAGING_PER_PALLET_COL], errors="coerce")
+    if PACKAGING_RATE_COL in df.columns:
+        df[PACKAGING_RATE_COL] = pd.to_numeric(df[PACKAGING_RATE_COL], errors="coerce")
+    if PACKAGING_NOZZLES_COL in df.columns:
+        df[PACKAGING_NOZZLES_COL] = pd.to_numeric(df[PACKAGING_NOZZLES_COL], errors="coerce")
+
+    bad_rows = df[df[PACKAGING_SIZE_COL].isna() | df[PACKAGING_PER_PALLET_COL].isna() |
+                  (df[PACKAGING_SIZE_COL] <= 0) | (df[PACKAGING_PER_PALLET_COL] <= 0)]
+    if not bad_rows.empty:
+        bad_names = bad_rows[PACKAGING_NAME_COL].astype(str).tolist()
+        errors.append(f"Pominięto opakowania z brakującą/niepoprawną pojemnością lub liczbą sztuk na palecie: {', '.join(bad_names)}.")
+        df = df.drop(bad_rows.index)
+
+    packaging_dict = {}
+    filling_defaults = {}
+    for _, row in df.iterrows():
+        name = str(row[PACKAGING_NAME_COL])
+        packaging_dict[name] = {
+            "size_l": float(row[PACKAGING_SIZE_COL]),
+            "per_pallet": int(row[PACKAGING_PER_PALLET_COL]),
+            "rate_szt_h": 0,
+        }
+        rate = row.get(PACKAGING_RATE_COL) if PACKAGING_RATE_COL in df.columns else None
+        nozzles = row.get(PACKAGING_NOZZLES_COL) if PACKAGING_NOZZLES_COL in df.columns else None
+        filling_defaults[name] = {
+            "speed_kg_min": float(rate) if pd.notna(rate) else 30.0,
+            "nozzles": float(nozzles) if pd.notna(nozzles) else 1.0,
+        }
+
+    return {"pack_configs": packaging_dict, "filling_defaults": filling_defaults}, errors
+
+# Cennik / Standardowa Instalacja (BOM) - osobny, aktualizowalny arkusz per grupa produktowa,
+# z ceną jednostkową komponentu; źródłem treści jest zwykle istniejący P&ID danej instalacji
+# standardowej (użytkownik przepisuje stamtąd listę urządzeń, nie generujemy P&ID w apce).
+EQUIPMENT_SHEET_NAME = "Cennik Instalacji"
+EQUIPMENT_GROUP_COL = "Grupa Produktowa"
+EQUIPMENT_COMPONENT_COL = "Komponent"
+EQUIPMENT_MODEL_COL = "Typ / Model"
+EQUIPMENT_SUPPLIER_COL = "Dostawca"
+EQUIPMENT_QTY_COL = "Ilość na instalację [szt]"
+EQUIPMENT_UNIT_PRICE_COL = "Cena jednostkowa"
+EQUIPMENT_CURRENCY_COL = "Waluta"
+EQUIPMENT_NOTES_COL = "Uwagi"
+EQUIPMENT_LINE_TOTAL_COL = "Wartość pozycji"
+
+
+def generate_equipment_template_bytes():
+    """
+    Buduje w pamięci szablon Excel (openpyxl) do zdefiniowania cennika standardowej instalacji
+    per grupa produktowa: komponent, typ/model, dostawca, ilość na instalację, cena
+    jednostkowa, waluta, uwagi. 'Wartość pozycji' to formuła (ilość x cena), przeliczana po
+    edycji w arkuszu. Wypełniony przykładowymi wierszami dla instalacji silnikowej (Borger
+    PL200, czujniki E+H, zawory/elektrozawory Metalwork) jako wzór formatu.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.utils import get_column_letter
+    from openpyxl.worksheet.datavalidation import DataValidation
+
+    wb = Workbook()
+    ws = wb.active
+    ws.title = EQUIPMENT_SHEET_NAME
+
+    header_font = Font(bold=True, name="Arial", size=10, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    input_fill = PatternFill("solid", fgColor="DDEBF7")
+    computed_fill = PatternFill("solid", fgColor="F2F2F2")
+    example_font = Font(name="Arial", size=10, italic=True, color="0000FF")
+    normal_font = Font(name="Arial", size=10)
+    wrap_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    headers = [EQUIPMENT_GROUP_COL, EQUIPMENT_COMPONENT_COL, EQUIPMENT_MODEL_COL, EQUIPMENT_SUPPLIER_COL,
+               EQUIPMENT_QTY_COL, EQUIPMENT_UNIT_PRICE_COL, EQUIPMENT_CURRENCY_COL, EQUIPMENT_LINE_TOTAL_COL,
+               EQUIPMENT_NOTES_COL]
+    for col_idx, h in enumerate(headers, start=1):
+        cell = ws.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = wrap_center
+    ws.freeze_panes = "C2"
+    ws.row_dimensions[1].height = 32
+
+    ws_info = wb.create_sheet("Instrukcja")
+    info_lines = [
+        "INSTRUKCJA WYPEŁNIANIA:",
+        "1. Nie zmieniaj nazw ani kolejności kolumn.",
+        f"2. '{EQUIPMENT_GROUP_COL}' - wybierz z listy rozwijanej: {', '.join(RECIPE_PRODUCT_GROUPS)}.",
+        "3. Jeden wiersz = jeden typ komponentu standardowej instalacji dla danej grupy (np. pompa, czujnik, zawór) - "
+        "przepisz listę ze swojego P&ID danej instalacji standardowej.",
+        f"4. '{EQUIPMENT_QTY_COL}' - ile sztuk tego komponentu jest w JEDNEJ instalacji (np. 2 czujniki temperatury).",
+        f"5. '{EQUIPMENT_LINE_TOTAL_COL}' liczy się sama (formuła) = ilość x cena jednostkowa.",
+        f"6. Aktualizuj '{EQUIPMENT_UNIT_PRICE_COL}' wraz ze zmianami cen dostawców - to jest właśnie po to, żeby "
+        "nie trzeba było grzebać w kodzie aplikacji przy każdej zmianie cennika.",
+        "7. W aplikacji (Zakładka 7) podajesz, ile takich instalacji planujesz dla danej grupy - CAPEX przelicza się automatycznie.",
+    ]
+    for i, line in enumerate(info_lines, start=1):
+        c = ws_info.cell(row=i, column=1, value=line)
+        c.font = Font(bold=(i == 1), name="Arial", size=11)
+    ws_info.column_dimensions["A"].width = 110
+
+    example_rows = [
+        {"grp": "Engine Oils", "comp": "Pompa rozładunkowa", "model": "Borger PL200", "sup": "Borger",
+         "qty": 1, "price": 18500, "cur": "PLN", "notes": "Pompa wyporowa do rozładunku cystern"},
+        {"grp": "Engine Oils", "comp": "Czujnik ciśnienia", "model": "Cerabar PMC21", "sup": "Endress+Hauser",
+         "qty": 3, "price": 2400, "cur": "PLN", "notes": ""},
+        {"grp": "Engine Oils", "comp": "Czujnik temperatury", "model": "TC10/iTHERM", "sup": "Endress+Hauser",
+         "qty": 2, "price": 1800, "cur": "PLN", "notes": ""},
+        {"grp": "Engine Oils", "comp": "Zawór z siłownikiem pneumatycznym", "model": "Standard DN50", "sup": "Metalwork",
+         "qty": 4, "price": 3200, "cur": "PLN", "notes": ""},
+        {"grp": "Engine Oils", "comp": "Elektrozawór sterujący", "model": "Standard 24VDC", "sup": "Metalwork",
+         "qty": 4, "price": 650, "cur": "PLN", "notes": ""},
+    ]
+
+    group_dv = DataValidation(type="list", formula1='"' + ",".join(RECIPE_PRODUCT_GROUPS) + '"', allow_blank=True)
+    ws.add_data_validation(group_dv)
+
+    start_row = 2
+    n_blank_rows = 30
+    total_rows = len(example_rows) + n_blank_rows
+
+    for r_offset in range(total_rows):
+        row = start_row + r_offset
+        is_example = r_offset < len(example_rows)
+        font_to_use = example_font if is_example else normal_font
+
+        if is_example:
+            d = example_rows[r_offset]
+            ws.cell(row=row, column=1, value=d["grp"]).font = font_to_use
+            ws.cell(row=row, column=2, value=d["comp"]).font = font_to_use
+            ws.cell(row=row, column=3, value=d["model"]).font = font_to_use
+            ws.cell(row=row, column=4, value=d["sup"]).font = font_to_use
+            ws.cell(row=row, column=5, value=d["qty"]).font = font_to_use
+            ws.cell(row=row, column=6, value=d["price"]).font = font_to_use
+            ws.cell(row=row, column=7, value=d["cur"]).font = font_to_use
+            ws.cell(row=row, column=9, value=d["notes"]).font = font_to_use
+        else:
+            for col_idx in [1, 2, 3, 4, 5, 6, 7, 9]:
+                cell = ws.cell(row=row, column=col_idx)
+                cell.font = normal_font
+                cell.fill = input_fill
+            group_dv.add(f"A{row}")
+
+        total_formula = f"=E{row}*F{row}"
+        tot_cell = ws.cell(row=row, column=8, value=total_formula)
+        tot_cell.font = font_to_use
+        tot_cell.number_format = '#,##0.00'
+        tot_cell.fill = computed_fill
+
+    ws.column_dimensions["A"].width = 16
+    ws.column_dimensions["B"].width = 26
+    ws.column_dimensions["C"].width = 20
+    ws.column_dimensions["D"].width = 18
+    ws.column_dimensions["E"].width = 12
+    ws.column_dimensions["F"].width = 14
+    ws.column_dimensions["G"].width = 10
+    ws.column_dimensions["H"].width = 16
+    ws.column_dimensions["I"].width = 30
+
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    return bio.getvalue()
+
+
+def parse_equipment_excel(uploaded_file):
+    """
+    Wczytuje plik Excel z arkusza 'Cennik Instalacji' (lub pierwszego arkusza) i zwraca
+    (df_czysty, lista_bledow). Waliduje: wymagane kolumny, poprawność grupy produktowej,
+    nieujemne ilości/ceny. 'Wartość pozycji' PRZELICZANA w Pythonie (nie czytana z formuły).
+    """
+    errors = []
+    try:
+        xls = pd.ExcelFile(uploaded_file)
+        sheet_name = EQUIPMENT_SHEET_NAME if EQUIPMENT_SHEET_NAME in xls.sheet_names else xls.sheet_names[0]
+        df = pd.read_excel(xls, sheet_name=sheet_name)
+    except Exception as exc:
+        return None, [f"Nie udało się odczytać pliku Excel: {exc}"]
+
+    required_cols = [EQUIPMENT_GROUP_COL, EQUIPMENT_COMPONENT_COL, EQUIPMENT_QTY_COL, EQUIPMENT_UNIT_PRICE_COL]
+    missing_cols = [c for c in required_cols if c not in df.columns]
+    if missing_cols:
+        return None, [f"W pliku brakuje wymaganych kolumn: {', '.join(missing_cols)}. "
+                       f"Pobierz i użyj oficjalnego szablonu, nie zmieniając nazw kolumn."]
+
+    for c in [EQUIPMENT_MODEL_COL, EQUIPMENT_SUPPLIER_COL, EQUIPMENT_CURRENCY_COL, EQUIPMENT_NOTES_COL]:
+        if c not in df.columns:
+            df[c] = ""
+
+    df = df[df[EQUIPMENT_COMPONENT_COL].notna()].copy()
+    if df.empty:
+        return None, ["Plik nie zawiera żadnych wierszy komponentów."]
+
+    df[EQUIPMENT_QTY_COL] = pd.to_numeric(df[EQUIPMENT_QTY_COL], errors="coerce")
+    df[EQUIPMENT_UNIT_PRICE_COL] = pd.to_numeric(df[EQUIPMENT_UNIT_PRICE_COL], errors="coerce")
+
+    bad_rows = df[df[EQUIPMENT_QTY_COL].isna() | df[EQUIPMENT_UNIT_PRICE_COL].isna() |
+                  (df[EQUIPMENT_QTY_COL] < 0) | (df[EQUIPMENT_UNIT_PRICE_COL] < 0)]
+    if not bad_rows.empty:
+        bad_names = bad_rows[EQUIPMENT_COMPONENT_COL].astype(str).tolist()
+        errors.append(f"Pominięto komponenty z brakującą/ujemną ilością lub ceną: {', '.join(bad_names)}.")
+        df = df.drop(bad_rows.index)
+
+    unknown_group_mask = ~df[EQUIPMENT_GROUP_COL].astype(str).isin(RECIPE_PRODUCT_GROUPS)
+    if unknown_group_mask.any():
+        bad = df.loc[unknown_group_mask, EQUIPMENT_COMPONENT_COL].tolist()
+        errors.append(f"Nieznana/brakująca grupa produktowa (musi być jedną z: {', '.join(RECIPE_PRODUCT_GROUPS)}) dla: "
+                       f"{', '.join(map(str, bad))}. Wiersze pominięte.")
+        df = df[~unknown_group_mask].copy()
+
+    if df.empty:
+        return None, errors
+
+    df[EQUIPMENT_LINE_TOTAL_COL] = df[EQUIPMENT_QTY_COL] * df[EQUIPMENT_UNIT_PRICE_COL]
 
     return df.reset_index(drop=True), errors
 
@@ -620,6 +1067,31 @@ def compute_cooling(mass_product_kg, cp_product, t_out, t_discharge, t_utility_c
     return q_cooling_mj, cooling_power_kw, cooling_time_h, flow_cooling_kg_h, "ok"
 
 
+# Ściągawka średnic rur stalowych (średnica wewnętrzna [m]) do wyboru DN w module pary.
+STEAM_PIPE_DN_REFERENCE_M = {
+    "DN80": 0.0800, "DN100": 0.1053, "DN125": 0.1300, "DN150": 0.1586, "DN200": 0.2073,
+}
+
+
+def compute_vent_line_scenario(mass_flow_kgs, rho_steam, pipe_length_m, pipe_diameter_m, lambda_friction):
+    """
+    Bilans hydrauliczny linii odpowietrzenia/zrzutu pary dla jednego scenariusza pracy,
+    metodą Darcy-Weisbacha - analogicznie do compute_hydraulics dla cieczy, ale tu strumień
+    wejściowy to zadany strumień masowy pary [kg/s] (nie przepływ objętościowy pompy), a opory
+    liczone są jako czysto liniowe (bez lokalnych zeta), zgodnie z modelem referencyjnym
+    użytkownika (ISO 28300 / API 2000).
+    Zwraca (objętość [m3/s], prędkość [m/s], opory [Pa], opory [bar]).
+    """
+    if rho_steam <= 0 or pipe_diameter_m <= 0:
+        return 0.0, 0.0, 0.0, 0.0
+    volumetric_flow_m3s = mass_flow_kgs / rho_steam
+    area_m2 = 3.14159265 * (pipe_diameter_m ** 2) / 4.0
+    velocity_ms = volumetric_flow_m3s / area_m2 if area_m2 > 0 else 0.0
+    dp_pa = lambda_friction * (pipe_length_m / pipe_diameter_m) * (rho_steam * velocity_ms ** 2 / 2.0) if pipe_diameter_m > 0 else 0.0
+    dp_bar = dp_pa / 100000.0
+    return volumetric_flow_m3s, velocity_ms, dp_pa, dp_bar
+
+
 # --- 2. INICJALIZACJA STRUKTUR W SESJI ---
 if "prod_dict" not in st.session_state:
     st.session_state.prod_dict = {
@@ -643,6 +1115,23 @@ if "recipes_df" not in st.session_state:
 
 if "recipe_raw_material_consumption" not in st.session_state:
     st.session_state.recipe_raw_material_consumption = None  # dict: surowiec -> t/rok, liczone z recipes_df
+
+if "pack_configs" not in st.session_state:
+    # Startowo = wbudowane wartości domyślne (PACK_CONFIGS); po wgraniu arkusza 'Opakowania'
+    # w Zakładce 1 są nadpisywane/uzupełniane, a dalej pozostają w pełni edytowalne w apce.
+    st.session_state.pack_configs = {k: dict(v) for k, v in PACK_CONFIGS.items()}
+
+if "equipment_df" not in st.session_state:
+    st.session_state.equipment_df = None  # DataFrame cennika standardowej instalacji (Zakładka 7)
+
+if "equipment_install_counts" not in st.session_state:
+    st.session_state.equipment_install_counts = {}  # dict: Grupa Produktowa -> liczba planowanych instalacji
+
+if st.session_state.recipes_df is None:
+    st.info("👋 **Zacznij od Zakładki 1 (Receptury Produktów)** — pobierz szablon, wgraj recepturę produktów "
+            "(z wolumenem produkcji, opcjonalnie wielkością mieszalnika i rozbiciem na opakowania) i wróć tu, "
+            "żeby dalej skonfigurować flotę i instalację. Możesz też pominąć ten krok i pracować w pełni ręcznie "
+            "w kolejnych zakładkach.")
 
 # ==========================================
 # PANEL BOCZNY (Wybór Rodzin i Opakowań)
@@ -676,7 +1165,7 @@ for stale_key in [k for k in list(opakowania_podzial.keys())
 
 for kat in wybrane_kategorie:
     st.sidebar.markdown(f"##### 🏭 Linia: **{kat}**")
-    packs = st.sidebar.multiselect(f"Dostępne opakowania:", list(PACK_CONFIGS.keys()), default=["5l (Karton)", "200l (Beczka)", "1000l (IBC)"], key=f"packs_{kat}")
+    packs = st.sidebar.multiselect(f"Dostępne opakowania:", list(st.session_state.pack_configs.keys()), default=["5l (Karton)", "200l (Beczka)", "1000l (IBC)"], key=f"packs_{kat}")
 
     if packs:
         domyslny_procent = round(100.0 / len(packs), 1)
@@ -695,14 +1184,16 @@ for kat in wybrane_kategorie:
     st.sidebar.markdown("---")
 
 # --- STRUKTURA INTERFEJSU ---
-tab1, tab2, tab3, tab4, tab5, tab6, tab7 = st.tabs([
-    "📊 1. Główne Zestawienie i Utylizacja",
-    "📐 2. Karta Maszyn, Kocioł i Zasilanie",
-    "📦 3. Logistyka i Czas Rozlewu",
-    "💰 4. Analiza Finansowa i Koszty Produkcji",
-    "🛢️ 5. Surowce i Park Zbiorników",
-    "🧵 6. Mapa Strumienia Wartości (VSM)",
-    "📋 7. Receptury Produktów"
+tab7, tab1, tab2, tab3, tab4, tab5, tab9, tab6, tab8 = st.tabs([
+    "📋 1. Receptury Produktów (Start)",
+    "📊 2. Główne Zestawienie i Utylizacja",
+    "📐 3. Karta Maszyn, Kocioł i Zasilanie",
+    "📦 4. Logistyka i Czas Rozlewu",
+    "💰 5. Analiza Finansowa i Koszty Produkcji",
+    "🛢️ 6. Surowce i Park Zbiorników",
+    "🧰 7. Cennik i Standardowa Instalacja (CAPEX)",
+    "🧵 8. Mapa Strumienia Wartości (VSM)",
+    "🌫️ 9. Bilans Pary / Odpowietrzenie"
 ])
 
 # ==========================================
@@ -734,7 +1225,7 @@ with tab1:
             st.session_state.prod_dict[selected_family_to_edit]["cycle_h_base"] = st.number_input(
                 "Cykl Procesowy (bazowy, szacunkowy) [h]:", min_value=0.5, value=float(st.session_state.prod_dict[selected_family_to_edit]["cycle_h_base"]), step=0.5,
                 help="Szacunkowy czas cyklu jednej szarży (dozowanie + grzanie + homogenizacja + chłodzenie + rozlew), do wstępnego wymiarowania floty — "
-                     "różne receptury/wielkości szarży realnie różnią się czasem cyklu. Po skonfigurowaniu inżynierii w Zakładce 2/6 zobaczysz obok "
+                     "różne receptury/wielkości szarży realnie różnią się czasem cyklu. Po skonfigurowaniu inżynierii w Zakładce 3/8 zobaczysz obok "
                      "rzeczywisty, policzony czas cyklu do porównania.",
                 key=f"cykl_baza_{selected_family_to_edit}"
             )
@@ -886,8 +1377,8 @@ with tab1:
 
         if real_cycle_reference_rows:
             with st.expander("📊 Rzeczywisty czas cyklu (referencja z Zakładki 2/6 — informacyjnie, nieedytowalne)", expanded=False):
-                st.caption("Ta tabela aktualizuje się automatycznie w miarę konfigurowania hydrauliki/bilansu cieplnego (Zakładka 2) "
-                           "i dozowania/homogenizacji (Zakładka 6) — nie wpływa na flotę powyżej i nie da się jej edytować.")
+                st.caption("Ta tabela aktualizuje się automatycznie w miarę konfigurowania hydrauliki/bilansu cieplnego (Zakładka 3) "
+                           "i dozowania/homogenizacji (Zakładka 8) — nie wpływa na flotę powyżej i nie da się jej edytować.")
                 st.dataframe(pd.DataFrame(real_cycle_reference_rows), hide_index=True, use_container_width=True)
 
         if not edited_df.empty:
@@ -950,7 +1441,7 @@ with tab2:
     st.header("Karta Maszyn: Zaawansowane Projektowanie Procesowe")
 
     if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Brak danych o flocie. Skonfiguruj i zatwierdź flotę w Zakładce 1, aby odblokować ten krok.")
+        st.warning("⚠️ Brak danych o flocie. Skonfiguruj i zatwierdź flotę w Zakładce 2, aby odblokować ten krok.")
     else:
         summary_combined_rows = []
 
@@ -1057,6 +1548,29 @@ with tab2:
                     st.caption("ℹ️ Czas grzania nie jest już wpisywany ręcznie — jest wyliczany z mocy grzania "
                                "(k × A × ΔT) i wymaganej energii, tak samo jak czas chłodzenia. Przepływy obu mediów są "
                                "teraz również wyliczane, nie zgadywane.")
+
+                st.markdown("---")
+                st.markdown("**🌫️ Typ Procesu i Bilans Pary (dla smarów/waxów)**")
+                p.setdefault("process_type", "Ciecz (mieszanie/blending)")
+                p["process_type"] = st.selectbox(
+                    "Typ procesu:", ["Ciecz (mieszanie/blending)", "Smar/Wax (gotowanie z odparowaniem)"],
+                    index=["Ciecz (mieszanie/blending)", "Smar/Wax (gotowanie z odparowaniem)"].index(p["process_type"]),
+                    key=f"proc_type_{m_id}",
+                    help="Wybierz 'Smar/Wax', jeśli ten reaktor gotuje z intensywnym odparowaniem (np. zmydlanie) "
+                         "i wymaga bilansu linii zrzutu pary — poniżej pojawią się dodatkowe pola, a zbiorczy "
+                         "rurociąg zrzutowy policzy się niżej, dla wszystkich reaktorów tego typu naraz."
+                )
+                if p["process_type"] == "Smar/Wax (gotowanie z odparowaniem)":
+                    p.setdefault("steam_avg_flow", 0.0185)
+                    p.setdefault("steam_max_process", 0.037)
+                    p.setdefault("steam_max_decompress", 0.089)
+                    cs1, cs2, cs3 = st.columns(3)
+                    with cs1:
+                        p["steam_avg_flow"] = st.number_input("Średni strumień odwadniania [kg/s]:", min_value=0.0, value=float(p["steam_avg_flow"]), step=0.001, format="%.4f", key=f"steam_avg_{m_id}")
+                    with cs2:
+                        p["steam_max_process"] = st.number_input("Maks. strumień procesowy [kg/s]:", min_value=0.0, value=float(p["steam_max_process"]), step=0.001, format="%.4f", key=f"steam_proc_{m_id}")
+                    with cs3:
+                        p["steam_max_decompress"] = st.number_input("Maks. strumień dekompresji [kg/s]:", min_value=0.0, value=float(p["steam_max_decompress"]), step=0.001, format="%.4f", key=f"steam_decomp_{m_id}")
 
         st.markdown("---")
 
@@ -1195,10 +1709,101 @@ with tab2:
         st.markdown("---")
 
         # ============================================================
+        # BILANS PARY I ODPOWIETRZENIA (agregacja dla reaktorów typu Smar/Wax)
+        # ============================================================
+        grease_mixers_p = [
+            (m, st.session_state.mixer_tech_advanced_details.get(m["tag"], {}))
+            for m in st.session_state.confirmed_mixers
+        ]
+        grease_mixers_p = [(m, p) for m, p in grease_mixers_p if p.get("process_type") == "Smar/Wax (gotowanie z odparowaniem)"]
+
+        if grease_mixers_p:
+            st.markdown("### 🌫️ Bilans Pary i Odpowietrzenie — Zbiorczy Rurociąg Zrzutowy")
+            st.caption("Agreguje strumienie masowe pary wpisane powyżej dla reaktorów oznaczonych jako "
+                       "'Smar/Wax' i liczy hydraulikę wspólnego rurociągu zrzutowego (Darcy-Weisbach), "
+                       "analogicznie do samodzielnego kalkulatora w Zakładce 9 (tam możesz też przeliczyć "
+                       "scenariusz niezależnie od skonfigurowanej floty).")
+            st.warning("⚠️ Wspomaganie wstępnego oszacowania — wymaga przeglądu przez uprawnionego inżyniera "
+                       "ds. bezpieczeństwa procesowego (HAZOP/SIL) przed wdrożeniem.")
+
+            c_gv1, c_gv2, c_gv3, c_gv4 = st.columns(4)
+            with c_gv1:
+                gv_pipe_length = st.number_input("Długość rurociągu zbiorczego (L) [m]:", min_value=0.1, value=10.0, step=0.5, key="tab2_steam_L")
+            with c_gv2:
+                gv_dn_choice = st.selectbox("Średnica wg DN (lub 'Własna'):", list(STEAM_PIPE_DN_REFERENCE_M.keys()) + ["Własna"], index=0, key="tab2_steam_dn")
+                if gv_dn_choice == "Własna":
+                    gv_pipe_d = st.number_input("Średnica wewnętrzna (d) [m]:", min_value=0.01, value=0.0889, step=0.001, format="%.4f", key="tab2_steam_d_custom")
+                else:
+                    gv_pipe_d = STEAM_PIPE_DN_REFERENCE_M[gv_dn_choice]
+            with c_gv3:
+                gv_lambda = st.number_input("Współczynnik tarcia (λ) [-]:", min_value=0.001, value=0.025, step=0.001, format="%.3f", key="tab2_steam_lambda")
+            with c_gv4:
+                gv_rho = st.number_input("Gęstość pary (ρ) [kg/m³]:", min_value=0.01, value=0.598, step=0.01, key="tab2_steam_rho")
+
+            c_ge1, c_ge2 = st.columns(2)
+            with c_ge1:
+                gv_emergency = st.number_input("Maks. strumień zrzutu awaryjnego (PRV) [kg/s]:", min_value=0.0, value=2.0, step=0.1, key="tab2_steam_emergency")
+                gv_nastawa = st.number_input("Nastawa zaworu bezpieczeństwa [bar]:", min_value=0.1, value=10.0, step=0.5, key="tab2_steam_nastawa")
+            with c_ge2:
+                gv_prog_ab = st.number_input("Próg prędkości - scenariusze A/B [m/s]:", min_value=1.0, value=35.0, step=1.0, key="tab2_steam_prog_ab")
+                gv_prog_c = st.number_input("Próg prędkości - scenariusz C [m/s]:", min_value=1.0, value=60.0, step=1.0, key="tab2_steam_prog_c")
+
+            sum_avg_flow = sum(p.get("steam_avg_flow", 0.0) for _, p in grease_mixers_p)
+            max_single_decompress = max((p.get("steam_max_decompress", 0.0) for _, p in grease_mixers_p), default=0.0)
+            sum_max_process = sum(p.get("steam_max_process", 0.0) for _, p in grease_mixers_p)
+            prog_dp_bar_gv = gv_nastawa * 0.10
+
+            gv_scenarios = [
+                {"name": f"A. Normalna praca średnia ({len(grease_mixers_p)} reaktor(y) Smar/Wax)", "mass_flow": sum_avg_flow, "check": "velocity", "prog": gv_prog_ab,
+                 "msg_bad": "ZAGROŻENIE: Rura za ciasna nawet dla wartości średnich!",
+                 "msg_ok": "Teoretycznie bezpiecznie, ale ignoruje szczyty chwilowe (dm/dt)."},
+                {"name": "B. Szczyt odparowania (najgorszy pojedynczy reaktor, faza Flash)", "mass_flow": max_single_decompress, "check": "velocity", "prog": gv_prog_ab,
+                 "msg_bad": "OSTRZEŻENIE: Pojedynczy zrzut dławi rurę. Spadek efektu flash.",
+                 "msg_ok": "Prędkość optymalna dla jednej maszyny."},
+                {"name": "C. Najgorszy szczyt roboczy (suma maks. procesowych, koincydencja)", "mass_flow": sum_max_process, "check": "velocity", "prog": gv_prog_c,
+                 "msg_bad": f"KRYTYCZNE DŁAWIENIE! Prędkość > {gv_prog_c:.0f} m/s. Blokada zrzutu pary, ryzyko cofki produktu! Rozważ większą średnicę.",
+                 "msg_ok": "ZGODNIE Z NORMĄ (15-30 m/s): Średnica dobrana poprawnie pod szczyt obciążenia."},
+                {"name": f"D. Scenariusz awaryjny (otwarcie zaworu - {gv_nastawa:.0f} bar)", "mass_flow": gv_emergency, "check": "pressure", "prog": prog_dp_bar_gv,
+                 "msg_bad": f"KATASTROFA API 2000! Opory przekraczają 10% nastawy ({prog_dp_bar_gv:.2f} bar). Zawór ulegnie ZABLOKOWANIU!",
+                 "msg_ok": "ZGODNIE Z API 2000: Ciśnienie wsteczne poniżej 10% nastawy. Zawór zadziała prawidłowo."},
+            ]
+
+            gv_result_rows = []
+            for sc in gv_scenarios:
+                vol_flow, velocity, dp_pa, dp_bar = compute_vent_line_scenario(sc["mass_flow"], gv_rho, gv_pipe_length, gv_pipe_d, gv_lambda)
+                is_bad = (velocity > sc["prog"]) if sc["check"] == "velocity" else (dp_bar > sc["prog"])
+                gv_result_rows.append({
+                    "Scenariusz Pracy Instalacji": sc["name"], "Masa pary [kg/s]": round(sc["mass_flow"], 4),
+                    "Prędkość pary [m/s]": round(velocity, 2), "Opory liniowe [bar]": round(dp_bar, 4),
+                    "Weryfikacja": sc["msg_bad"] if is_bad else sc["msg_ok"], "_is_bad": is_bad,
+                })
+
+            df_gv = pd.DataFrame(gv_result_rows)
+
+            def style_gv_alerts(df_data):
+                sm = pd.DataFrame('', index=df_data.index, columns=df_data.columns)
+                for idx in df_data.index:
+                    if df_gv.loc[idx, "_is_bad"]:
+                        for col in ["Prędkość pary [m/s]", "Opory liniowe [bar]", "Weryfikacja"]:
+                            sm.loc[idx, col] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
+                    else:
+                        sm.loc[idx, "Weryfikacja"] = 'background-color: #C6EFCE; color: #006100;'
+                return sm
+
+            st.dataframe(df_gv.drop(columns=["_is_bad"]).style.apply(style_gv_alerts, axis=None), hide_index=True, use_container_width=True)
+            n_gv_alerts = int(df_gv["_is_bad"].sum())
+            if n_gv_alerts > 0:
+                st.error(f"🔴 {n_gv_alerts} z {len(df_gv)} scenariuszy przekracza próg bezpieczeństwa.")
+            else:
+                st.success("🟢 Wszystkie scenariusze mieszczą się w przyjętych progach bezpieczeństwa.")
+
+            st.markdown("---")
+
+        # ============================================================
         # DOBÓR KOTŁA GRZEWCZEGO (agregacja zapotrzebowania cieplnego floty)
         # ============================================================
         st.markdown("### 🔥 Dobór Kotła Grzewczego i Instalacji Grzewczej")
-        st.caption("Sumuje moc grzania I przepływ medium grzewczego (Zakładka 2) po wszystkich mieszalnikach — moc dobiera kocioł, "
+        st.caption("Sumuje moc grzania I przepływ medium grzewczego (ta zakładka) po wszystkich mieszalnikach — moc dobiera kocioł, "
                    "przepływ dobiera pompy obiegowe i średnicę rurociągu rozdzielczego.")
 
         heat_by_medium = {}
@@ -1395,26 +2000,67 @@ with tab2:
         electric_boiler_load = total_heating_power_installed if typ_kotla == "Elektryczny" else 0.0
         cooling_electric_load = (total_cooling_duty / cop_chlodzenia) if uwzglednij_chlodzenie_el and cop_chlodzenia > 0 else 0.0
 
+        st.markdown("---")
+        st.markdown("##### 🏢 Odbiory Pozaprodukcyjne (Serwery, Oświetlenie, Sprężarkownia, Inne)")
+        st.caption("Odbiory niezwiązane bezpośrednio z reaktorami/pompami floty, ale realnie obciążające transformator "
+                   "zakładu — zwykle pracują z wyższym współczynnikiem jednoczesności niż urządzenia procesowe "
+                   "wsadowe (są 'włączone' niemal cały czas), więc liczone są z osobnym współczynnikiem poniżej.")
+
+        c_f_1, c_f_2, c_f_3 = st.columns(3)
+        with c_f_1:
+            serwery_kw = st.number_input("Serwery / IT [kW]:", min_value=0.0, value=5.0, step=0.5, key="fac_servers_kw")
+            hvac_kw = st.number_input("Wentylacja / HVAC (poza chłodzeniem procesowym) [kW]:", min_value=0.0, value=15.0, step=1.0, key="fac_hvac_kw")
+        with c_f_2:
+            powierzchnia_zakladu_m2 = st.number_input("Powierzchnia zakładu do oświetlenia [m²]:", min_value=0.0, value=2000.0, step=100.0, key="fac_area_m2")
+            wskaznik_oswietlenia_w_m2 = st.number_input("Wskaźnik mocy oświetlenia [W/m²]:", min_value=1.0, value=8.0, step=0.5, key="fac_light_wm2",
+                                                          help="Typowo 6-10 W/m² dla oświetlenia LED w halach przemysłowych.")
+            oswietlenie_kw = (powierzchnia_zakladu_m2 * wskaznik_oswietlenia_w_m2) / 1000.0
+            st.caption(f"Wyliczona moc oświetlenia: **{oswietlenie_kw:.1f} kW**")
+        with c_f_3:
+            sprezarkownia_kw = st.number_input("Sprężarkownia (sprężone powietrze) [kW]:", min_value=0.0, value=45.0, step=5.0, key="fac_compressed_air_kw")
+            inne_odbiory_kw = st.number_input("Inne (biura, ładowarki wózków, warsztat UR) [kW]:", min_value=0.0, value=20.0, step=5.0, key="fac_other_kw")
+
+        total_facility_load_kw = serwery_kw + hvac_kw + oswietlenie_kw + sprezarkownia_kw + inne_odbiory_kw
+        wspolczynnik_jednoczesnosci_facility = st.slider(
+            "Współczynnik jednoczesności odbiorów pozaprodukcyjnych [%]:", min_value=50, max_value=100, value=90,
+            help="Serwery/oświetlenie/sprężarkownia pracują niemal ciągle, więc ten współczynnik jest zwykle wyższy niż dla floty procesowej.",
+            key="fac_wsp_jednocz") / 100.0
+
+        st.markdown("---")
+
         installed_electric_load_kw = total_mix_power + total_pump_power + electric_boiler_load + cooling_electric_load
-        demand_kw = installed_electric_load_kw * wspolczynnik_jednoczesnosci_el
+        process_demand_kw = installed_electric_load_kw * wspolczynnik_jednoczesnosci_el
+        facility_demand_kw = total_facility_load_kw * wspolczynnik_jednoczesnosci_facility
+        demand_kw = process_demand_kw + facility_demand_kw
         demand_kva = (demand_kw / cos_phi) * (1 + margines_transformatora) if cos_phi > 0 else 0.0
 
         STANDARD_TRANSFORMER_SIZES_KVA = [100, 160, 200, 250, 315, 400, 500, 630, 800, 1000, 1250, 1600, 2000, 2500]
         recommended_transformer = next((s for s in STANDARD_TRANSFORMER_SIZES_KVA if s >= demand_kva), demand_kva)
 
         load_rows = [
-            {"Odbiornik": "Silniki mieszadeł (suma floty)", "Moc [kW]": round(total_mix_power, 1)},
-            {"Odbiornik": "Silniki pomp (suma floty)", "Moc [kW]": round(total_pump_power, 1)},
+            {"Odbiornik": "Silniki mieszadeł (suma floty)", "Moc [kW]": round(total_mix_power, 1), "Kategoria": "Proces"},
+            {"Odbiornik": "Silniki pomp (suma floty)", "Moc [kW]": round(total_pump_power, 1), "Kategoria": "Proces"},
             {"Odbiornik": "Kocioł elektryczny" if typ_kotla == "Elektryczny" else "Kocioł (gazowy — brak obciążenia elektrycznego)",
-             "Moc [kW]": round(electric_boiler_load, 1)},
+             "Moc [kW]": round(electric_boiler_load, 1), "Kategoria": "Proces"},
             {"Odbiornik": "Chłodzenie (agregaty, przez COP)" if uwzglednij_chlodzenie_el else "Chłodzenie (nieuwzględnione)",
-             "Moc [kW]": round(cooling_electric_load, 1)},
+             "Moc [kW]": round(cooling_electric_load, 1), "Kategoria": "Proces"},
+            {"Odbiornik": "Serwery / IT", "Moc [kW]": round(serwery_kw, 1), "Kategoria": "Pozaprodukcyjne"},
+            {"Odbiornik": "Wentylacja / HVAC", "Moc [kW]": round(hvac_kw, 1), "Kategoria": "Pozaprodukcyjne"},
+            {"Odbiornik": "Oświetlenie zakładu", "Moc [kW]": round(oswietlenie_kw, 1), "Kategoria": "Pozaprodukcyjne"},
+            {"Odbiornik": "Sprężarkownia", "Moc [kW]": round(sprezarkownia_kw, 1), "Kategoria": "Pozaprodukcyjne"},
+            {"Odbiornik": "Inne (biura, ładowarki, UR)", "Moc [kW]": round(inne_odbiory_kw, 1), "Kategoria": "Pozaprodukcyjne"},
         ]
         st.dataframe(pd.DataFrame(load_rows), hide_index=True, use_container_width=True)
 
+        m_e0a, m_e0b = st.columns(2)
+        with m_e0a:
+            st.metric("⚙️ Moc szczytowa — proces (ze wsp. jednocz.)", f"{process_demand_kw:.1f} kW")
+        with m_e0b:
+            st.metric("🏢 Moc szczytowa — pozaprodukcyjne (ze wsp. jednocz.)", f"{facility_demand_kw:.1f} kW")
+
         m_e1, m_e2, m_e3, m_e4 = st.columns(4)
-        with m_e1: st.metric("Moc zainstalowana", f"{installed_electric_load_kw:.1f} kW")
-        with m_e2: st.metric("Moc szczytowa (ze wsp. jednocz.)", f"{demand_kw:.1f} kW")
+        with m_e1: st.metric("Moc zainstalowana (razem)", f"{installed_electric_load_kw + total_facility_load_kw:.1f} kW")
+        with m_e2: st.metric("Moc szczytowa (razem)", f"{demand_kw:.1f} kW")
         with m_e3: st.metric("Moc pozorna wymagana", f"{demand_kva:.1f} kVA")
         with m_e4: st.metric("🔌 Zalecany transformator", f"{recommended_transformer:.0f} kVA")
 
@@ -1441,7 +2087,7 @@ with tab2:
 with tab3:
     st.header("📦 Analiza Logistyczna, Czas Rozlewu i Gospodarka Paletowa")
     if not st.session_state.confirmed_mixers:
-        st.info("💡 Najpierw zatwierdź konfigurację floty w Zakładce 1.")
+        st.info("💡 Najpierw zatwierdź konfigurację floty w Zakładce 2.")
     else:
         mixers_fleet = st.session_state.confirmed_mixers
         opakowania_podzial = st.session_state.get("opakowania_podzial", {})
@@ -1454,7 +2100,7 @@ with tab3:
         aktywne_opakowania = set()
         for kat in wybrane_kategorie:
             for p in st.session_state.get(f"packs_{kat}", []): aktywne_opakowania.add(p)
-        if not aktywne_opakowania: aktywne_opakowania = set(PACK_CONFIGS.keys())
+        if not aktywne_opakowania: aktywne_opakowania = set(st.session_state.pack_configs.keys())
 
         if "filling_lines_config" not in st.session_state: st.session_state.filling_lines_config = {}
         for p in aktywne_opakowania:
@@ -1494,7 +2140,7 @@ with tab3:
                 udzial_pct = opakowania_podzial.get(f"pct_{kat}_{p}", 0.0)
                 if udzial_pct > 0:
                     masa_opakowania_month = total_mass_month * (udzial_pct / 100.0)
-                    pack_capacity_kg = PACK_CONFIGS[p]["size_l"] * rho_linii
+                    pack_capacity_kg = st.session_state.pack_configs[p]["size_l"] * rho_linii
                     liczba_sztuk_month = math.ceil(masa_opakowania_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
 
                     cfg_fill = st.session_state.filling_lines_config.get(p, {"nozzles": 1, "speed_kg_min": 30.0})
@@ -1511,7 +2157,7 @@ with tab3:
 
                     q_effective_flow_m3h = min(q_pump_m3h, sekcja_nalewania_m3_h)
                     czas_rozlewu_h = (masa_opakowania_month / (rho_linii * 1000.0)) / q_effective_flow_m3h if q_effective_flow_m3h > 0 else 0.0
-                    liczba_palet_month = math.ceil(liczba_sztuk_month / PACK_CONFIGS[p]["per_pallet"])
+                    liczba_palet_month = math.ceil(liczba_sztuk_month / st.session_state.pack_configs[p]["per_pallet"])
                     miejsca_paletowe = math.ceil((liczba_palet_month / dni_robocze_miesiac) * czas_skladowania_dni)
 
                     real_split_rows.append({
@@ -1562,8 +2208,8 @@ with tab3:
             with m_wh2: st.metric("📐 Wymagana powierzchnia magazynowa", f"{total_powierzchnia_m2:,.0f} m²")
             with m_wh3: st.metric("📏 Powierzchnia / miejsce paletowe", f"{powierzchnia_na_miejsce:.2f} m²")
 
-            st.caption("💡 Powyższa suma to zapotrzebowanie na miejsca paletowe **wyrobów gotowych** (Zakładka 3). Bufor **surowców** "
-                       "(zbiorniki/silosy) jest liczony i wymiarowany osobno w Zakładce 5 (Surowce i Park Zbiorników).")
+            st.caption("💡 Powyższa suma to zapotrzebowanie na miejsca paletowe **wyrobów gotowych** (Zakładka 4). Bufor **surowców** "
+                       "(zbiorniki/silosy) jest liczony i wymiarowany osobno w Zakładce 6 (Surowce i Park Zbiorników).")
         else:
             st.info("Brak skonfigurowanego podziału opakowań o niezerowym udziale — uzupełnij procenty w panelu bocznym.")
 
@@ -1573,7 +2219,7 @@ with tab3:
 with tab4:
     st.header("💰 Optymalizacja Kosztów Energii i Bilans Finansowy")
     if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Najpierw zatwierdź flotę w Zakładce 1.")
+        st.warning("⚠️ Najpierw zatwierdź flotę w Zakładce 2.")
     else:
         waluta = st.selectbox("Wybierz walutę operacyjną:", ["PLN", "EUR", "USD"])
         manuf_cost_per_kg = st.number_input(f"Bazowy Manufacturing Cost [za kg] w {waluta}:", min_value=0.01, value=2.12, format="%.3f")
@@ -1581,7 +2227,7 @@ with tab4:
         st.session_state["cena_mwh_tab4"] = cena_mwh
 
         if not st.session_state.calculated_times:
-            st.info("ℹ️ Skonfiguruj urządzenia w Zakładce 2, aby koszty energii odzwierciedlały rzeczywistą hydraulikę i bilans cieplny "
+            st.info("ℹ️ Skonfiguruj urządzenia w Zakładce 3, aby koszty energii odzwierciedlały rzeczywistą hydraulikę i bilans cieplny "
                     "(w przeciwnym razie poniżej używane są bezpieczne wartości domyślne).")
 
         # Cena i sprawność "paliwa grzewczego" (gaz lub prąd, zależnie od wyboru kotła w Zakładce 2)
@@ -1630,7 +2276,7 @@ with tab4:
                 "Reaktor": tag, "Miesięczny tonaż [kg]": int(m_monthly_kg),
                 "Energia Mieszania [kWh]": round(mixing_energy, 1), "Energia Pompowania [kWh]": round(pumping_energy, 1),
                 "Koszt prądu": f"{cost_el:.2f} {waluta}", "Odzysk ciepła": f"- {oszczednosc_cieplna:.2f} {waluta}",
-                "Źródło danych": "Zakładka 2" if tag in calculated_times else "Wartości domyślne"
+                "Źródło danych": "Zakładka 3" if tag in calculated_times else "Wartości domyślne"
             })
 
         st.dataframe(pd.DataFrame(financial_summary), hide_index=True, use_container_width=True)
@@ -1641,14 +2287,14 @@ with tab4:
             st.metric(label=f"🔥 Koszt paliwa grzewczego ({typ_kotla_disp}, z Zakładki 2)",
                       value=f"{koszt_paliwa_grzewczego:,.2f} {waluta}")
         else:
-            st.info("ℹ️ Skonfiguruj kocioł i typ paliwa w Zakładce 2 (sekcja 'Dobór Kotła Grzewczego'), aby doliczyć "
+            st.info("ℹ️ Skonfiguruj kocioł i typ paliwa w Zakładce 3 (sekcja 'Dobór Kotła Grzewczego'), aby doliczyć "
                     "koszt ogrzewania do kosztu wytworzenia.")
 
         final_cost = total_base_manuf_cost + total_energy_cost_el + koszt_paliwa_grzewczego - total_monthly_saving_thermal
         st.metric(label="🚀 ZOPTYMALIZOWANY REALNY KOSZT WYTWORZENIA (Miesięcznie)", value=f"{final_cost:,.2f} {waluta}")
 
         st.info("💡 Pełna analiza czasu cyklu szarży (dozowanie, grzanie, homogenizacja, QC, pompowanie, chłodzenie, "
-                "rozlew) oraz rekomendacja liczby zmian znajdują się teraz w **Zakładce 6 (Mapa Strumienia Wartości)**, "
+                "rozlew) oraz rekomendacja liczby zmian znajdują się teraz w **Zakładce 8 (Mapa Strumienia Wartości)**, "
                 "razem z resztą analizy czasu procesu.")
 
 # ==========================================
@@ -1657,7 +2303,7 @@ with tab4:
 with tab5:
     st.header("🛢️ Logistyka Surowcowa i Grupy Magazynowe (Tank Farm)")
     if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Brak danych technicznych. Uruchom konfigurację w Zakładce 1.")
+        st.warning("⚠️ Brak danych technicznych. Uruchom konfigurację w Zakładce 2.")
     else:
         active_chemical_ratio = st.slider("Średni udział fazy ciekłej (baza + woda) w recepturze [%]:", 50, 95, 85) / 100.0
         days_of_stock = st.number_input("Wymagany zapas bezpieczeństwa surowca [dni]:", min_value=5, value=14)
@@ -1712,7 +2358,7 @@ with tab5:
             st.markdown("---")
             st.markdown("### 🧪 Wymiarowanie Silosów per Surowiec (na podstawie wgranych receptur)")
             st.caption("To zestawienie NIE zastępuje powyższego (grupowego, opartego o flotę mieszalników) — pochodzi z "
-                       "receptur wgranych w **Zakładce 7** i daje realny rozkład zużycia na poziomie pojedynczego "
+                       "receptur wgranych w **Zakładce 1** i daje realny rozkład zużycia na poziomie pojedynczego "
                        "surowca (np. osobno Base Oil II i Base Oil III), zamiast tylko grup 'Mineralne/Syntetyczne'.")
 
             recipe_silos_rows = []
@@ -1736,7 +2382,7 @@ with tab5:
             else:
                 st.info("Wgrane receptury nie zawierają jeszcze niezerowego zużycia żadnego surowca.")
         else:
-            st.info("💡 Wgraj receptury produktów w **Zakładce 7**, aby zobaczyć tu również wymiarowanie silosów "
+            st.info("💡 Wgraj receptury produktów w **Zakładce 1**, aby zobaczyć tu również wymiarowanie silosów "
                     "per pojedynczy surowiec (a nie tylko wg grup olejowych).")
 
 # ==========================================
@@ -1748,7 +2394,7 @@ with tab6:
                "(hydraulika/bilans cieplny, rozlew, bufory magazynowe), więc automatycznie aktualizuje się razem z nimi.")
 
     if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Najpierw zatwierdź flotę w Zakładce 1.")
+        st.warning("⚠️ Najpierw zatwierdź flotę w Zakładce 2.")
     else:
         rodziny_w_flocie = sorted(set(m["product_family"] for m in st.session_state.confirmed_mixers))
         selected_vsm_family = st.selectbox("Wybierz linię produktową do mapowania:", rodziny_w_flocie, key="vsm_family_select")
@@ -1820,7 +2466,7 @@ with tab6:
         calc_times_family = [c for c in calc_times_family if c is not None]
 
         if not calc_times_family:
-            st.info("ℹ️ Skonfiguruj hydraulikę i bilans cieplny dla tej linii w Zakładce 2, aby uzyskać rzeczywiste czasy "
+            st.info("ℹ️ Skonfiguruj hydraulikę i bilans cieplny dla tej linii w Zakładce 3, aby uzyskać rzeczywiste czasy "
                     "grzania/pompowania/chłodzenia (poniżej użyto bezpiecznych wartości domyślnych).")
             heating_h, pumping_h, cooling_h = 1.5, 0.75, 0.5
         else:
@@ -2063,7 +2709,7 @@ with tab7:
     st.header("📋 Receptury Produktów: Import z Excela")
     st.caption("Wgraj plik Excel z listą produktów (przypisanych do grupy produktowej), rocznym zapotrzebowaniem "
                "i dozowaniem surowców [kg/t] (bazy olejowe, dodatki, pakiety, zagęszczacze, smary stałe, woda DEMI, "
-               "biocyd). Dane z tej zakładki zasilają dodatkowo wymiarowanie silosów **per surowiec** w Zakładce 5 "
+               "biocyd). Dane z tej zakładki zasilają dodatkowo wymiarowanie silosów **per surowiec** w Zakładce 6 "
                "oraz podpowiedź, dla których surowców opłaca się dedykowany zbiornik, a które lepiej zostawić "
                "w beczkach/IBC/workach.")
 
@@ -2072,7 +2718,8 @@ with tab7:
                "kolumn), listę rozwijaną grup produktowych, dwa przykładowe wiersze pokazujące format oraz formuły "
                "kontrolne — 'Suma Udziałów Składników' podświetla się na czerwono, jeśli odbiega od 1000 kg/t o "
                "więcej niż tolerancja, a 'Roczne Zapotrzebowanie Surowcowe' wylicza się z uwzględnieniem strat "
-               "procesowych.")
+               "procesowych. Dodatkowy arkusz 'Opakowania' pozwala predefiniować typy opakowań i ich pojemności — "
+               "opcjonalny, wypełniony domyślnymi wartościami z aplikacji, można dopisać nowe wiersze lub zostawić bez zmian.")
 
     template_bytes = generate_recipe_template_bytes()
     st.download_button(
@@ -2090,6 +2737,7 @@ with tab7:
     )
 
     if uploaded_recipe_file is not None:
+        uploaded_recipe_file.seek(0)
         parsed_df, parse_errors = parse_recipe_excel(uploaded_recipe_file)
 
         if parse_errors:
@@ -2101,6 +2749,19 @@ with tab7:
             st.success(f"✅ Wczytano {len(parsed_df)} poprawnych receptur produktowych.")
         elif parsed_df is None:
             st.error("❌ Nie udało się wczytać żadnych poprawnych receptur z tego pliku — popraw błędy powyżej i wgraj ponownie.")
+
+        # Opcjonalny arkusz 'Opakowania' w tym samym pliku - jeśli obecny, nadpisuje/uzupełnia
+        # domyślne typy opakowań i ich pojemności (Zakładki 1 i 3), z zachowaniem edycji w apce.
+        uploaded_recipe_file.seek(0)
+        packaging_result, packaging_errors = parse_packaging_excel(uploaded_recipe_file)
+        for err in packaging_errors:
+            st.warning(f"⚠️ {err}")
+        if packaging_result is not None:
+            st.session_state.pack_configs.update(packaging_result["pack_configs"])
+            if "filling_lines_config" not in st.session_state:
+                st.session_state.filling_lines_config = {}
+            st.session_state.filling_lines_config.update(packaging_result["filling_defaults"])
+            st.success(f"✅ Wczytano/zaktualizowano {len(packaging_result['pack_configs'])} typów opakowań z arkusza '{PACKAGING_SHEET_NAME}'.")
 
     st.markdown("---")
 
@@ -2128,11 +2789,28 @@ with tab7:
         loss_safe = edited_recipes_df[RECIPE_LOSS_COL].clip(lower=0, upper=99.9)
         edited_recipes_df[RECIPE_RAW_DEMAND_COL] = edited_recipes_df[RECIPE_ANNUAL_COL] / (1.0 - loss_safe / 100.0)
 
+        edited_recipes_df[RECIPE_BATCH_MASS_COL] = edited_recipes_df[RECIPE_MIXER_VOL_COL] * 1000.0 * edited_recipes_df[RECIPE_DENSITY_COL]
+        edited_recipes_df[RECIPE_BATCHES_YEAR_COL] = 0.0
+        has_bm = edited_recipes_df[RECIPE_BATCH_MASS_COL] > 0
+        edited_recipes_df.loc[has_bm, RECIPE_BATCHES_YEAR_COL] = (
+            edited_recipes_df.loc[has_bm, RECIPE_ANNUAL_COL] * 1000.0 / edited_recipes_df.loc[has_bm, RECIPE_BATCH_MASS_COL])
+        edited_recipes_df[RECIPE_UTILIZATION_COL] = 0.0
+        has_ah = edited_recipes_df[RECIPE_AVAIL_HOURS_COL] > 0
+        edited_recipes_df.loc[has_ah, RECIPE_UTILIZATION_COL] = (
+            edited_recipes_df.loc[has_ah, RECIPE_BATCHES_YEAR_COL] * edited_recipes_df.loc[has_ah, RECIPE_CYCLE_COL]
+            / edited_recipes_df.loc[has_ah, RECIPE_AVAIL_HOURS_COL] * 100.0)
+
         bad_sum_live = edited_recipes_df[(edited_recipes_df[RECIPE_SUM_COL] - RECIPE_TARGET_SUM_KG).abs() > RECIPE_SUM_TOLERANCE_KG]
         if not bad_sum_live.empty:
             zle_produkty = ", ".join(f"{p} ({s:.0f} kg/t)" for p, s in zip(bad_sum_live[RECIPE_PRODUCT_COL], bad_sum_live[RECIPE_SUM_COL]))
             st.error(f"❌ Suma dozowania surowców odbiega od 1000 kg/t (± {RECIPE_SUM_TOLERANCE_KG:.0f} kg) dla: "
                      f"{zle_produkty}. Popraw przed dalszą analizą.")
+
+        overloaded_live = edited_recipes_df[edited_recipes_df[RECIPE_UTILIZATION_COL] > RECIPE_UTILIZATION_WARN_PCT]
+        if not overloaded_live.empty:
+            zle_mieszalniki = ", ".join(f"{p} ({u:.0f}%)" for p, u in zip(overloaded_live[RECIPE_PRODUCT_COL], overloaded_live[RECIPE_UTILIZATION_COL]))
+            st.warning(f"⚠️ Wykorzystanie mieszalnika powyżej {RECIPE_UTILIZATION_WARN_PCT:.0f}% dla: {zle_mieszalniki} — "
+                       f"rozważ większy zbiornik, krótszy cykl, więcej zmian roboczych, lub kolejny mieszalnik.")
 
         st.markdown("---")
         st.markdown("### 🧮 Krok 4: Zagregowane roczne zużycie surowców")
@@ -2235,3 +2913,245 @@ with tab7:
 
     else:
         st.info("💡 Wgraj plik z recepturami powyżej, aby zobaczyć tu zagregowane zużycie surowców i rekomendacje magazynowania.")
+
+    st.markdown("---")
+    st.markdown("### 📦 Konfiguracja Opakowań (Zakładki 1 i 3)")
+    st.caption("Typy opakowań i ich pojemności — domyślnie wbudowane w aplikację, nadpisywane/uzupełniane przez "
+               "opcjonalny arkusz 'Opakowania' w pliku z recepturami (Krok 2 powyżej). Możesz je też edytować "
+               "bezpośrednio tutaj — zmiany obowiązują od razu w Zakładce 2 (wybór opakowań per linia) i "
+               "Zakładce 4 (logistyka/rozlew), bez potrzeby ponownego wgrywania pliku.")
+
+    pack_editor_rows = [
+        {"Nazwa Opakowania": name, "Pojemność [L]": cfg["size_l"], "Sztuk na Palecie": cfg["per_pallet"]}
+        for name, cfg in st.session_state.pack_configs.items()
+    ]
+    edited_pack_df = st.data_editor(
+        pd.DataFrame(pack_editor_rows), hide_index=True, use_container_width=True,
+        num_rows="dynamic", key="pack_configs_editor"
+    )
+    new_pack_configs = {}
+    for _, row in edited_pack_df.iterrows():
+        name = str(row["Nazwa Opakowania"])
+        if not name or pd.isna(row["Pojemność [L]"]) or pd.isna(row["Sztuk na Palecie"]):
+            continue
+        existing = st.session_state.pack_configs.get(name, {"rate_szt_h": 0})
+        new_pack_configs[name] = {
+            "size_l": float(row["Pojemność [L]"]),
+            "per_pallet": int(row["Sztuk na Palecie"]),
+            "rate_szt_h": existing.get("rate_szt_h", 0),
+        }
+    st.session_state.pack_configs = new_pack_configs
+
+# ==========================================
+# ZAKŁADKA 8: BILANS PARY / ODPOWIETRZENIE (HAZOP / API 2000)
+# ==========================================
+with tab8:
+    st.header("🌫️ Bilans Pary i Odpowietrzenie: Analiza Hydrauliczna i HAZOP")
+    st.caption("Moduł dedykowany procesom 'gotowania' (smary, waxy) — intensywne odparowanie, czasem podwyższone "
+               "ciśnienie. Liczy prędkość pary i opory liniowe w rurociągu zrzutowym metodą Darcy-Weisbacha dla "
+               "4 scenariuszy pracy i weryfikuje je względem progów bezpieczeństwa (ISO 28300 / API 2000). "
+               "Ten moduł jest niezależny od floty mieszalników z pozostałych zakładek.")
+    st.warning("⚠️ To narzędzie wspomaga wstępne oszacowanie, a nie zastępuje przeglądu przez uprawnionego "
+               "inżyniera ds. bezpieczeństwa procesowego (HAZOP/SIL) przed wdrożeniem na realnej instalacji.")
+
+    st.markdown("### 1️⃣ Geometria Instalacji")
+    c_g1, c_g2, c_g3, c_g4 = st.columns(4)
+    with c_g1:
+        n_reaktorow = st.number_input("Liczba pracujących reaktorów (n) [szt.]:", min_value=1, value=1, step=1, key="steam_n_reaktorow")
+    with c_g2:
+        pipe_length_steam = st.number_input("Długość całkowita rurociągu zbiorczego (L) [m]:", min_value=0.1, value=10.0, step=0.5, key="steam_pipe_length")
+    with c_g3:
+        dn_choice = st.selectbox("Średnica wg ściągawki DN (lub 'Własna'):", list(STEAM_PIPE_DN_REFERENCE_M.keys()) + ["Własna"], index=0, key="steam_dn_choice")
+        if dn_choice == "Własna":
+            pipe_diameter_steam = st.number_input("Średnica wewnętrzna rurociągu (d) [m]:", min_value=0.01, value=0.0889, step=0.001, format="%.4f", key="steam_pipe_d_custom")
+        else:
+            pipe_diameter_steam = STEAM_PIPE_DN_REFERENCE_M[dn_choice]
+            st.caption(f"Średnica wewnętrzna: **{pipe_diameter_steam:.4f} m**")
+    with c_g4:
+        lambda_steam = st.number_input("Współczynnik tarcia liniowego rury (λ) [-]:", min_value=0.001, value=0.025, step=0.001, format="%.3f", key="steam_lambda")
+
+    st.markdown("---")
+    st.markdown("### 2️⃣ Strumienie Masowe i Stałe Termodynamiczne")
+    st.caption("Wpisz strumienie masowe wyznaczone z bilansu procesu (dm/dt) dla poszczególnych scenariuszy pracy instalacji.")
+    c_s1, c_s2, c_s3 = st.columns(3)
+    with c_s1:
+        rho_steam = st.number_input("Gęstość pary nasyconej rozprężonej (ρ) [kg/m³]:", min_value=0.01, value=0.598, step=0.01, key="steam_rho")
+        avg_flow_1r = st.number_input("Średni strumień odwadniania, 1 reaktor [kg/s]:", min_value=0.0, value=0.0185, step=0.001, format="%.4f", key="steam_avg_flow")
+    with c_s2:
+        max_process_1r = st.number_input("Maks. strumień procesowy, 1 reaktor [kg/s]:", min_value=0.0, value=0.037, step=0.001, format="%.4f", key="steam_max_process")
+        max_decompress_1r = st.number_input("Maks. strumień dekompresji, 1 reaktor [kg/s]:", min_value=0.0, value=0.089, step=0.001, format="%.4f", key="steam_max_decompress")
+    with c_s3:
+        max_cumulated_peak = st.number_input("Maks. skumulowany szczyt roboczy (koincydencja) [kg/s]:", min_value=0.0, value=0.215, step=0.001, format="%.4f",
+                                              key="steam_max_cumulated", help="Np. koincydencja kilku reaktorów jednocześnie w fazie flash - wpisz ręcznie, bo to scenariusz specyficzny dla harmonogramu produkcji.")
+        max_emergency = st.number_input("Maks. strumień zrzutu awaryjnego [kg/s]:", min_value=0.0, value=2.0, step=0.1, key="steam_max_emergency")
+
+    st.markdown("---")
+    st.markdown("### 🎚️ Progi Bezpieczeństwa (edytowalne)")
+    c_p1, c_p2, c_p3 = st.columns(3)
+    with c_p1:
+        prog_v_normalna = st.number_input("Próg prędkości - scenariusze A/B [m/s]:", min_value=1.0, value=35.0, step=1.0, key="steam_prog_ab")
+    with c_p2:
+        prog_v_szczyt = st.number_input("Próg prędkości - scenariusz C (szczyt skumulowany) [m/s]:", min_value=1.0, value=60.0, step=1.0, key="steam_prog_c")
+    with c_p3:
+        nastawa_zaworu_bar = st.number_input("Nastawa zaworu bezpieczeństwa [bar]:", min_value=0.1, value=10.0, step=0.5, key="steam_nastawa_zaworu")
+        prog_pct_nastawy = st.number_input("Dopuszczalny % nastawy (opory wsteczne, API 2000) [%]:", min_value=1.0, max_value=50.0, value=10.0, step=1.0, key="steam_prog_pct")
+    prog_dp_bar = nastawa_zaworu_bar * (prog_pct_nastawy / 100.0)
+    st.caption(f"Zgodnie z API 2000, opory na linii zrzutowej dla zaworu konwencjonalnego nie powinny przekraczać "
+               f"**{prog_pct_nastawy:.0f}%** nastawy ({nastawa_zaworu_bar:.1f} bar) = **{prog_dp_bar:.2f} bar**.")
+
+    st.markdown("---")
+    st.markdown("### 3️⃣ Zintegrowane Obliczenia Hydrauliczne i Audyt Bezpieczeństwa")
+
+    scenarios = [
+        {"name": "A. Normalna praca średnia (n reaktorów)", "mass_flow": n_reaktorow * avg_flow_1r, "check": "velocity", "prog": prog_v_normalna,
+         "msg_bad": "ZAGROŻENIE: Rura za ciasna nawet dla wartości średnich!",
+         "msg_ok": "Teoretycznie bezpiecznie, ale ignoruje szczyty chwilowe (dm/dt)."},
+        {"name": "B. Szczyt odparowania (pojedynczy reaktor, faza Flash)", "mass_flow": max_decompress_1r, "check": "velocity", "prog": prog_v_normalna,
+         "msg_bad": "OSTRZEŻENIE: Pojedynczy zrzut dławi rurę. Spadek efektu flash.",
+         "msg_ok": "Prędkość optymalna dla jednej maszyny."},
+        {"name": "C. Najgorszy szczyt roboczy (koincydencja reaktorów)", "mass_flow": max_cumulated_peak, "check": "velocity", "prog": prog_v_szczyt,
+         "msg_bad": f"KRYTYCZNE DŁAWIENIE! Prędkość > {prog_v_szczyt:.0f} m/s. Blokada zrzutu pary, ryzyko cofki produktu i zniszczenia struktury! Rozważ większą średnicę.",
+         "msg_ok": "ZGODNIE Z NORMĄ (15-30 m/s): Średnica dobrana poprawnie pod szczyt obciążenia. Brak ciśnienia wstecznego."},
+        {"name": f"D. Scenariusz awaryjny (otwarcie zaworu - {nastawa_zaworu_bar:.0f} bar)", "mass_flow": max_emergency, "check": "pressure", "prog": prog_dp_bar,
+         "msg_bad": f"KATASTROFA API 2000! Opory w rurze zrzutowej przekraczają {prog_pct_nastawy:.0f}% nastawy ({prog_dp_bar:.2f} bar). Zawór konwencjonalny ulegnie ZABLOKOWANIU! Ryzyko rozerwania reaktora!",
+         "msg_ok": f"ZGODNIE Z API 2000: Ciśnienie wsteczne poniżej {prog_pct_nastawy:.0f}% nastawy. Zawór zadziała prawidłowo."},
+    ]
+
+    result_rows = []
+    for sc in scenarios:
+        vol_flow, velocity, dp_pa, dp_bar = compute_vent_line_scenario(
+            sc["mass_flow"], rho_steam, pipe_length_steam, pipe_diameter_steam, lambda_steam)
+
+        if sc["check"] == "velocity":
+            is_bad = velocity > sc["prog"]
+        else:
+            is_bad = dp_bar > sc["prog"]
+        weryfikacja = sc["msg_bad"] if is_bad else sc["msg_ok"]
+
+        result_rows.append({
+            "Scenariusz Pracy Instalacji": sc["name"],
+            "Masa pary [kg/s]": round(sc["mass_flow"], 4),
+            "Objętość pary [m³/s]": round(vol_flow, 4),
+            "Prędkość pary [m/s]": round(velocity, 2),
+            "Opory liniowe [Pa]": round(dp_pa, 1),
+            "Opory liniowe [bar]": round(dp_bar, 4),
+            "Weryfikacja Normatywna i Diagnoza Zagrożeń": weryfikacja,
+            "_is_bad": is_bad,
+        })
+
+    df_steam = pd.DataFrame(result_rows)
+    df_steam_display = df_steam.drop(columns=["_is_bad"])
+
+    def style_steam_alerts(df_data):
+        style_matrix = pd.DataFrame('', index=df_data.index, columns=df_data.columns)
+        for idx in df_data.index:
+            if df_steam.loc[idx, "_is_bad"]:
+                style_matrix.loc[idx, "Prędkość pary [m/s]"] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
+                style_matrix.loc[idx, "Opory liniowe [bar]"] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
+                style_matrix.loc[idx, "Weryfikacja Normatywna i Diagnoza Zagrożeń"] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
+            else:
+                style_matrix.loc[idx, "Weryfikacja Normatywna i Diagnoza Zagrożeń"] = 'background-color: #C6EFCE; color: #006100;'
+        return style_matrix
+
+    styled_steam = df_steam_display.style.apply(style_steam_alerts, axis=None)
+    st.dataframe(styled_steam, hide_index=True, use_container_width=True)
+
+    n_alerts = int(df_steam["_is_bad"].sum())
+    if n_alerts > 0:
+        st.error(f"🔴 {n_alerts} z {len(df_steam)} scenariuszy przekracza próg bezpieczeństwa — sprawdź kolumnę diagnozy powyżej.")
+    else:
+        st.success("🟢 Wszystkie scenariusze mieszczą się w przyjętych progach bezpieczeństwa.")
+
+# ==========================================
+# ZAKŁADKA 7 (tab9): CENNIK I STANDARDOWA INSTALACJA (CAPEX)
+# ==========================================
+with tab9:
+    st.header("🧰 Cennik i Standardowa Instalacja (CAPEX)")
+    st.caption("Zdefiniuj listę komponentów standardowej instalacji per grupa produktowa (pompy, czujniki, "
+               "zawory, elektrozawory itd.) wraz z cenami jednostkowymi — treść zwykle przepisana z Twojego "
+               "istniejącego P&ID danej instalacji standardowej. Podaj, ile takich instalacji planujesz, "
+               "a aplikacja przeliczy szacunkowy CAPEX. Cennik wgrywasz ponownie, gdy ceny się zmienią.")
+
+    st.markdown("### 📥 Krok 1: Pobierz szablon cennika")
+    equipment_template_bytes = generate_equipment_template_bytes()
+    st.download_button(
+        label="⬇️ Pobierz szablon Excel (Cennik_Instalacji_Szablon.xlsx)",
+        data=equipment_template_bytes,
+        file_name="Cennik_Instalacji_Szablon.xlsx",
+        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+        key="btn_download_equipment_template"
+    )
+
+    st.markdown("---")
+    st.markdown("### 📤 Krok 2: Wgraj uzupełniony cennik")
+    uploaded_equipment_file = st.file_uploader("Wybierz plik .xlsx z cennikiem instalacji:", type=["xlsx"], key="equipment_uploader")
+
+    if uploaded_equipment_file is not None:
+        parsed_eq_df, eq_errors = parse_equipment_excel(uploaded_equipment_file)
+        for err in eq_errors:
+            st.warning(f"⚠️ {err}")
+        if parsed_eq_df is not None and not parsed_eq_df.empty:
+            st.session_state.equipment_df = parsed_eq_df
+            st.success(f"✅ Wczytano {len(parsed_eq_df)} pozycji cennika.")
+        elif parsed_eq_df is None:
+            st.error("❌ Nie udało się wczytać żadnych poprawnych pozycji z tego pliku — popraw błędy powyżej i wgraj ponownie.")
+
+    st.markdown("---")
+
+    if st.session_state.equipment_df is not None and not st.session_state.equipment_df.empty:
+        st.markdown("### 📋 Krok 3: Wczytany cennik (edytowalny)")
+        edited_eq_df = st.data_editor(
+            st.session_state.equipment_df, hide_index=True, use_container_width=True,
+            num_rows="dynamic", key="equipment_data_editor",
+            column_config={EQUIPMENT_GROUP_COL: st.column_config.SelectboxColumn(options=RECIPE_PRODUCT_GROUPS)}
+        )
+        edited_eq_df[EQUIPMENT_LINE_TOTAL_COL] = edited_eq_df[EQUIPMENT_QTY_COL] * edited_eq_df[EQUIPMENT_UNIT_PRICE_COL]
+        st.session_state.equipment_df = edited_eq_df
+
+        st.markdown("---")
+        st.markdown("### 🧮 Krok 4: Liczba Planowanych Instalacji per Grupa")
+        groups_in_price_list = sorted(edited_eq_df[EQUIPMENT_GROUP_COL].dropna().unique().tolist())
+
+        # Domyślna liczba instalacji = liczba unikalnych produktów danej grupy w recepturach
+        # wgranych w Zakładce 1, jeśli są dostępne - w przeciwnym razie 1.
+        default_counts_from_recipes = {}
+        if st.session_state.recipes_df is not None and not st.session_state.recipes_df.empty:
+            default_counts_from_recipes = st.session_state.recipes_df.groupby(RECIPE_GROUP_COL)[RECIPE_PRODUCT_COL].nunique().to_dict()
+
+        cols_counts = st.columns(min(len(groups_in_price_list), 4)) if groups_in_price_list else []
+        for i, grp in enumerate(groups_in_price_list):
+            with cols_counts[i % len(cols_counts)]:
+                default_val = int(st.session_state.equipment_install_counts.get(grp, default_counts_from_recipes.get(grp, 1)))
+                st.session_state.equipment_install_counts[grp] = st.number_input(
+                    f"{grp} — instalacji:", min_value=0, value=default_val, step=1, key=f"eq_count_{grp}"
+                )
+
+        st.markdown("---")
+        st.markdown("### 💰 Krok 5: Szacowany CAPEX")
+
+        capex_rows = []
+        total_capex = 0.0
+        for grp in groups_in_price_list:
+            n_install = st.session_state.equipment_install_counts.get(grp, 0)
+            grp_df = edited_eq_df[edited_eq_df[EQUIPMENT_GROUP_COL] == grp]
+            per_install_cost = grp_df[EQUIPMENT_LINE_TOTAL_COL].sum()
+            group_total = per_install_cost * n_install
+            total_capex += group_total
+            currencies = grp_df[EQUIPMENT_CURRENCY_COL].dropna().unique().tolist()
+            currency_label = currencies[0] if len(currencies) == 1 else "/".join(currencies) if currencies else "—"
+            capex_rows.append({
+                "Grupa Produktowa": grp, "Komponentów w cenniku": len(grp_df),
+                "Koszt 1 instalacji": round(per_install_cost, 2), "Liczba instalacji": n_install,
+                "CAPEX grupy": round(group_total, 2), "Waluta": currency_label,
+            })
+
+        st.dataframe(pd.DataFrame(capex_rows), hide_index=True, use_container_width=True)
+        st.metric("💰 Łączny szacowany CAPEX (wszystkie grupy)", f"{total_capex:,.0f}")
+
+        with st.expander("📋 Szczegółowa lista komponentów per grupa", expanded=False):
+            for grp in groups_in_price_list:
+                st.markdown(f"**{grp}**")
+                st.dataframe(edited_eq_df[edited_eq_df[EQUIPMENT_GROUP_COL] == grp].drop(columns=[EQUIPMENT_GROUP_COL]),
+                             hide_index=True, use_container_width=True)
+    else:
+        st.info("💡 Wgraj cennik powyżej, aby zobaczyć tu podsumowanie CAPEX per grupa produktowa.")
