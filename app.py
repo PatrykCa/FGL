@@ -425,6 +425,7 @@ with tab1:
                     )
 
         final_fleet_rows = []
+        real_cycle_reference_rows = []
         tag_counter = 101
 
         for kat in wybrane_kategorie:
@@ -464,14 +465,12 @@ with tab1:
                 batches_per_tank = math.ceil(monthly_per_tank / mass_per_batch) if mass_per_batch > 0 else 0
                 real_utilization = (batches_per_tank * cyc_h) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
 
-                tag_id = f"MT-{tag_counter}" + (f"-Z{t_idx+1}" if tanks_count > 1 else "")
-                status_txt = "🟢 Optymalna" if real_utilization <= MAX_TANK_UTILIZATION_PCT else "⚠️ Przeciążenie (>85%)"
-                if v_tank_user < MIN_TANK_VOLUME_M3:
-                    status_txt = "❌ Poniżej min. fabryki (<5 m³)"
-
                 # Rzeczywisty, policzony czas cyklu (dozowanie+grzanie+homog.+pompowanie+chłodzenie) z
-                # Zakładki 2/6 — pokazany obok szacunku wyłącznie do porównania, jeśli już skonfigurowano
-                # inżynierię dla tego urządzenia (w pierwszym uruchomieniu floty jeszcze go nie będzie).
+                # Zakładki 2/6 — pokazywany OSOBNO poniżej (nie w tej samej edytowalnej tabeli!), bo ta
+                # wartość zmienia się za każdym razem, gdy cokolwiek zostanie skonfigurowane na INNEJ
+                # zakładce. Trzymanie jej w tej samej tabeli co edytowalna flota powodowało, że
+                # st.data_editor dostawał na każdym przebiegu inną zawartość i potrafił zresetować
+                # ręczne zmiany użytkownika (np. usunięte wiersze) — stąd "niekontrolowane odświeżanie".
                 real_cycle_txt = "—"
                 ct = st.session_state.calculated_times.get(tag_id)
                 bt = st.session_state.batch_time_components.get(tag_id)
@@ -480,6 +479,10 @@ with tab1:
                     if bt is not None:
                         real_cycle_h += bt.get("dosing", 0.0) + bt.get("homog", 0.0)
                     real_cycle_txt = f"{real_cycle_h:.2f}"
+                real_cycle_reference_rows.append({
+                    "ID Urządzenia": tag_id, "Linia": kat,
+                    "Cykl Szacowany [h]": round(cyc_h, 2), "Cykl Rzeczywisty [h]": real_cycle_txt,
+                })
 
                 final_fleet_rows.append({
                     "ID Urządzenia": tag_id,
@@ -487,7 +490,6 @@ with tab1:
                     "Pojemność [m³]": round(v_tank_user, 1),
                     "Masa Szarży [kg]": int(mass_per_batch),
                     "Cykl Szacowany [h]": round(cyc_h, 2),
-                    "Cykl Rzeczywisty [h]": real_cycle_txt,
                     "Szarż / miesiąc (per aparat)": int(batches_per_tank),
                     "Utylizacja Czasowa": f"{real_utilization:.1f}%",
                     "Status": status_txt
@@ -508,6 +510,12 @@ with tab1:
             num_rows="dynamic",
             key="fleet_data_editor_v3"
         )
+
+        if real_cycle_reference_rows:
+            with st.expander("📊 Rzeczywisty czas cyklu (referencja z Zakładki 2/6 — informacyjnie, nieedytowalne)", expanded=False):
+                st.caption("Ta tabela aktualizuje się automatycznie w miarę konfigurowania hydrauliki/bilansu cieplnego (Zakładka 2) "
+                           "i dozowania/homogenizacji (Zakładka 6) — nie wpływa na flotę powyżej i nie da się jej edytować.")
+                st.dataframe(pd.DataFrame(real_cycle_reference_rows), hide_index=True, use_container_width=True)
 
         if not edited_df.empty:
             total_annual_production_edited = sum(st.session_state.prod_dict[kat]["roczna"] for kat in wybrane_kategorie)
