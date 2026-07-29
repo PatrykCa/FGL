@@ -122,7 +122,21 @@ RECIPE_RAW_MATERIALS = [
 ]
 
 # Grupy produktowe do wyboru (lista rozwijana w szablonie Excel + walidacja przy imporcie).
-RECIPE_PRODUCT_GROUPS = ["Cleaners", "Engine Oils", "Glycols", "Greases", "Hydraulic Oils", "Watermiscibles"]
+RECIPE_PRODUCT_GROUPS = ["Cleaners", "Engine Oils", "Glycols", "Greases", "Hydraulic Oils", "Watermiscibles", "Waxes"]
+
+# Domyślne właściwości fizykochemiczne i procesowe per grupa produktowa - używane do
+# automatycznego zasilenia floty (Zakładka 2) danymi z wgranej receptury (Zakładka 1),
+# tam gdzie receptura sama nie precyzuje danej wartości (np. materiał zbiornika, cp).
+# Gęstość NIE jest tu potrzebna - ta zawsze pochodzi z konkretnego wiersza receptury.
+GROUP_PHYSICAL_DEFAULTS = {
+    "Cleaners": {"material": "Stal nierdzewna", "cp": 3.9, "oil_group": "Brak (Specjalistyczne)", "water_content": 0.85, "cycle_h": 4},
+    "Engine Oils": {"material": "Stal zwykła", "cp": 2.1, "oil_group": "Syntetyczne (Gr. III/IV)", "water_content": 0.0, "cycle_h": 5},
+    "Glycols": {"material": "Stal nierdzewna", "cp": 2.4, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.3, "cycle_h": 4},
+    "Greases": {"material": "Stal zwykła", "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 6},
+    "Hydraulic Oils": {"material": "Stal zwykła", "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 4},
+    "Watermiscibles": {"material": "Stal nierdzewna", "cp": 3.8, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.65, "cycle_h": 6},
+    "Waxes": {"material": "Stal zwykła", "cp": 2.2, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 5},
+}
 
 # Arkusz opakowań (opcjonalny, w tym samym pliku co receptury) - pozwala predefiniować
 # typy opakowań i ich pojemności w Excelu; po wgraniu nadpisują/uzupełniają wbudowane
@@ -1093,9 +1107,15 @@ def compute_vent_line_scenario(mass_flow_kgs, rho_steam, pipe_length_m, pipe_dia
 
 
 # --- 2. INICJALIZACJA STRUKTUR W SESJI ---
+if "active_portfolio" not in st.session_state:
+    # Startowo = wbudowane linie FUCHS_PORTFOLIO; wgrane receptury (Zakładka 1) dopisują tu
+    # dodatkowe pozycje (per unikalny produkt) z gęstością z receptury i pozostałymi
+    # właściwościami fizykochemicznymi domyślnymi dla danej grupy produktowej.
+    st.session_state.active_portfolio = {k: dict(v) for k, v in FUCHS_PORTFOLIO.items()}
+
 if "prod_dict" not in st.session_state:
     st.session_state.prod_dict = {
-        k: {"roczna": 1200000, "user_vol_m3": 15.0, "skus": 1, "num_tanks": 1, "tank_volumes": [15.0]} for k in FUCHS_PORTFOLIO.keys()
+        k: {"roczna": 1200000, "user_vol_m3": 15.0, "skus": 1, "num_tanks": 1, "tank_volumes": [15.0]} for k in st.session_state.active_portfolio.keys()
     }
 
 if "confirmed_mixers" not in st.session_state:
@@ -1127,20 +1147,89 @@ if "equipment_df" not in st.session_state:
 if "equipment_install_counts" not in st.session_state:
     st.session_state.equipment_install_counts = {}  # dict: Grupa Produktowa -> liczba planowanych instalacji
 
+if "recipe_products_seen" not in st.session_state:
+    st.session_state.recipe_products_seen = set()  # produkty z receptury już raz zsynchronizowane z flotą
+
+
+def sync_recipes_into_fleet_defaults():
+    """
+    Spina Zakładkę 1 (Receptury) z Zakładką 2 (Flota) automatycznie: każdy unikalny produkt
+    z wgranej receptury dostaje wpis w active_portfolio (gęstość z receptury, reszta
+    właściwości domyślna dla jego grupy produktowej) oraz wpis w prod_dict (roczna produkcja,
+    pojemność mieszalnika, cykl - z receptury, z sensownymi fallbackami gdy puste). Wartości w
+    prod_dict są ustawiane z receptury TYLKO przy pierwszym pojawieniu się danego produktu -
+    późniejsze ręczne poprawki użytkownika w Zakładce 2 nie są nadpisywane przy kolejnych
+    edycjach receptury. Nowo zsynchronizowane produkty są też dopisywane do domyślnego wyboru
+    linii w panelu bocznym, żeby flota pojawiła się "z automatu" bez ręcznego zaznaczania.
+    """
+    df = st.session_state.get("recipes_df")
+    if df is None or df.empty:
+        return
+
+    for _, row in df.iterrows():
+        product_name = str(row[RECIPE_PRODUCT_COL])
+        group = row.get(RECIPE_GROUP_COL, "Hydraulic Oils")
+        group_defaults = GROUP_PHYSICAL_DEFAULTS.get(group, GROUP_PHYSICAL_DEFAULTS["Hydraulic Oils"])
+
+        cycle_h = row.get(RECIPE_CYCLE_COL, 0) or 0
+        if cycle_h <= 0:
+            cycle_h = group_defaults["cycle_h"]
+        mixer_vol = row.get(RECIPE_MIXER_VOL_COL, 0) or 0
+        if mixer_vol <= 0:
+            mixer_vol = 15.0
+        density = row.get(RECIPE_DENSITY_COL, 0) or 0.88
+
+        st.session_state.active_portfolio[product_name] = {
+            "material": group_defaults["material"],
+            "density": float(density),
+            "cycle_h": float(cycle_h),
+            "cp": group_defaults["cp"],
+            "oil_group": group_defaults["oil_group"],
+            "water_content": group_defaults["water_content"],
+        }
+
+        is_new = product_name not in st.session_state.recipe_products_seen
+        annual_kg = float(row.get(RECIPE_ANNUAL_COL, 0) or 0) * 1000.0
+
+        if product_name not in st.session_state.prod_dict:
+            st.session_state.prod_dict[product_name] = {
+                "roczna": annual_kg, "user_vol_m3": float(mixer_vol), "skus": 1, "num_tanks": 1,
+                "tank_volumes": [float(mixer_vol)], "cycle_h_base": float(cycle_h),
+            }
+        elif is_new:
+            pd_entry = st.session_state.prod_dict[product_name]
+            pd_entry["roczna"] = annual_kg
+            pd_entry["user_vol_m3"] = float(mixer_vol)
+            pd_entry["cycle_h_base"] = float(cycle_h)
+            pd_entry["tank_volumes"] = [float(mixer_vol)]
+
+        if is_new:
+            st.session_state.recipe_products_seen.add(product_name)
+            ms_key = "wybrane_kategorie_ms"
+            if ms_key in st.session_state and product_name not in st.session_state[ms_key]:
+                st.session_state[ms_key] = st.session_state[ms_key] + [product_name]
+
+
+sync_recipes_into_fleet_defaults()
+
 if st.session_state.recipes_df is None:
     st.info("👋 **Zacznij od Zakładki 1 (Receptury Produktów)** — pobierz szablon, wgraj recepturę produktów "
             "(z wolumenem produkcji, opcjonalnie wielkością mieszalnika i rozbiciem na opakowania) i wróć tu, "
             "żeby dalej skonfigurować flotę i instalację. Możesz też pominąć ten krok i pracować w pełni ręcznie "
             "w kolejnych zakładkach.")
+else:
+    st.success("✅ Receptura wgrana — produkty pojawiły się automatycznie w Zakładce 2 (panel boczny, "
+               "Krok 1: Wybór Rodzin) z wypełnionymi wartościami startowymi. Możesz je tam dalej edytować.")
 
 # ==========================================
 # PANEL BOCZNY (Wybór Rodzin i Opakowań)
 # ==========================================
 st.sidebar.header("📋 KROK 1: Wybór Rodzin")
 wybrane_kategorie = st.sidebar.multiselect(
-    "Wybierz aktywne linie produktowe FUCHS:",
-    list(FUCHS_PORTFOLIO.keys()),
-    default=["Hydraulic Oils (RENOLIN)", "Engine Oils (TITAN)", "Water-miscible (ECOCOOL)"]
+    "Wybierz aktywne linie produktowe (wbudowane + z wgranej receptury):",
+    list(st.session_state.active_portfolio.keys()),
+    default=["Hydraulic Oils (RENOLIN)", "Engine Oils (TITAN)", "Water-miscible (ECOCOOL)"] + sorted(st.session_state.recipe_products_seen),
+    key="wybrane_kategorie_ms"
 )
 
 st.sidebar.markdown("---")
@@ -1221,7 +1310,7 @@ with tab1:
                 key=f"pojemnosc_baza_{selected_family_to_edit}"
             )
         with c_ed3:
-            st.session_state.prod_dict[selected_family_to_edit].setdefault("cycle_h_base", FUCHS_PORTFOLIO[selected_family_to_edit]["cycle_h"])
+            st.session_state.prod_dict[selected_family_to_edit].setdefault("cycle_h_base", st.session_state.active_portfolio[selected_family_to_edit]["cycle_h"])
             st.session_state.prod_dict[selected_family_to_edit]["cycle_h_base"] = st.number_input(
                 "Cykl Procesowy (bazowy, szacunkowy) [h]:", min_value=0.5, value=float(st.session_state.prod_dict[selected_family_to_edit]["cycle_h_base"]), step=0.5,
                 help="Szacunkowy czas cyklu jednej szarży (dozowanie + grzanie + homogenizacja + chłodzenie + rozlew), do wstępnego wymiarowania floty — "
@@ -1291,7 +1380,7 @@ with tab1:
             m_annual = st.session_state.prod_dict[kat]["roczna"]
             tanks_count = st.session_state.prod_dict[kat].get("num_tanks", 1)
             base_vol_kat = st.session_state.prod_dict[kat]["user_vol_m3"]
-            base_cycle_kat = st.session_state.prod_dict[kat].setdefault("cycle_h_base", FUCHS_PORTFOLIO[kat]["cycle_h"])
+            base_cycle_kat = st.session_state.prod_dict[kat].setdefault("cycle_h_base", st.session_state.active_portfolio[kat]["cycle_h"])
 
             tank_volumes = st.session_state.prod_dict[kat].setdefault("tank_volumes", [base_vol_kat])
             tank_cycles = st.session_state.prod_dict[kat].setdefault("tank_cycles", [base_cycle_kat])
@@ -1307,7 +1396,7 @@ with tab1:
                 tank_volumes[0] = base_vol_kat
                 tank_cycles[0] = base_cycle_kat
 
-            rho_product = FUCHS_PORTFOLIO[kat]["density"]
+            rho_product = st.session_state.active_portfolio[kat]["density"]
             total_capacity = sum(tank_volumes)
 
             for t_idx, v_tank_user in enumerate(tank_volumes):
@@ -1403,8 +1492,8 @@ with tab1:
                 st.error("❌ Flota nie może być pusta!")
             else:
                 # Walidacja wierszy dodanych/edytowanych ręcznie w data_editor, aby uniknąć
-                # KeyError przy próbie odczytu nieistniejącej linii z FUCHS_PORTFOLIO.
-                invalid_rows = edited_df[~edited_df["Przypisana Linia"].isin(FUCHS_PORTFOLIO.keys())]
+                # KeyError przy próbie odczytu nieistniejącej linii z st.session_state.active_portfolio.
+                invalid_rows = edited_df[~edited_df["Przypisana Linia"].isin(st.session_state.active_portfolio.keys())]
                 numeric_cols = ["Pojemność [m³]", "Masa Szarży [kg]", "Cykl Szacowany [h]", "Szarż / miesiąc (per aparat)"]
                 bad_numeric = edited_df[numeric_cols].apply(pd.to_numeric, errors="coerce").isna().any(axis=1)
 
@@ -1422,7 +1511,7 @@ with tab1:
                             "tag": row["ID Urządzenia"],
                             "product_family": kat,
                             "capacity_m3": float(row["Pojemność [m³]"]),
-                            "material": FUCHS_PORTFOLIO[kat]["material"],
+                            "material": st.session_state.active_portfolio[kat]["material"],
                             "batches_count": int(row["Szarż / miesiąc (per aparat)"]),
                             "mass_per_batch": int(row["Masa Szarży [kg]"]),
                             "cycle_h": float(row["Cykl Szacowany [h]"]),
@@ -1462,7 +1551,7 @@ with tab2:
                 "delta_h_m": 5.0,
                 "viscosity_min_cst": 30.0,
                 "viscosity_max_cst": 300.0,
-                "density_kg_m3": FUCHS_PORTFOLIO[kat]["density"] * 1000.0,
+                "density_kg_m3": st.session_state.active_portfolio[kat]["density"] * 1000.0,
                 "count_elbows_90": 4,
                 "count_tees": 2,
                 "count_valves": 3,
@@ -2135,7 +2224,7 @@ with tab3:
 
         real_split_rows = []
         for kat, total_mass_month in tonaz_miesieczny_per_rodzina.items():
-            rho_linii = FUCHS_PORTFOLIO[kat]["density"]
+            rho_linii = st.session_state.active_portfolio[kat]["density"]
             for p in st.session_state.get(f"packs_{kat}", []):
                 udzial_pct = opakowania_podzial.get(f"pct_{kat}_{p}", 0.0)
                 if udzial_pct > 0:
@@ -2249,7 +2338,7 @@ with tab4:
         for mixer in st.session_state.confirmed_mixers:
             tag = mixer["tag"]
             kat = mixer["product_family"]
-            prod_info = FUCHS_PORTFOLIO[kat]
+            prod_info = st.session_state.active_portfolio[kat]
             m_monthly_kg = mixer["annual_volume"] / MONTHS_PER_YEAR
             batches_per_month = mixer["batches_count"]
 
@@ -2314,7 +2403,7 @@ with tab5:
 
         for mixer in st.session_state.confirmed_mixers:
             kat = mixer["product_family"]
-            prod_info = FUCHS_PORTFOLIO[kat]
+            prod_info = st.session_state.active_portfolio[kat]
             total_liquid_tony = (mixer["annual_volume"] / 1000.0) * active_chemical_ratio
 
             water_annual = total_liquid_tony * prod_info["water_content"]
