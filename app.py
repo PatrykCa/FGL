@@ -357,12 +357,14 @@ with tab1:
         c_ed1, c_ed2, c_ed3, c_ed4 = st.columns(4)
         with c_ed1:
             st.session_state.prod_dict[selected_family_to_edit]["roczna"] = st.number_input(
-                "Roczna produkcja [kg]:", min_value=0, value=int(st.session_state.prod_dict[selected_family_to_edit]["roczna"]), step=50000
+                "Roczna produkcja [kg]:", min_value=0, value=int(st.session_state.prod_dict[selected_family_to_edit]["roczna"]), step=50000,
+                key=f"roczna_{selected_family_to_edit}"
             )
         with c_ed2:
             st.session_state.prod_dict[selected_family_to_edit]["user_vol_m3"] = st.number_input(
                 "Pojemność Mieszalnika (bazowa) [m³]:", min_value=0.5, value=float(st.session_state.prod_dict[selected_family_to_edit]["user_vol_m3"]), step=0.5,
-                help="Używana bezpośrednio, gdy linia ma jeden zbiornik. Przy kilku zbiornikach to wartość domyślna dla nowo dodanych — każdy można potem zróżnicować poniżej."
+                help="Używana bezpośrednio, gdy linia ma jeden zbiornik. Przy kilku zbiornikach to wartość domyślna dla nowo dodanych — każdy można potem zróżnicować poniżej.",
+                key=f"pojemnosc_baza_{selected_family_to_edit}"
             )
         with c_ed3:
             st.session_state.prod_dict[selected_family_to_edit].setdefault("cycle_h_base", FUCHS_PORTFOLIO[selected_family_to_edit]["cycle_h"])
@@ -370,11 +372,13 @@ with tab1:
                 "Cykl Procesowy (bazowy, szacunkowy) [h]:", min_value=0.5, value=float(st.session_state.prod_dict[selected_family_to_edit]["cycle_h_base"]), step=0.5,
                 help="Szacunkowy czas cyklu jednej szarży (dozowanie + grzanie + homogenizacja + chłodzenie + rozlew), do wstępnego wymiarowania floty — "
                      "różne receptury/wielkości szarży realnie różnią się czasem cyklu. Po skonfigurowaniu inżynierii w Zakładce 2/6 zobaczysz obok "
-                     "rzeczywisty, policzony czas cyklu do porównania."
+                     "rzeczywisty, policzony czas cyklu do porównania.",
+                key=f"cykl_baza_{selected_family_to_edit}"
             )
         with c_ed4:
             st.session_state.prod_dict[selected_family_to_edit]["skus"] = st.number_input(
-                "Liczba aktywnych SKUs:", min_value=1, value=int(st.session_state.prod_dict[selected_family_to_edit]["skus"]), step=1
+                "Liczba aktywnych SKUs:", min_value=1, value=int(st.session_state.prod_dict[selected_family_to_edit]["skus"]), step=1,
+                key=f"skus_{selected_family_to_edit}"
             )
 
         current_skus = st.session_state.prod_dict[selected_family_to_edit]["skus"]
@@ -382,7 +386,8 @@ with tab1:
             st.markdown("---")
             st.session_state.prod_dict[selected_family_to_edit]["num_tanks"] = st.number_input(
                 f"🏭 **Wielkość floty dla {selected_family_to_edit}**: Na ile osobnych mieszalników chcesz rozbić produkcję tych {current_skus} SKUs?",
-                min_value=1, max_value=int(current_skus), value=min(int(st.session_state.prod_dict[selected_family_to_edit].get("num_tanks", 1)), int(current_skus))
+                min_value=1, max_value=int(current_skus), value=min(int(st.session_state.prod_dict[selected_family_to_edit].get("num_tanks", 1)), int(current_skus)),
+                key=f"num_tanks_{selected_family_to_edit}"
             )
         else:
             st.session_state.prod_dict[selected_family_to_edit]["num_tanks"] = 1
