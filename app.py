@@ -177,17 +177,21 @@ def compute_agitator_power(agitator_type, rpm, impeller_d_m, density_kgm3, visco
 
 
 def compute_thermal_balance(mass_product_kg, cp_product, t_in, t_out, k_coeff_grzania, exchange_area_m2,
-                             tank_mass_kg, cp_steel, utility_type_heat, utility_flow_lmin,
+                             tank_mass_kg, cp_steel, utility_type_heat, delta_t_medium_grzewcze,
                              t_utility_heat_in):
     """
     Bilans grzania — analogicznie do compute_cooling: moc grzania wynika z fizyki wymiennika
-    (k*A*ΔT), a CZAS grzania jest z niej WYLICZANY (Q/moc), a nie odwrotnie. ΔT liczone jest
-    w uproszczeniu jako różnica temperatury medium grzewczego i średniej temperatury produktu
-    (wejście/wyjście), tak samo jak w compute_cooling.
-    Dla mediów sensybilnych (woda/olej termiczny) dalej liczy klasyczny bilans cp*dT dla
-    strony medium. Dla pary nasyconej liczy zapotrzebowanie przez ciepło skraplania,
-    ponieważ para oddaje energię głównie w procesie kondensacji, a nie schładzania.
-    Zwraca dict z energią, mocą, wyliczonym czasem grzania, temperaturą wyjścia medium i LMTD.
+    (k*A*ΔT), a CZAS grzania jest z niej WYLICZANY (Q/moc), a nie odwrotnie. ΔT po stronie
+    produktu liczone jest w uproszczeniu jako różnica temperatury medium grzewczego i średniej
+    temperatury produktu (wejście/wyjście), tak samo jak w compute_cooling.
+
+    Przepływ medium NIE jest już wejściem użytkownika — jest WYLICZANY z mocy grzania i
+    zaprojektowanego spadku temperatury medium (delta_t_medium_grzewcze): Moc = przepływ * cp * ΔT,
+    więc przepływ = Moc / (cp * ΔT). To jednocześnie ustala temperaturę wyjścia medium wprost
+    (t_utility_heat_in - delta_t_medium_grzewcze), bez potrzeby zgadywania przepływu.
+    Dla pary nasyconej liczy zapotrzebowanie przez ciepło skraplania (przepływ = masa kondensatu/h).
+    Zwraca dict z energią, mocą, wyliczonym czasem grzania, przepływem medium, temperaturą
+    wyjścia medium i LMTD.
     """
     delta_t_heating = t_out - t_in
     q_heating_kj = (mass_product_kg * cp_product * delta_t_heating) + (tank_mass_kg * cp_steel * delta_t_heating)
@@ -207,18 +211,22 @@ def compute_thermal_balance(mass_product_kg, cp_product, t_in, t_out, k_coeff_gr
     media_cfg = MEDIA_PROCESOWE[utility_type_heat]
     is_steam = media_cfg.get("steam", False)
 
-    if is_steam:
-        # Para: energia pochodzi ze skraplania, temperatura pary ~stała (nasycenie).
-        mass_utility_heat_kg = q_heating_kj / STEAM_LATENT_HEAT_KJKG if STEAM_LATENT_HEAT_KJKG > 0 else 0.0
-        t_utility_heat_out = t_utility_heat_in  # kondensat opuszcza wymiennik ~w temp. nasycenia
-    else:
-        cp_heat_utility = media_cfg["cp"]
-        mass_utility_heat_kg = utility_flow_lmin * (process_time_h * 60.0) if heating_status == "ok" else 0.0
-        if mass_utility_heat_kg > 0 and cp_heat_utility > 0:
-            delta_t_utility_heat = q_heating_kj / (mass_utility_heat_kg * cp_heat_utility)
-            t_utility_heat_out = t_utility_heat_in - delta_t_utility_heat
+    if heating_status == "ok":
+        if is_steam:
+            # Para: energia pochodzi ze skraplania, temperatura pary ~stała (nasycenie);
+            # przepływ = wymagana masa kondensatu na godzinę.
+            flow_heating_kg_h = (power_heating_kw * 3600.0) / STEAM_LATENT_HEAT_KJKG if STEAM_LATENT_HEAT_KJKG > 0 else 0.0
+            t_utility_heat_out = t_utility_heat_in
         else:
-            t_utility_heat_out = t_utility_heat_in - 5.0
+            cp_heat_utility = media_cfg["cp"]
+            flow_heating_kg_h = (power_heating_kw * 3600.0) / (cp_heat_utility * delta_t_medium_grzewcze) \
+                if (cp_heat_utility > 0 and delta_t_medium_grzewcze > 0) else 0.0
+            t_utility_heat_out = t_utility_heat_in - delta_t_medium_grzewcze
+        mass_utility_heat_kg = flow_heating_kg_h * process_time_h
+    else:
+        flow_heating_kg_h = 0.0
+        mass_utility_heat_kg = 0.0
+        t_utility_heat_out = t_utility_heat_in - 5.0
 
     dt1_h = t_utility_heat_in - t_out
     dt2_h = t_utility_heat_out - t_in
@@ -235,6 +243,7 @@ def compute_thermal_balance(mass_product_kg, cp_product, t_in, t_out, k_coeff_gr
         "power_heating_kw": power_heating_kw,
         "process_time_h": process_time_h,
         "heating_status": heating_status,
+        "flow_heating_kg_h": flow_heating_kg_h,
         "mass_utility_heat_kg": mass_utility_heat_kg,
         "t_utility_heat_out": t_utility_heat_out,
         "lmtd_h": lmtd_h,
@@ -244,11 +253,16 @@ def compute_thermal_balance(mass_product_kg, cp_product, t_in, t_out, k_coeff_gr
 
 
 def compute_cooling(mass_product_kg, cp_product, t_out, t_discharge, t_utility_cool_in,
-                     k_coeff, exchange_area_m2):
-    """Bilans chłodzenia produktu do temperatury rozlewu. Zwraca (MJ, moc kW, czas h, ostrzeżenie)."""
+                     k_coeff, exchange_area_m2, utility_type_cool, delta_t_medium_chlodzace):
+    """
+    Bilans chłodzenia produktu do temperatury rozlewu. Analogicznie do grzania, przepływ
+    chłodziwa jest WYLICZANY z mocy chłodzenia i zaprojektowanego wzrostu temperatury chłodziwa
+    (delta_t_medium_chlodzace), zamiast być zgadywany.
+    Zwraca (MJ, moc kW, czas h, przepływ chłodziwa kg/h, ostrzeżenie).
+    """
     delta_t_cooling = t_out - t_discharge
     if delta_t_cooling <= 0:
-        return 0.0, 0.0, 0.0, "brak_potrzeby"
+        return 0.0, 0.0, 0.0, 0.0, "brak_potrzeby"
 
     q_cooling_kj = mass_product_kg * cp_product * delta_t_cooling
     q_cooling_mj = q_cooling_kj / 1000.0
@@ -256,12 +270,16 @@ def compute_cooling(mass_product_kg, cp_product, t_out, t_discharge, t_utility_c
     approx_dt_cooling = ((t_out + t_discharge) / 2.0) - t_utility_cool_in
     if approx_dt_cooling <= 0:
         # Medium chłodzące jest zbyt ciepłe względem produktu - wymiennik nie zadziała.
-        return q_cooling_mj, 0.0, float("nan"), "niewystarczajace_dt"
+        return q_cooling_mj, 0.0, float("nan"), 0.0, "niewystarczajace_dt"
 
     cooling_power_kw = (k_coeff * exchange_area_m2 * approx_dt_cooling) / 1000.0
     cooling_time_h = q_cooling_kj / (cooling_power_kw * 3600.0) if cooling_power_kw > 0 else float("nan")
 
-    return q_cooling_mj, cooling_power_kw, cooling_time_h, "ok"
+    cp_cool_utility = MEDIA_PROCESOWE[utility_type_cool]["cp"]
+    flow_cooling_kg_h = (cooling_power_kw * 3600.0) / (cp_cool_utility * delta_t_medium_chlodzace) \
+        if (cp_cool_utility > 0 and delta_t_medium_chlodzace > 0) else 0.0
+
+    return q_cooling_mj, cooling_power_kw, cooling_time_h, flow_cooling_kg_h, "ok"
 
 
 # --- 2. INICJALIZACJA STRUKTUR W SESJI ---
@@ -621,7 +639,8 @@ with tab2:
                 "cp_steel": 0.46,
                 "t_discharge_c": 30.0,
                 "exchange_area_m2": 4.5,
-                "utility_flow_lmin": 80.0,
+                "delta_t_medium_grzewcze": 10.0,
+                "delta_t_medium_chlodzace": 6.0,
                 "utility_type_heat": "Woda technologiczna",
                 "utility_type_cool": "Woda technologiczna",
                 "t_utility_heat_in": 95.0,
@@ -673,17 +692,26 @@ with tab2:
                     p["utility_type_heat"] = st.selectbox(f"Medium grzewcze:", list(MEDIA_PROCESOWE.keys()), index=list(MEDIA_PROCESOWE.keys()).index(p["utility_type_heat"]), key=f"ut_h_type_{m_id}")
                     p["t_utility_heat_in"] = st.number_input(f"Temp. zasilania medium grzewczego [°C]:", value=float(p["t_utility_heat_in"]), key=f"t_ut_h_{m_id}")
                     if MEDIA_PROCESOWE[p["utility_type_heat"]].get("steam"):
-                        st.caption("ℹ️ Para nasycona: bilans liczony przez ciepło skraplania, nie cp·ΔT.")
+                        st.caption("ℹ️ Para nasycona: bilans liczony przez ciepło skraplania, nie cp·ΔT. Poniższe ΔT medium grzewczego nie dotyczy pary.")
                     p["k_coeff_grzania"] = st.number_input(f"Współczynnik przenikania ciepła — grzanie k [W/m²K]:", min_value=1.0, value=float(p["k_coeff_grzania"]), key=f"k_grz_{m_id}")
+                    p["delta_t_medium_grzewcze"] = st.number_input(
+                        f"ΔT medium grzewczego (projektowy spadek) [K]:", min_value=1.0, value=float(p["delta_t_medium_grzewcze"]), key=f"dt_med_grz_{m_id}",
+                        help="Ile stopni medium grzewcze traci przechodząc przez wymiennik — z tego i mocy grzania wyliczany jest wymagany przepływ."
+                    )
                     p["utility_type_cool"] = st.selectbox(f"Medium chłodzące:", list(MEDIA_PROCESOWE.keys()), index=list(MEDIA_PROCESOWE.keys()).index(p["utility_type_cool"]), key=f"ut_c_type_{m_id}")
                     p["t_utility_cool_in"] = st.number_input(f"Temp. wody chłodzącej [°C]:", value=float(p["t_utility_cool_in"]), key=f"t_ut_c_{m_id}")
+                    p["k_coeff"] = st.number_input(f"Współczynnik przenikania ciepła — chłodzenie k [W/m²K]:", min_value=1.0, value=float(p["k_coeff"]), key=f"k_chl_{m_id}")
+                    p["delta_t_medium_chlodzace"] = st.number_input(
+                        f"ΔT medium chłodzącego (projektowy wzrost) [K]:", min_value=1.0, value=float(p["delta_t_medium_chlodzace"]), key=f"dt_med_chl_{m_id}",
+                        help="O ile stopni ogrzewa się chłodziwo przechodząc przez wymiennik — z tego i mocy chłodzenia wyliczany jest wymagany przepływ."
+                    )
                     p["exchange_area_m2"] = st.number_input(f"Powierzchnia wymiany (wspólny płaszcz) [m²]:", min_value=0.1, value=float(p["exchange_area_m2"]), key=f"area_{m_id}")
-                    p["utility_flow_lmin"] = st.number_input(f"Przepływ medium [l/min]:", min_value=1.0, value=float(p["utility_flow_lmin"]), key=f"ut_flow_{m_id}")
                     p["t_product_in"] = st.number_input(f"Temp. początkowa płynu [°C]:", value=float(p["t_product_in"]), key=f"tpin_adv_{m_id}")
                     p["t_product_out"] = st.number_input(f"Temp. procesu (gorący) [°C]:", value=float(p["t_product_out"]), key=f"tpout_adv_{m_id}")
                     p["t_discharge_c"] = st.number_input(f"Temp. rozlewu (docelowa) [°C]:", value=float(p["t_discharge_c"]), key=f"tdisc_{m_id}")
                     st.caption("ℹ️ Czas grzania nie jest już wpisywany ręcznie — jest wyliczany z mocy grzania "
-                               "(k × A × ΔT) i wymaganej energii, tak samo jak czas chłodzenia.")
+                               "(k × A × ΔT) i wymaganej energii, tak samo jak czas chłodzenia. Przepływy obu mediów są "
+                               "teraz również wyliczane, nie zgadywane.")
 
         st.markdown("---")
 
@@ -721,12 +749,13 @@ with tab2:
                 thermal = compute_thermal_balance(
                     mass_product, p["cp_product"], p["t_product_in"], p["t_product_out"],
                     p["k_coeff_grzania"], p["exchange_area_m2"], p["tank_mass"], p["cp_steel"],
-                    p["utility_type_heat"], p["utility_flow_lmin"], p["t_utility_heat_in"])
+                    p["utility_type_heat"], p["delta_t_medium_grzewcze"], p["t_utility_heat_in"])
 
                 # --- 4. CHŁODZENIE DO ROZLEWU ---
-                q_cooling_mj, cooling_power_kw, cooling_time_h, cooling_status = compute_cooling(
+                q_cooling_mj, cooling_power_kw, cooling_time_h, flow_cooling_kg_h, cooling_status = compute_cooling(
                     mass_product, p["cp_product"], p["t_product_out"], p["t_discharge_c"],
-                    p["t_utility_cool_in"], p["k_coeff"], p["exchange_area_m2"])
+                    p["t_utility_cool_in"], p["k_coeff"], p["exchange_area_m2"],
+                    p["utility_type_cool"], p["delta_t_medium_chlodzace"])
 
                 # --- 5. Zapis wyników z powrotem do stanu sesji, aby Zakładka 4 mogła z nich realnie korzystać ---
                 # Czas pompowania: objętość szarży / wydajność pompy.
@@ -742,7 +771,10 @@ with tab2:
                     "cooling_h": cooling_time_h if cooling_status == "ok" else 0.0,
                     "power_heating_kw": thermal["power_heating_kw"],
                     "power_cooling_kw": cooling_power_kw,
+                    "flow_heating_kg_h": thermal["flow_heating_kg_h"],
+                    "flow_cooling_kg_h": flow_cooling_kg_h if cooling_status == "ok" else 0.0,
                     "medium_grz": p["utility_type_heat"],
+                    "medium_chl": p["utility_type_cool"],
                     "is_steam": thermal["is_steam"],
                 }
 
@@ -758,9 +790,11 @@ with tab2:
                     "Moc Mieszania [kW]": round(agitator_power_kw, 2),
                     "Reżim mieszania": mix_regime,
                     "Moc Grzania [kW]": round(thermal["power_heating_kw"], 1),
+                    "Przepływ medium grzewczego [kg/h]": round(thermal["flow_heating_kg_h"], 1),
                     "Czas Grzania [h]": heating_txt,
                     "LMTD Grzania [K]": round(thermal["lmtd_h"], 1),
                     "Moc Chłodzenia [kW]": round(cooling_power_kw, 1),
+                    "Przepływ medium chłodzącego [kg/h]": round(flow_cooling_kg_h, 1) if cooling_status == "ok" else 0.0,
                     "Czas chłodzenia [h]": cooling_txt,
                     "_velocity_val": velocity,
                     "_lmtd_trigger": thermal["lmtd_trigger"],
@@ -818,9 +852,9 @@ with tab2:
         # ============================================================
         # DOBÓR KOTŁA GRZEWCZEGO (agregacja zapotrzebowania cieplnego floty)
         # ============================================================
-        st.markdown("### 🔥 Dobór Kotła Grzewczego")
-        st.caption("Sumuje moc grzania (Zakładka 2) po wszystkich mieszalnikach, z uwzględnieniem tego, że nie wszystkie "
-                   "reaktory grzeją jednocześnie (współczynnik jednoczesności).")
+        st.markdown("### 🔥 Dobór Kotła Grzewczego i Instalacji Grzewczej")
+        st.caption("Sumuje moc grzania I przepływ medium grzewczego (Zakładka 2) po wszystkich mieszalnikach — moc dobiera kocioł, "
+                   "przepływ dobiera pompy obiegowe i średnicę rurociągu rozdzielczego.")
 
         heat_by_medium = {}
         for m in st.session_state.confirmed_mixers:
@@ -828,8 +862,12 @@ with tab2:
             if ct is None:
                 continue
             medium = ct.get("medium_grz", "Woda technologiczna")
-            heat_by_medium.setdefault(medium, {"power_kw": 0.0, "is_steam": ct.get("is_steam", False)})
+            heat_by_medium.setdefault(medium, {"power_kw": 0.0, "flow_kg_h": 0.0, "is_steam": ct.get("is_steam", False),
+                                                "daily_energy_kwh": 0.0})
             heat_by_medium[medium]["power_kw"] += ct.get("power_heating_kw", 0.0)
+            heat_by_medium[medium]["flow_kg_h"] += ct.get("flow_heating_kg_h", 0.0)
+            batches_per_day = m["batches_count"] / (WORKING_DAYS_YEAR / MONTHS_PER_YEAR)
+            heat_by_medium[medium]["daily_energy_kwh"] += ct.get("power_heating_kw", 0.0) * ct.get("heating", 0.0) * batches_per_day
 
         if not heat_by_medium:
             st.info("ℹ️ Skonfiguruj bilans cieplny mieszalników powyżej, aby dobrać kocioł.")
@@ -840,28 +878,68 @@ with tab2:
                 wspolczynnik_jednoczesnosci_cieplny = st.slider(
                     "Współczynnik jednoczesności grzania [%]:", min_value=20, max_value=100, value=70,
                     help="Odsetek zainstalowanej mocy grzania, który realnie występuje jednocześnie w szczycie "
-                         "(rzadko wszystkie reaktory grzeją w tej samej minucie).") / 100.0
+                         "(rzadko wszystkie reaktory grzeją w tej samej minucie). Używany, gdy NIE stosujemy bufora ciepła.") / 100.0
             with c_b2:
                 margines_kotla = st.slider("Margines bezpieczeństwa kotła [%]:", min_value=0, max_value=50, value=20) / 100.0
 
+            st.markdown("##### 🛢️ Bufor Ciepła (Zbiornik Akumulacyjny)")
+            st.caption("Bufor ciepła gromadzi energię w spokojniejszych okresach i oddaje ją w szczycie — dzięki temu kocioł nie musi "
+                       "być dobrany na chwilowy szczyt mocy, tylko na uśrednione, ciągłe zapotrzebowanie w ciągu dnia (mniejszy, tańszy "
+                       "kocioł pracujący w sposób ciągły zamiast dużego kotła 'z doskoku').")
+            stosuj_bufor = st.checkbox("Zastosuj bufor ciepła w instalacji", value=False, key="stosuj_bufor_cieplny")
+            if stosuj_bufor:
+                c_buf1, c_buf2 = st.columns(2)
+                with c_buf1:
+                    autonomia_bufora_h = st.number_input(
+                        "Docelowa autonomia bufora [h]:", min_value=0.25, value=1.0, step=0.25, key="autonomia_bufora",
+                        help="Ile godzin różnicy między szczytem a średnią ma pokryć bufor — typowo 0.5-2h dla procesów wsadowych."
+                    )
+                with c_buf2:
+                    delta_t_bufora = st.number_input(
+                        "Użyteczny wahań ΔT bufora [K]:", min_value=5.0, value=20.0, step=1.0, key="dt_bufora",
+                        help="Różnica między maks. a min. temperaturą wody w zbiorniku akumulacyjnym, jaką realnie wykorzystujemy."
+                    )
+
             boiler_rows = []
             total_heating_power_installed = 0.0
+            total_buffer_kwh_needed = 0.0
             for medium, data in heat_by_medium.items():
                 installed = data["power_kw"]
                 total_heating_power_installed += installed
-                needed = installed * wspolczynnik_jednoczesnosci_cieplny * (1 + margines_kotla)
+                needed_peak = installed * wspolczynnik_jednoczesnosci_cieplny * (1 + margines_kotla)
+
+                if stosuj_bufor:
+                    needed_avg = (data["daily_energy_kwh"] / godziny_dziennie) * (1 + margines_kotla) if godziny_dziennie > 0 else needed_peak
+                    needed = min(needed_avg, needed_peak)  # bufor nigdy nie każe dobierać WIĘKSZEGO kotła niż szczyt
+                    buffer_kwh = max(needed_peak - needed, 0.0) * autonomia_bufora_h
+                    total_buffer_kwh_needed += buffer_kwh
+                else:
+                    needed = needed_peak
+
                 STANDARD_BOILER_SIZES_KW = [50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 800, 1000, 1250, 1600, 2000]
                 recommended = next((s for s in STANDARD_BOILER_SIZES_KW if s >= needed), needed)
                 row = {
                     "Medium": medium,
-                    "Moc zainstalowana [kW]": round(installed, 1),
-                    "Moc wymagana (ze wsp. jednocz.) [kW]": round(needed, 1),
+                    "Moc zainstalowana (szczyt) [kW]": round(installed, 1),
+                    "Moc wymagana [kW]": round(needed, 1),
                     "Zalecana moc kotła [kW]": round(recommended, 1),
+                    "Przepływ medium (szczyt) [kg/h]": round(data["flow_kg_h"], 1),
                 }
                 if data["is_steam"]:
                     row["Wydajność pary [kg/h]"] = round(recommended * 3600 / STEAM_LATENT_HEAT_KJKG, 1)
                 boiler_rows.append(row)
             st.dataframe(pd.DataFrame(boiler_rows), hide_index=True, use_container_width=True)
+
+            if stosuj_bufor and total_buffer_kwh_needed > 0:
+                buffer_volume_m3 = (total_buffer_kwh_needed * 3600) / (4.19 * 1000 * delta_t_bufora)
+                m_buf1, m_buf2 = st.columns(2)
+                with m_buf1:
+                    st.metric("🛢️ Szacowana wymagana pojemność cieplna bufora", f"{total_buffer_kwh_needed:.1f} kWh")
+                with m_buf2:
+                    st.metric("📐 Orientacyjna objętość zbiornika (woda)", f"{buffer_volume_m3:.1f} m³")
+                st.caption("⚠️ To uproszczone oszacowanie (różnica szczyt/średnia × zadeklarowana autonomia), nie pełna symulacja "
+                           "profilu obciążenia w czasie — realny dobór bufora warto zweryfikować analizą dynamiczną, szczególnie "
+                           "przy nierównomiernym harmonogramie szarż.")
 
         st.markdown("##### ⛽ Typ Kotła i Koszt Paliwa")
         c_f1, c_f2, c_f3 = st.columns(3)
@@ -897,6 +975,46 @@ with tab2:
         st.caption(f"Szacowany miesięczny koszt paliwa grzewczego: **{koszt_paliwa_grzewczego_month:,.2f}** "
                    f"({'gaz' if typ_kotla=='Gazowy' else 'energia elektryczna'}) — pozycja ta trafia teraz do "
                    f"Zakładki 4 (Analiza Finansowa) jako osobny koszt.")
+
+        st.markdown("---")
+
+        # ============================================================
+        # DOBÓR UKŁADU CHŁODZENIA (moc + przepływ chłodziwa floty)
+        # ============================================================
+        st.markdown("### ❄️ Dobór Układu Chłodzenia")
+        st.caption("Analogicznie do kotła grzewczego — suma mocy chłodzenia i przepływu chłodziwa po wszystkich mieszalnikach, "
+                   "do doboru wydajności agregatu/wieży chłodniczej oraz pomp i rurociągu obiegu chłodzącego. Zapotrzebowanie "
+                   "elektryczne chłodzenia (przez COP) jest już liczone osobno w sekcji ⚡ poniżej.")
+
+        cool_by_medium = {}
+        for m in st.session_state.confirmed_mixers:
+            ct = st.session_state.calculated_times.get(m["tag"])
+            if ct is None:
+                continue
+            medium = ct.get("medium_chl", "Woda technologiczna")
+            cool_by_medium.setdefault(medium, {"power_kw": 0.0, "flow_kg_h": 0.0})
+            cool_by_medium[medium]["power_kw"] += ct.get("power_cooling_kw", 0.0)
+            cool_by_medium[medium]["flow_kg_h"] += ct.get("flow_cooling_kg_h", 0.0)
+
+        if not cool_by_medium:
+            st.info("ℹ️ Skonfiguruj bilans cieplny mieszalników powyżej, aby dobrać układ chłodzenia.")
+        else:
+            wspolczynnik_jednoczesnosci_chlodzenia = st.slider(
+                "Współczynnik jednoczesności chłodzenia [%]:", min_value=20, max_value=100, value=70,
+                help="Odsetek zainstalowanej mocy chłodzenia, który realnie występuje jednocześnie w szczycie.",
+                key="wsp_jednocz_chlodzenie") / 100.0
+
+            cooling_rows = []
+            for medium, data in cool_by_medium.items():
+                installed_cool = data["power_kw"]
+                needed_cool = installed_cool * wspolczynnik_jednoczesnosci_chlodzenia
+                cooling_rows.append({
+                    "Medium": medium,
+                    "Moc zainstalowana (szczyt) [kW]": round(installed_cool, 1),
+                    "Moc wymagana (ze wsp. jednocz.) [kW]": round(needed_cool, 1),
+                    "Przepływ chłodziwa (szczyt) [kg/h]": round(data["flow_kg_h"], 1),
+                })
+            st.dataframe(pd.DataFrame(cooling_rows), hide_index=True, use_container_width=True)
 
         st.markdown("---")
 
