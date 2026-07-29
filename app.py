@@ -39,16 +39,9 @@ STEAM_LATENT_HEAT_KJKG = 2200.0  # ciepło skraplania pary nasyconej (~2 bar) [k
 G_ACCEL = 9.81
 
 # --- 1. BAZA DANYCH PROCESOWYCH I FIZYKOCHEMICZNYCH FUCHS ---
-FUCHS_PORTFOLIO = {
-    "Hydraulic Oils (RENOLIN)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0},
-    "Gear & Turbine Oils (RENOLIN)": {"material": "Stal zwykła", "density": 0.89, "cycle_h": 5, "cp": 1.9, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0},
-    "Slideway & Machine Oils (RENAX)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 4, "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0},
-    "Engine Oils (TITAN)": {"material": "Stal zwykła", "density": 0.87, "cycle_h": 5, "cp": 2.1, "oil_group": "Syntetyczne (Gr. III/IV)", "water_content": 0.0},
-    "Gear & Transmission Oils (TITAN)": {"material": "Stal zwykła", "density": 0.88, "cycle_h": 5, "cp": 2.0, "oil_group": "Syntetyczne (Gr. III/IV)", "water_content": 0.0},
-    "Water-miscible (ECOCOOL)": {"material": "Stal nierdzewna", "density": 0.99, "cycle_h": 6, "cp": 3.8, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.65},
-    "Non-water-miscible (ECOCUT)": {"material": "Stal zwykła", "density": 0.87, "cycle_h": 4, "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0},
-    "Cleaners (RENOCLEAN)": {"material": "Stal nierdzewna", "density": 1.01, "cycle_h": 4, "cp": 3.9, "oil_group": "Brak (Specjalistyczne)", "water_content": 0.85}
-}
+# (Dawny zestaw FUCHS_PORTFOLIO z liniami marek - np. "Hydraulic Oils (RENOLIN)" - został
+# usunięty. Jedyna taksonomia w apce to teraz 7 grup produktowych, patrz GENERIC_PORTFOLIO
+# i GROUP_PHYSICAL_DEFAULTS niżej.)
 
 PACK_CONFIGS = {
     "1l (Detal)": {"size_l": 1.0, "per_pallet": 480, "rate_szt_h": 2500},
@@ -129,13 +122,24 @@ RECIPE_PRODUCT_GROUPS = ["Cleaners", "Engine Oils", "Glycols", "Greases", "Hydra
 # tam gdzie receptura sama nie precyzuje danej wartości (np. materiał zbiornika, cp).
 # Gęstość NIE jest tu potrzebna - ta zawsze pochodzi z konkretnego wiersza receptury.
 GROUP_PHYSICAL_DEFAULTS = {
-    "Cleaners": {"material": "Stal nierdzewna", "cp": 3.9, "oil_group": "Brak (Specjalistyczne)", "water_content": 0.85, "cycle_h": 4},
-    "Engine Oils": {"material": "Stal zwykła", "cp": 2.1, "oil_group": "Syntetyczne (Gr. III/IV)", "water_content": 0.0, "cycle_h": 5},
-    "Glycols": {"material": "Stal nierdzewna", "cp": 2.4, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.3, "cycle_h": 4},
-    "Greases": {"material": "Stal zwykła", "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 6},
-    "Hydraulic Oils": {"material": "Stal zwykła", "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 4},
-    "Watermiscibles": {"material": "Stal nierdzewna", "cp": 3.8, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.65, "cycle_h": 6},
-    "Waxes": {"material": "Stal zwykła", "cp": 2.2, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 5},
+    "Cleaners": {"material": "Stal nierdzewna", "density": 1.01, "cp": 3.9, "oil_group": "Brak (Specjalistyczne)", "water_content": 0.85, "cycle_h": 4},
+    "Engine Oils": {"material": "Stal zwykła", "density": 0.87, "cp": 2.1, "oil_group": "Syntetyczne (Gr. III/IV)", "water_content": 0.0, "cycle_h": 5},
+    "Glycols": {"material": "Stal nierdzewna", "density": 1.05, "cp": 2.4, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.3, "cycle_h": 4},
+    "Greases": {"material": "Stal zwykła", "density": 0.90, "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 6},
+    "Hydraulic Oils": {"material": "Stal zwykła", "density": 0.88, "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 4},
+    "Watermiscibles": {"material": "Stal nierdzewna", "density": 0.99, "cp": 3.8, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.65, "cycle_h": 6},
+    "Waxes": {"material": "Stal zwykła", "density": 0.91, "cp": 2.2, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 5},
+}
+
+# Zestaw startowy active_portfolio - JEDYNA taksonomia w apce, wspólna dla trybu ręcznego i
+# recepturowego: 7 grup produktowych z GROUP_PHYSICAL_DEFAULTS, bez osobnych, zaszytych w
+# kodzie linii marek (dawne FUCHS_PORTFOLIO z nazwami typu "Hydraulic Oils (RENOLIN)") - to
+# było źródłem dublowania się nazewnictwa, gdy obok wbudowanych linii pojawiały się grupy
+# z wgranej receptury o niemal identycznej nazwie.
+GENERIC_PORTFOLIO = {
+    name: {"material": d["material"], "density": d["density"], "cycle_h": d["cycle_h"],
+           "cp": d["cp"], "oil_group": d["oil_group"], "water_content": d["water_content"]}
+    for name, d in GROUP_PHYSICAL_DEFAULTS.items()
 }
 
 # Arkusz opakowań (opcjonalny, w tym samym pliku co receptury) - pozwala predefiniować
@@ -1108,10 +1112,9 @@ def compute_vent_line_scenario(mass_flow_kgs, rho_steam, pipe_length_m, pipe_dia
 
 # --- 2. INICJALIZACJA STRUKTUR W SESJI ---
 if "active_portfolio" not in st.session_state:
-    # Startowo = wbudowane linie FUCHS_PORTFOLIO; wgrane receptury (Zakładka 1) dopisują tu
-    # dodatkowe pozycje (per unikalny produkt) z gęstością z receptury i pozostałymi
-    # właściwościami fizykochemicznymi domyślnymi dla danej grupy produktowej.
-    st.session_state.active_portfolio = {k: dict(v) for k, v in FUCHS_PORTFOLIO.items()}
+    # Startowo = 7 generycznych grup produktowych (GENERIC_PORTFOLIO); wgrana receptura
+    # (Zakładka 1) odświeża gęstość/cykl/materiał danej grupy jej własnymi wartościami.
+    st.session_state.active_portfolio = {k: dict(v) for k, v in GENERIC_PORTFOLIO.items()}
 
 if "prod_dict" not in st.session_state:
     st.session_state.prod_dict = {
@@ -1238,9 +1241,9 @@ else:
 # ==========================================
 st.sidebar.header("📋 KROK 1: Wybór Rodzin")
 _default_lines = (sorted(st.session_state.recipe_groups_seen) if st.session_state.recipe_groups_seen
-                   else ["Hydraulic Oils (RENOLIN)", "Engine Oils (TITAN)", "Water-miscible (ECOCOOL)"])
+                   else ["Hydraulic Oils", "Engine Oils", "Watermiscibles"])
 wybrane_kategorie = st.sidebar.multiselect(
-    "Wybierz aktywne linie produktowe (grupy z receptury + wbudowane linie FUCHS):",
+    "Wybierz aktywne grupy produktowe:",
     list(st.session_state.active_portfolio.keys()),
     default=_default_lines,
     key="wybrane_kategorie_ms"
