@@ -1185,12 +1185,13 @@ def sync_recipes_into_fleet_defaults():
         avg_density = float((group_rows[RECIPE_DENSITY_COL] * weights).sum() / weights.sum()) if weights.sum() > 0 else 0.88
         total_annual_kg = float(group_rows[RECIPE_ANNUAL_COL].sum()) * 1000.0
 
-        tank_volumes, tank_cycles = [], []
+        tank_volumes, tank_cycles, tank_products = [], [], []
         for _, r in group_rows.iterrows():
             v = r.get(RECIPE_MIXER_VOL_COL, 0) or 0
             tank_volumes.append(float(v) if v > 0 else 15.0)
             c = r.get(RECIPE_CYCLE_COL, 0) or 0
             tank_cycles.append(float(c) if c > 0 else defaults["cycle_h"])
+            tank_products.append(str(r[RECIPE_PRODUCT_COL]))
         avg_vol = sum(tank_volumes) / len(tank_volumes) if tank_volumes else 15.0
         avg_cycle = sum(tank_cycles) / len(tank_cycles) if tank_cycles else defaults["cycle_h"]
         n_products = len(group_rows)
@@ -1205,8 +1206,14 @@ def sync_recipes_into_fleet_defaults():
             st.session_state.prod_dict[group_name] = {
                 "roczna": total_annual_kg, "user_vol_m3": avg_vol, "skus": n_products, "num_tanks": n_products,
                 "tank_volumes": tank_volumes, "tank_cycles": tank_cycles, "cycle_h_base": avg_cycle,
+                "tank_products": tank_products,
             }
             st.session_state.recipe_groups_seen.add(group_name)
+        elif "tank_products" not in st.session_state.prod_dict[group_name]:
+            # Zgodność wsteczna: grupa zsynchronizowana starszą wersją tej funkcji (bez
+            # tank_products) - dopisz teraz, żeby rozbicie na opakowania mogło z tego korzystać.
+            st.session_state.prod_dict[group_name]["tank_products"] = tank_products
+
 
     group_signature = tuple(groups_in_recipe)
     if st.session_state._last_recipe_group_signature != group_signature:
@@ -1280,7 +1287,7 @@ for kat in wybrane_kategorie:
     st.sidebar.markdown("---")
 
 # --- STRUKTURA INTERFEJSU ---
-tab7, tab1, tab2, tab3, tab4, tab5, tab9, tab6, tab8 = st.tabs([
+tab7, tab1, tab2, tab3, tab4, tab5, tab9, tab6 = st.tabs([
     "📋 1. Receptury Produktów (Start)",
     "📊 2. Główne Zestawienie i Utylizacja",
     "📐 3. Karta Maszyn, Kocioł i Zasilanie",
@@ -1288,8 +1295,7 @@ tab7, tab1, tab2, tab3, tab4, tab5, tab9, tab6, tab8 = st.tabs([
     "💰 5. Analiza Finansowa i Koszty Produkcji",
     "🛢️ 6. Surowce i Park Zbiorników",
     "🧰 7. Cennik i Standardowa Instalacja (CAPEX)",
-    "🧵 8. Mapa Strumienia Wartości (VSM)",
-    "🌫️ 9. Bilans Pary / Odpowietrzenie"
+    "🧵 8. Mapa Strumienia Wartości (VSM)"
 ])
 
 # ==========================================
@@ -1382,6 +1388,7 @@ with tab1:
         final_fleet_rows = []
         real_cycle_reference_rows = []
         tag_counter = 101
+        st.session_state.tag_to_recipe_product = {}
 
         for kat in wybrane_kategorie:
             m_annual = st.session_state.prod_dict[kat]["roczna"]
@@ -1421,6 +1428,9 @@ with tab1:
                 real_utilization = (batches_per_tank * cyc_h) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
 
                 tag_id = f"MT-{tag_counter}" + (f"-Z{t_idx+1}" if tanks_count > 1 else "")
+                tank_products_list = st.session_state.prod_dict[kat].get("tank_products", [])
+                if t_idx < len(tank_products_list):
+                    st.session_state.tag_to_recipe_product[tag_id] = tank_products_list[t_idx]
                 status_txt = "🟢 Optymalna" if real_utilization <= MAX_TANK_UTILIZATION_PCT else "⚠️ Przeciążenie (>85%)"
                 if v_tank_user < MIN_TANK_VOLUME_M3:
                     status_txt = "❌ Poniżej min. fabryki (<5 m³)"
@@ -1522,7 +1532,8 @@ with tab1:
                             "batches_count": int(row["Szarż / miesiąc (per aparat)"]),
                             "mass_per_batch": int(row["Masa Szarży [kg]"]),
                             "cycle_h": float(row["Cykl Szacowany [h]"]),
-                            "annual_volume": int(row["Masa Szarży [kg]"]) * int(row["Szarż / miesiąc (per aparat)"]) * MONTHS_PER_YEAR
+                            "annual_volume": int(row["Masa Szarży [kg]"]) * int(row["Szarż / miesiąc (per aparat)"]) * MONTHS_PER_YEAR,
+                            "recipe_product": st.session_state.tag_to_recipe_product.get(row["ID Urządzenia"]),
                         })
 
                     st.session_state.confirmed_mixers = confirmed_mixers_blueprint
@@ -1816,9 +1827,8 @@ with tab2:
         if grease_mixers_p:
             st.markdown("### 🌫️ Bilans Pary i Odpowietrzenie — Zbiorczy Rurociąg Zrzutowy")
             st.caption("Agreguje strumienie masowe pary wpisane powyżej dla reaktorów oznaczonych jako "
-                       "'Smar/Wax' i liczy hydraulikę wspólnego rurociągu zrzutowego (Darcy-Weisbach), "
-                       "analogicznie do samodzielnego kalkulatora w Zakładce 9 (tam możesz też przeliczyć "
-                       "scenariusz niezależnie od skonfigurowanej floty).")
+                       "'Smar/Wax' i liczy hydraulikę wspólnego rurociągu zrzutowego metodą Darcy-Weisbacha, "
+                       "względem progów bezpieczeństwa (ISO 28300 / API 2000).")
             st.warning("⚠️ Wspomaganie wstępnego oszacowania — wymaga przeglądu przez uprawnionego inżyniera "
                        "ds. bezpieczeństwa procesowego (HAZOP/SIL) przed wdrożeniem.")
 
@@ -2188,11 +2198,6 @@ with tab3:
         mixers_fleet = st.session_state.confirmed_mixers
         opakowania_podzial = st.session_state.get("opakowania_podzial", {})
 
-        tonaz_miesieczny_per_rodzina = {}
-        for m in mixers_fleet:
-            kat = m["product_family"]
-            tonaz_miesieczny_per_rodzina[kat] = tonaz_miesieczny_per_rodzina.get(kat, 0) + (m["batches_count"] * m["mass_per_batch"])
-
         aktywne_opakowania = set()
         for kat in wybrane_kategorie:
             for p in st.session_state.get(f"packs_{kat}", []): aktywne_opakowania.add(p)
@@ -2230,45 +2235,73 @@ with tab3:
         dni_robocze_miesiac = WORKING_DAYS_YEAR / MONTHS_PER_YEAR
 
         real_split_rows = []
-        for kat, total_mass_month in tonaz_miesieczny_per_rodzina.items():
+        recipes_df_lookup = st.session_state.get("recipes_df")
+        pack_cols_in_recipe = []
+        if recipes_df_lookup is not None and not recipes_df_lookup.empty:
+            pack_cols_in_recipe = [c for c in recipes_df_lookup.columns if c.startswith("Opak: ") and c.endswith(" [%]")]
+
+        for m in mixers_fleet:
+            kat = m["product_family"]
+            mixer_monthly_mass = m["batches_count"] * m["mass_per_batch"]
             rho_linii = st.session_state.active_portfolio[kat]["density"]
-            for p in st.session_state.get(f"packs_{kat}", []):
-                udzial_pct = opakowania_podzial.get(f"pct_{kat}_{p}", 0.0)
-                if udzial_pct > 0:
-                    masa_opakowania_month = total_mass_month * (udzial_pct / 100.0)
-                    pack_capacity_kg = st.session_state.pack_configs[p]["size_l"] * rho_linii
-                    liczba_sztuk_month = math.ceil(masa_opakowania_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
 
-                    cfg_fill = st.session_state.filling_lines_config.get(p, {"nozzles": 1, "speed_kg_min": 30.0})
-                    sekcja_nalewania_m3_h = (cfg_fill["nozzles"] * cfg_fill["speed_kg_min"] * 60.0) / (rho_linii * 1000.0)
-                    m_parent = next((mx for mx in mixers_fleet if mx["product_family"] == kat), None)
+            # Priorytet 1: rozbicie na opakowania WPROST z receptury tego konkretnego produktu
+            # (Zakładka 1), jeśli podano i sumuje się w przybliżeniu do 100%.
+            recipe_split = None
+            recipe_product = m.get("recipe_product")
+            if recipe_product and pack_cols_in_recipe:
+                match = recipes_df_lookup[recipes_df_lookup[RECIPE_PRODUCT_COL] == recipe_product]
+                if not match.empty:
+                    row0 = match.iloc[0]
+                    pack_sum = sum(row0.get(c, 0) or 0 for c in pack_cols_in_recipe)
+                    if pack_sum > 0.5:
+                        recipe_split = {c[len("Opak: "):-len(" [%]")]: (row0.get(c, 0) or 0) for c in pack_cols_in_recipe
+                                         if (row0.get(c, 0) or 0) > 0}
 
-                    # POPRAWKA: rzeczywisty przepływ pompy pochodzi z Zakładki 2
-                    # (dawniej odczytywany z nieistniejącego klucza "pump_flows" i zawsze
-                    # spadał na wartość domyślną 15.0 m³/h niezależnie od konfiguracji).
-                    q_pump_m3h = 15.0
-                    if m_parent is not None:
-                        tech_details = st.session_state.get("mixer_tech_advanced_details", {}).get(m_parent["tag"], {})
-                        q_pump_m3h = tech_details.get("pump_flow_m3h", 15.0)
+            if recipe_split is not None:
+                split_source = "receptura"
+                pack_pcts = recipe_split
+            else:
+                # Priorytet 2 (fallback): ręczny podział per GRUPA z panelu bocznego - jak dotychczas.
+                split_source = "ręczny"
+                pack_pcts = {p: opakowania_podzial.get(f"pct_{kat}_{p}", 0.0) for p in st.session_state.get(f"packs_{kat}", [])}
 
-                    q_effective_flow_m3h = min(q_pump_m3h, sekcja_nalewania_m3_h)
-                    czas_rozlewu_h = (masa_opakowania_month / (rho_linii * 1000.0)) / q_effective_flow_m3h if q_effective_flow_m3h > 0 else 0.0
-                    liczba_palet_month = math.ceil(liczba_sztuk_month / st.session_state.pack_configs[p]["per_pallet"])
-                    miejsca_paletowe = math.ceil((liczba_palet_month / dni_robocze_miesiac) * czas_skladowania_dni)
+            for p, udzial_pct in pack_pcts.items():
+                if udzial_pct <= 0 or p not in st.session_state.pack_configs:
+                    continue
+                masa_opakowania_month = mixer_monthly_mass * (udzial_pct / 100.0)
+                pack_capacity_kg = st.session_state.pack_configs[p]["size_l"] * rho_linii
+                liczba_sztuk_month = math.ceil(masa_opakowania_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
 
-                    real_split_rows.append({
-                        "Linia 🔒": kat, "Opakowanie 📦": p, "Udział": f"{udzial_pct:.1f}%",
-                        "Opakowań [/mies]": int(liczba_sztuk_month), "Palet [/mies] 🧱": int(liczba_palet_month),
-                        "Miejsca magazynowe [szt] 📐": int(miejsca_paletowe), "Czas rozlewu strumienia [h] ⏱️": round(czas_rozlewu_h, 1),
-                        "Wąskie gardło": "Pompa" if q_pump_m3h < sekcja_nalewania_m3_h else "Sekcja nalewania"
-                    })
+                cfg_fill = st.session_state.filling_lines_config.get(p, {"nozzles": 1, "speed_kg_min": 30.0})
+                sekcja_nalewania_m3_h = (cfg_fill["nozzles"] * cfg_fill["speed_kg_min"] * 60.0) / (rho_linii * 1000.0)
+
+                # Rzeczywisty przepływ pompy TEGO KONKRETNEGO mieszalnika z Zakładki 3 (nie
+                # reprezentanta całej grupy jak poprzednio - każdy mieszalnik ma teraz własny wiersz).
+                tech_details = st.session_state.get("mixer_tech_advanced_details", {}).get(m["tag"], {})
+                q_pump_m3h = tech_details.get("pump_flow_m3h", 15.0)
+
+                q_effective_flow_m3h = min(q_pump_m3h, sekcja_nalewania_m3_h)
+                czas_rozlewu_h = (masa_opakowania_month / (rho_linii * 1000.0)) / q_effective_flow_m3h if q_effective_flow_m3h > 0 else 0.0
+                liczba_palet_month = math.ceil(liczba_sztuk_month / st.session_state.pack_configs[p]["per_pallet"])
+                miejsca_paletowe = math.ceil((liczba_palet_month / dni_robocze_miesiac) * czas_skladowania_dni)
+
+                real_split_rows.append({
+                    "Reaktor 🔒": m["tag"], "Linia 🔒": kat, "Opakowanie 📦": p, "Udział": f"{udzial_pct:.1f}%",
+                    "Źródło %": split_source,
+                    "Opakowań [/mies]": int(liczba_sztuk_month), "Palet [/mies] 🧱": int(liczba_palet_month),
+                    "Miejsca magazynowe [szt] 📐": int(miejsca_paletowe), "Czas rozlewu strumienia [h] ⏱️": round(czas_rozlewu_h, 1),
+                    "Wąskie gardło": "Pompa" if q_pump_m3h < sekcja_nalewania_m3_h else "Sekcja nalewania"
+                })
 
         st.session_state["logistics_results"] = real_split_rows
 
         if real_split_rows:
             st.markdown("##### 🔀 Wyniki Symulacji Logistyczno-Magazynowej")
-            st.caption("Kolumna **Wąskie gardło** pokazuje, czy czas rozlewu jest dziś limitowany przez wydajność pompy z Zakładki 2, "
-                       "czy przez sekcję głowic nalewczych skonfigurowaną powyżej.")
+            st.caption("Kolumna **Źródło %** pokazuje, czy rozbicie na opakowania tego wiersza pochodzi z receptury "
+                       "(Zakładka 1, per produkt) czy z ręcznego podziału w panelu bocznym (per grupa, gdy receptura "
+                       "nie precyzuje opakowań dla tego produktu). Kolumna **Wąskie gardło** pokazuje, czy czas rozlewu "
+                       "jest dziś limitowany przez wydajność pompy TEGO reaktora (Zakładka 3), czy przez sekcję głowic nalewczych.")
             st.dataframe(pd.DataFrame(real_split_rows), hide_index=True, use_container_width=True)
 
             # ============================================================
@@ -2401,9 +2434,15 @@ with tab5:
     if not st.session_state.confirmed_mixers:
         st.warning("⚠️ Brak danych technicznych. Uruchom konfigurację w Zakładce 2.")
     else:
-        active_chemical_ratio = st.slider("Średni udział fazy ciekłej (baza + woda) w recepturze [%]:", 50, 95, 85) / 100.0
         days_of_stock = st.number_input("Wymagany zapas bezpieczeństwa surowca [dni]:", min_value=5, value=14)
         st.session_state["days_of_stock_tab5"] = days_of_stock
+        selected_tank_capacity_m3 = st.selectbox("Wybierz pojemność pojedynczego silosu [m³]:", [30, 50, 60, 80, 100, 150, 200], index=4)
+
+        st.markdown("### 📋 Zestawienie Surowcowe Floty (per Reaktor)")
+        st.caption("Rozkład bazy olejowej / wody DEMI per reaktor, na podstawie grupy oleju przypisanej do jego linii "
+                   "produktowej — kontekst fleetowy, niezależny od tego, czy wgrałeś recepturę.")
+
+        active_chemical_ratio = st.slider("Średni udział fazy ciekłej (baza + woda) w recepturze [%]:", 50, 95, 85) / 100.0
 
         raw_material_summary = []
         silos_aggregation = {"Mineralne (Gr. I/II)": 0.0, "Syntetyczne (Gr. III/IV)": 0.0, "Woda Procesowa DEMI": 0.0, "Inne / Pakiety płynne": 0.0}
@@ -2428,34 +2467,15 @@ with tab5:
 
         st.dataframe(pd.DataFrame(raw_material_summary), hide_index=True, use_container_width=True)
 
+        st.markdown("---")
         st.markdown("### 🏢 Wymiarowanie Silosów Magazynowych")
-        selected_tank_capacity_m3 = st.selectbox("Wybierz pojemność pojedynczego silosu [m³]:", [30, 50, 60, 80, 100, 150, 200], index=4)
 
-        silos_rows = []
-        total_tanks = 0
-        for group_name, annual_tony in silos_aggregation.items():
-            if annual_tony > 0:
-                daily_t = annual_tony / WORKING_DAYS_YEAR
-                fill_factor = WATER_FILL_FACTOR if "Woda" in group_name else OIL_FILL_FACTOR
-                required_m3 = (daily_t * days_of_stock) / fill_factor
-                needed_tanks = math.ceil(required_m3 / (selected_tank_capacity_m3 * TANK_SAFETY_FILL))
-                total_tanks += needed_tanks
-                silos_rows.append({
-                    "Grupa Surowcowa": group_name, "Konsumpcja [t/rok]": round(annual_tony, 1), "Wymagany Bufor [m³]": round(required_m3, 1), "Liczba silosów": f"{needed_tanks} szt."
-                })
-        st.dataframe(pd.DataFrame(silos_rows), hide_index=True, use_container_width=True)
-        st.metric("🧱 Całkowita wymagana liczba silosów surowcowych", f"{total_tanks} szt.")
-
-        # ============================================================
-        # WYMIAROWANIE PER-SUROWIEC NA PODSTAWIE WGRANYCH RECEPTUR (Zakładka 7)
-        # ============================================================
         recipe_consumption = st.session_state.get("recipe_raw_material_consumption")
-        if recipe_consumption:
-            st.markdown("---")
-            st.markdown("### 🧪 Wymiarowanie Silosów per Surowiec (na podstawie wgranych receptur)")
-            st.caption("To zestawienie NIE zastępuje powyższego (grupowego, opartego o flotę mieszalników) — pochodzi z "
-                       "receptur wgranych w **Zakładce 1** i daje realny rozkład zużycia na poziomie pojedynczego "
-                       "surowca (np. osobno Base Oil II i Base Oil III), zamiast tylko grup 'Mineralne/Syntetyczne'.")
+        has_recipe_consumption = bool(recipe_consumption) and any(v > 0 for v in recipe_consumption.values())
+
+        if has_recipe_consumption:
+            st.caption("Liczone **per pojedynczy surowiec** (np. osobno Base Oil II i Base Oil III) na podstawie "
+                       "receptur wgranych w **Zakładce 1** — dokładniejsze niż grupowanie wg 'Mineralne/Syntetyczne'.")
 
             recipe_silos_rows = []
             recipe_total_tanks = 0
@@ -2463,8 +2483,7 @@ with tab5:
                 if annual_tony <= 0:
                     continue
                 daily_t = annual_tony / WORKING_DAYS_YEAR
-                fill_factor = OIL_FILL_FACTOR
-                required_m3 = (daily_t * days_of_stock) / fill_factor
+                required_m3 = (daily_t * days_of_stock) / OIL_FILL_FACTOR
                 needed_tanks = math.ceil(required_m3 / (selected_tank_capacity_m3 * TANK_SAFETY_FILL))
                 recipe_total_tanks += needed_tanks
                 recipe_silos_rows.append({
@@ -2472,14 +2491,26 @@ with tab5:
                     "Wymagany Bufor [m³]": round(required_m3, 1), "Liczba silosów": f"{needed_tanks} szt."
                 })
 
-            if recipe_silos_rows:
-                st.dataframe(pd.DataFrame(recipe_silos_rows), hide_index=True, use_container_width=True)
-                st.metric("🧱 Silosy surowcowe wg receptur (per surowiec)", f"{recipe_total_tanks} szt.")
-            else:
-                st.info("Wgrane receptury nie zawierają jeszcze niezerowego zużycia żadnego surowca.")
+            st.dataframe(pd.DataFrame(recipe_silos_rows), hide_index=True, use_container_width=True)
+            st.metric("🧱 Całkowita wymagana liczba silosów surowcowych", f"{recipe_total_tanks} szt.")
         else:
-            st.info("💡 Wgraj receptury produktów w **Zakładce 1**, aby zobaczyć tu również wymiarowanie silosów "
-                    "per pojedynczy surowiec (a nie tylko wg grup olejowych).")
+            st.info("💡 Wgraj receptury produktów w **Zakładce 1**, aby uzyskać dokładniejsze wymiarowanie per "
+                    "pojedynczy surowiec. Poniżej uproszczony szacunek grupowy (wg typu bazy z floty).")
+
+            silos_rows = []
+            total_tanks = 0
+            for group_name, annual_tony in silos_aggregation.items():
+                if annual_tony > 0:
+                    daily_t = annual_tony / WORKING_DAYS_YEAR
+                    fill_factor = WATER_FILL_FACTOR if "Woda" in group_name else OIL_FILL_FACTOR
+                    required_m3 = (daily_t * days_of_stock) / fill_factor
+                    needed_tanks = math.ceil(required_m3 / (selected_tank_capacity_m3 * TANK_SAFETY_FILL))
+                    total_tanks += needed_tanks
+                    silos_rows.append({
+                        "Grupa Surowcowa": group_name, "Konsumpcja [t/rok]": round(annual_tony, 1), "Wymagany Bufor [m³]": round(required_m3, 1), "Liczba silosów": f"{needed_tanks} szt."
+                    })
+            st.dataframe(pd.DataFrame(silos_rows), hide_index=True, use_container_width=True)
+            st.metric("🧱 Całkowita wymagana liczba silosów surowcowych (szacunek grupowy)", f"{total_tanks} szt.")
 
 # ==========================================
 # ZAKŁADKA 6: MAPA STRUMIENIA WARTOŚCI (VSM)
@@ -3037,126 +3068,6 @@ with tab7:
             "rate_szt_h": existing.get("rate_szt_h", 0),
         }
     st.session_state.pack_configs = new_pack_configs
-
-# ==========================================
-# ZAKŁADKA 8: BILANS PARY / ODPOWIETRZENIE (HAZOP / API 2000)
-# ==========================================
-with tab8:
-    st.header("🌫️ Bilans Pary i Odpowietrzenie: Analiza Hydrauliczna i HAZOP")
-    st.caption("Moduł dedykowany procesom 'gotowania' (smary, waxy) — intensywne odparowanie, czasem podwyższone "
-               "ciśnienie. Liczy prędkość pary i opory liniowe w rurociągu zrzutowym metodą Darcy-Weisbacha dla "
-               "4 scenariuszy pracy i weryfikuje je względem progów bezpieczeństwa (ISO 28300 / API 2000). "
-               "Ten moduł jest niezależny od floty mieszalników z pozostałych zakładek.")
-    st.warning("⚠️ To narzędzie wspomaga wstępne oszacowanie, a nie zastępuje przeglądu przez uprawnionego "
-               "inżyniera ds. bezpieczeństwa procesowego (HAZOP/SIL) przed wdrożeniem na realnej instalacji.")
-
-    st.markdown("### 1️⃣ Geometria Instalacji")
-    c_g1, c_g2, c_g3, c_g4 = st.columns(4)
-    with c_g1:
-        n_reaktorow = st.number_input("Liczba pracujących reaktorów (n) [szt.]:", min_value=1, value=1, step=1, key="steam_n_reaktorow")
-    with c_g2:
-        pipe_length_steam = st.number_input("Długość całkowita rurociągu zbiorczego (L) [m]:", min_value=0.1, value=10.0, step=0.5, key="steam_pipe_length")
-    with c_g3:
-        dn_choice = st.selectbox("Średnica wg ściągawki DN (lub 'Własna'):", list(STEAM_PIPE_DN_REFERENCE_M.keys()) + ["Własna"], index=0, key="steam_dn_choice")
-        if dn_choice == "Własna":
-            pipe_diameter_steam = st.number_input("Średnica wewnętrzna rurociągu (d) [m]:", min_value=0.01, value=0.0889, step=0.001, format="%.4f", key="steam_pipe_d_custom")
-        else:
-            pipe_diameter_steam = STEAM_PIPE_DN_REFERENCE_M[dn_choice]
-            st.caption(f"Średnica wewnętrzna: **{pipe_diameter_steam:.4f} m**")
-    with c_g4:
-        lambda_steam = st.number_input("Współczynnik tarcia liniowego rury (λ) [-]:", min_value=0.001, value=0.025, step=0.001, format="%.3f", key="steam_lambda")
-
-    st.markdown("---")
-    st.markdown("### 2️⃣ Strumienie Masowe i Stałe Termodynamiczne")
-    st.caption("Wpisz strumienie masowe wyznaczone z bilansu procesu (dm/dt) dla poszczególnych scenariuszy pracy instalacji.")
-    c_s1, c_s2, c_s3 = st.columns(3)
-    with c_s1:
-        rho_steam = st.number_input("Gęstość pary nasyconej rozprężonej (ρ) [kg/m³]:", min_value=0.01, value=0.598, step=0.01, key="steam_rho")
-        avg_flow_1r = st.number_input("Średni strumień odwadniania, 1 reaktor [kg/s]:", min_value=0.0, value=0.0185, step=0.001, format="%.4f", key="steam_avg_flow")
-    with c_s2:
-        max_process_1r = st.number_input("Maks. strumień procesowy, 1 reaktor [kg/s]:", min_value=0.0, value=0.037, step=0.001, format="%.4f", key="steam_max_process")
-        max_decompress_1r = st.number_input("Maks. strumień dekompresji, 1 reaktor [kg/s]:", min_value=0.0, value=0.089, step=0.001, format="%.4f", key="steam_max_decompress")
-    with c_s3:
-        max_cumulated_peak = st.number_input("Maks. skumulowany szczyt roboczy (koincydencja) [kg/s]:", min_value=0.0, value=0.215, step=0.001, format="%.4f",
-                                              key="steam_max_cumulated", help="Np. koincydencja kilku reaktorów jednocześnie w fazie flash - wpisz ręcznie, bo to scenariusz specyficzny dla harmonogramu produkcji.")
-        max_emergency = st.number_input("Maks. strumień zrzutu awaryjnego [kg/s]:", min_value=0.0, value=2.0, step=0.1, key="steam_max_emergency")
-
-    st.markdown("---")
-    st.markdown("### 🎚️ Progi Bezpieczeństwa (edytowalne)")
-    c_p1, c_p2, c_p3 = st.columns(3)
-    with c_p1:
-        prog_v_normalna = st.number_input("Próg prędkości - scenariusze A/B [m/s]:", min_value=1.0, value=35.0, step=1.0, key="steam_prog_ab")
-    with c_p2:
-        prog_v_szczyt = st.number_input("Próg prędkości - scenariusz C (szczyt skumulowany) [m/s]:", min_value=1.0, value=60.0, step=1.0, key="steam_prog_c")
-    with c_p3:
-        nastawa_zaworu_bar = st.number_input("Nastawa zaworu bezpieczeństwa [bar]:", min_value=0.1, value=10.0, step=0.5, key="steam_nastawa_zaworu")
-        prog_pct_nastawy = st.number_input("Dopuszczalny % nastawy (opory wsteczne, API 2000) [%]:", min_value=1.0, max_value=50.0, value=10.0, step=1.0, key="steam_prog_pct")
-    prog_dp_bar = nastawa_zaworu_bar * (prog_pct_nastawy / 100.0)
-    st.caption(f"Zgodnie z API 2000, opory na linii zrzutowej dla zaworu konwencjonalnego nie powinny przekraczać "
-               f"**{prog_pct_nastawy:.0f}%** nastawy ({nastawa_zaworu_bar:.1f} bar) = **{prog_dp_bar:.2f} bar**.")
-
-    st.markdown("---")
-    st.markdown("### 3️⃣ Zintegrowane Obliczenia Hydrauliczne i Audyt Bezpieczeństwa")
-
-    scenarios = [
-        {"name": "A. Normalna praca średnia (n reaktorów)", "mass_flow": n_reaktorow * avg_flow_1r, "check": "velocity", "prog": prog_v_normalna,
-         "msg_bad": "ZAGROŻENIE: Rura za ciasna nawet dla wartości średnich!",
-         "msg_ok": "Teoretycznie bezpiecznie, ale ignoruje szczyty chwilowe (dm/dt)."},
-        {"name": "B. Szczyt odparowania (pojedynczy reaktor, faza Flash)", "mass_flow": max_decompress_1r, "check": "velocity", "prog": prog_v_normalna,
-         "msg_bad": "OSTRZEŻENIE: Pojedynczy zrzut dławi rurę. Spadek efektu flash.",
-         "msg_ok": "Prędkość optymalna dla jednej maszyny."},
-        {"name": "C. Najgorszy szczyt roboczy (koincydencja reaktorów)", "mass_flow": max_cumulated_peak, "check": "velocity", "prog": prog_v_szczyt,
-         "msg_bad": f"KRYTYCZNE DŁAWIENIE! Prędkość > {prog_v_szczyt:.0f} m/s. Blokada zrzutu pary, ryzyko cofki produktu i zniszczenia struktury! Rozważ większą średnicę.",
-         "msg_ok": "ZGODNIE Z NORMĄ (15-30 m/s): Średnica dobrana poprawnie pod szczyt obciążenia. Brak ciśnienia wstecznego."},
-        {"name": f"D. Scenariusz awaryjny (otwarcie zaworu - {nastawa_zaworu_bar:.0f} bar)", "mass_flow": max_emergency, "check": "pressure", "prog": prog_dp_bar,
-         "msg_bad": f"KATASTROFA API 2000! Opory w rurze zrzutowej przekraczają {prog_pct_nastawy:.0f}% nastawy ({prog_dp_bar:.2f} bar). Zawór konwencjonalny ulegnie ZABLOKOWANIU! Ryzyko rozerwania reaktora!",
-         "msg_ok": f"ZGODNIE Z API 2000: Ciśnienie wsteczne poniżej {prog_pct_nastawy:.0f}% nastawy. Zawór zadziała prawidłowo."},
-    ]
-
-    result_rows = []
-    for sc in scenarios:
-        vol_flow, velocity, dp_pa, dp_bar = compute_vent_line_scenario(
-            sc["mass_flow"], rho_steam, pipe_length_steam, pipe_diameter_steam, lambda_steam)
-
-        if sc["check"] == "velocity":
-            is_bad = velocity > sc["prog"]
-        else:
-            is_bad = dp_bar > sc["prog"]
-        weryfikacja = sc["msg_bad"] if is_bad else sc["msg_ok"]
-
-        result_rows.append({
-            "Scenariusz Pracy Instalacji": sc["name"],
-            "Masa pary [kg/s]": round(sc["mass_flow"], 4),
-            "Objętość pary [m³/s]": round(vol_flow, 4),
-            "Prędkość pary [m/s]": round(velocity, 2),
-            "Opory liniowe [Pa]": round(dp_pa, 1),
-            "Opory liniowe [bar]": round(dp_bar, 4),
-            "Weryfikacja Normatywna i Diagnoza Zagrożeń": weryfikacja,
-            "_is_bad": is_bad,
-        })
-
-    df_steam = pd.DataFrame(result_rows)
-    df_steam_display = df_steam.drop(columns=["_is_bad"])
-
-    def style_steam_alerts(df_data):
-        style_matrix = pd.DataFrame('', index=df_data.index, columns=df_data.columns)
-        for idx in df_data.index:
-            if df_steam.loc[idx, "_is_bad"]:
-                style_matrix.loc[idx, "Prędkość pary [m/s]"] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
-                style_matrix.loc[idx, "Opory liniowe [bar]"] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
-                style_matrix.loc[idx, "Weryfikacja Normatywna i Diagnoza Zagrożeń"] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
-            else:
-                style_matrix.loc[idx, "Weryfikacja Normatywna i Diagnoza Zagrożeń"] = 'background-color: #C6EFCE; color: #006100;'
-        return style_matrix
-
-    styled_steam = df_steam_display.style.apply(style_steam_alerts, axis=None)
-    st.dataframe(styled_steam, hide_index=True, use_container_width=True)
-
-    n_alerts = int(df_steam["_is_bad"].sum())
-    if n_alerts > 0:
-        st.error(f"🔴 {n_alerts} z {len(df_steam)} scenariuszy przekracza próg bezpieczeństwa — sprawdź kolumnę diagnozy powyżej.")
-    else:
-        st.success("🟢 Wszystkie scenariusze mieszczą się w przyjętych progach bezpieczeństwa.")
 
 # ==========================================
 # ZAKŁADKA 7 (tab9): CENNIK I STANDARDOWA INSTALACJA (CAPEX)
