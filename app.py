@@ -1569,12 +1569,26 @@ with tab1:
 
         df_fleet = pd.DataFrame(final_fleet_rows)
 
+        # Klucz data_editora zależy od parametrów, które faktycznie napędzają flotę (roczna
+        # produkcja, pojemności/cykle bazowe i per-zbiornik, liczba zbiorników) - dzięki temu
+        # KAŻDA zmiana tych wartości (np. pojemności bazowej w Kroku A) wymusza pełne
+        # odświeżenie tabeli, zamiast pozwalać Streamlitowi zatrzymać nieaktualny stan komórek
+        # z poprzedniego przebiegu. Między takimi zmianami klucz jest stabilny, więc ręczne
+        # usuwanie wierszy w tabeli nadal działa normalnie do czasu kliknięcia "Zatwierdź".
+        fleet_signature = hash(tuple(
+            (kat, st.session_state.prod_dict[kat]["roczna"], st.session_state.prod_dict[kat]["user_vol_m3"],
+             st.session_state.prod_dict[kat].get("num_tanks", 1),
+             tuple(st.session_state.prod_dict[kat].get("tank_volumes", [])),
+             tuple(st.session_state.prod_dict[kat].get("tank_cycles", [])))
+            for kat in wybrane_kategorie
+        ))
+
         edited_df = st.data_editor(
             df_fleet,
             hide_index=True,
             use_container_width=True,
             num_rows="dynamic",
-            key="fleet_data_editor_v3"
+            key=f"fleet_data_editor_v4_{fleet_signature}"
         )
 
         if real_cycle_reference_rows:
