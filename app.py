@@ -165,6 +165,7 @@ RECIPE_NOTES_COL = "Uwagi Technologiczne / Status QA"
 # kampanijna) zamiast dostawać każdy swój dedykowany zbiornik. Puste = własny zbiornik (jak
 # dotychczas); te samo ID w kilku wierszach TEJ SAMEJ grupy produktowej = wspólny zbiornik.
 RECIPE_TANK_ID_COL = "ID Zbiornika (opcjonalnie - te samo ID = wspólny mieszalnik)"
+RECIPE_SHARED_UTIL_COL = "Suma Wykorzystania Zbiornika Współdzielonego [%]"
 
 # Wymiarowanie mieszalnika i szacowane wykorzystanie zdolności produkcyjnej - wpisywane
 # bezpośrednio w Excelu, żeby dać natychmiastową (choć uproszczoną) informację zwrotną, zanim
@@ -272,7 +273,7 @@ def generate_recipe_template_bytes():
                 RECIPE_BATCH_MASS_COL, RECIPE_BATCHES_YEAR_COL, RECIPE_UTILIZATION_COL] +
                RECIPE_RAW_MATERIALS +
                [RECIPE_SUM_COL, RECIPE_DENSITY_COL, RECIPE_LOSS_COL, RECIPE_RAW_DEMAND_COL] +
-               pack_pct_cols + [RECIPE_PACK_SUM_COL, RECIPE_TANK_ID_COL, RECIPE_NOTES_COL])
+               pack_pct_cols + [RECIPE_PACK_SUM_COL, RECIPE_TANK_ID_COL, RECIPE_SHARED_UTIL_COL, RECIPE_NOTES_COL])
 
     n_fixed_left = 3                      # Grupa, Produkt, Roczne Zapotrzebowanie Produktu
     mixer_vol_col = n_fixed_left + 1
@@ -292,7 +293,8 @@ def generate_recipe_template_bytes():
     last_pack_col = first_pack_col + len(pack_names) - 1
     pack_sum_col = last_pack_col + 1
     tank_id_col = pack_sum_col + 1
-    notes_col = tank_id_col + 1
+    shared_util_col = tank_id_col + 1
+    notes_col = shared_util_col + 1
 
     for col_idx, h in enumerate(headers, start=1):
         cell = ws.cell(row=1, column=col_idx, value=h)
@@ -325,7 +327,12 @@ def generate_recipe_template_bytes():
         "(domyślne zachowanie). Jeśli KILKA produktów TEJ SAMEJ grupy produktowej ma współdzielić JEDEN fizyczny "
         "mieszalnik (produkcja kampanijna - różne produkty na przemian na tym samym reaktorze), wpisz im "
         "IDENTYCZNY identyfikator, np. 'R-01'. Aplikacja policzy wtedy jeden zbiornik z łącznym wykorzystaniem "
-        "czasowym (suma szarż x cykl każdego produktu), dobierając pojemność pod największą recepturę spośród nich.",
+        "czasowym (suma szarż x cykl każdego produktu), dobierając pojemność pod największą recepturę spośród nich. "
+        "Ustaw też tę SAMĄ pojemność mieszalnika dla wszystkich wierszy ze wspólnym ID - to fizycznie jeden zbiornik.",
+        f"14. '{RECIPE_SHARED_UTIL_COL}' liczy się sama (formuła) - dla wierszy ze wspólnym ID Zbiornika sumuje ich "
+        "indywidualne wykorzystania (orientacyjnie, każde liczone tak, jakby miało cały zbiornik dla siebie), "
+        f"żeby wykryć przeciążenie WSPÓLNEGO zbiornika już tutaj, przed wgraniem do aplikacji - podświetla się na "
+        f"czerwono powyżej {RECIPE_UTILIZATION_WARN_PCT:.0f}%.",
     ]
     for i, line in enumerate(info_lines, start=1):
         c = ws_info.cell(row=i, column=1, value=line)
@@ -390,6 +397,8 @@ def generate_recipe_template_bytes():
     first_pack_letter = get_column_letter(first_pack_col) if pack_names else None
     last_pack_letter = get_column_letter(last_pack_col) if pack_names else None
     pack_sum_col_letter = get_column_letter(pack_sum_col)
+    tank_id_col_letter = get_column_letter(tank_id_col)
+    shared_util_col_letter = get_column_letter(shared_util_col)
 
     group_dv = DataValidation(type="list", formula1='"' + ",".join(RECIPE_PRODUCT_GROUPS) + '"', allow_blank=True)
     ws.add_data_validation(group_dv)
@@ -459,6 +468,19 @@ def generate_recipe_template_bytes():
         util_cell.number_format = '0.0"%"'
         util_cell.fill = computed_fill
 
+        # Suma wykorzystania dla wspólnego ID Zbiornika - jeśli kilka produktów współdzieli
+        # jeden fizyczny mieszalnik, ich pojedyncze % wykorzystania (każdy liczony tak, jakby
+        # miał zbiornik tylko dla siebie) trzeba zsumować, żeby zobaczyć REALNE łączne
+        # obciążenie. Dla pustego ID (własny zbiornik) to po prostu to samo co Wykorzystanie.
+        tank_id_range = f"${tank_id_col_letter}${start_data_row}:${tank_id_col_letter}${start_data_row + total_rows - 1}"
+        util_range = f"${utilization_letter}${start_data_row}:${utilization_letter}${start_data_row + total_rows - 1}"
+        shared_util_formula = (f'=IF({tank_id_col_letter}{row}="",{utilization_letter}{row},'
+                                f'SUMIF({tank_id_range},{tank_id_col_letter}{row},{util_range}))')
+        shared_cell = ws.cell(row=row, column=shared_util_col, value=shared_util_formula)
+        shared_cell.font = font_to_use
+        shared_cell.number_format = '0.0"%"'
+        shared_cell.fill = computed_fill
+
         sum_formula = f"=SUM({first_mat_letter}{row}:{last_mat_letter}{row})"
         sum_cell = ws.cell(row=row, column=sum_col, value=sum_formula)
         sum_cell.font = font_to_use
@@ -489,6 +511,9 @@ def generate_recipe_template_bytes():
     util_rng = f"{utilization_letter}{start_data_row}:{utilization_letter}{start_data_row + total_rows - 1}"
     ws.conditional_formatting.add(util_rng, CellIsRule(operator="greaterThan", formula=[str(RECIPE_UTILIZATION_WARN_PCT)], fill=red_fill))
 
+    shared_util_rng = f"{shared_util_col_letter}{start_data_row}:{shared_util_col_letter}{start_data_row + total_rows - 1}"
+    ws.conditional_formatting.add(shared_util_rng, CellIsRule(operator="greaterThan", formula=[str(RECIPE_UTILIZATION_WARN_PCT)], fill=red_fill))
+
     if pack_names:
         pack_sum_rng = f"{pack_sum_col_letter}{start_data_row}:{pack_sum_col_letter}{start_data_row + total_rows - 1}"
         ws.conditional_formatting.add(
@@ -512,6 +537,7 @@ def generate_recipe_template_bytes():
             ws.column_dimensions[get_column_letter(col_idx)].width = 14
     ws.column_dimensions[pack_sum_col_letter].width = 14
     ws.column_dimensions[get_column_letter(tank_id_col)].width = 16
+    ws.column_dimensions[get_column_letter(shared_util_col)].width = 16
     ws.column_dimensions[get_column_letter(notes_col)].width = 30
 
     # --- Arkusz 'Opakowania' (opcjonalny) - predefiniowanie typów opakowań i pojemności ---
@@ -1407,6 +1433,9 @@ with tab1:
             )
 
         current_skus = st.session_state.prod_dict[selected_family_to_edit]["skus"]
+        _tank_members_current = st.session_state.prod_dict[selected_family_to_edit].get("tank_members", [])
+        _has_recipe_products = any(len(m) > 0 for m in _tank_members_current)
+
         if current_skus > 1:
             st.markdown("---")
             st.session_state.prod_dict[selected_family_to_edit]["num_tanks"] = st.number_input(
@@ -1416,6 +1445,40 @@ with tab1:
             )
         else:
             st.session_state.prod_dict[selected_family_to_edit]["num_tanks"] = 1
+
+        tanks_count_now = st.session_state.prod_dict[selected_family_to_edit]["num_tanks"]
+
+        # --- Przypisanie produktów z receptury do konkretnych zbiorników (bez wracania do Excela) ---
+        if _has_recipe_products:
+            st.markdown("---")
+            st.markdown("###### 🔀 Przypisanie Produktów do Zbiorników")
+            st.caption("Zmień, do którego zbiornika trafia dany produkt z receptury — np. gdy zbiornik się przeciąża "
+                       "i chcesz rozdzielić współdzielone produkty na osobne mieszalniki. Działa od razu, bez "
+                       "ponownego wgrywania pliku Excel. (Jeśli chcesz *trwale* zmienić przypisanie na przyszłość, "
+                       "warto też poprawić 'ID Zbiornika' w źródłowym pliku — inaczej kolejne wgranie receptury "
+                       "przywróci oryginalny podział).")
+
+            all_members_flat = [(slot_idx, mem) for slot_idx, slot in enumerate(_tank_members_current) for mem in slot]
+            new_assignment = {}
+            for slot_idx, mem in all_members_flat:
+                target_options = list(range(1, tanks_count_now + 1))
+                default_idx = min(slot_idx, tanks_count_now - 1)
+                chosen = st.selectbox(
+                    f"{mem['product']} → Zbiornik nr:", target_options, index=default_idx,
+                    key=f"tank_assign_{selected_family_to_edit}_{mem['product']}"
+                )
+                new_assignment.setdefault(chosen - 1, []).append(mem)
+
+            rebuilt_members = [new_assignment.get(i, []) for i in range(tanks_count_now)]
+            st.session_state.prod_dict[selected_family_to_edit]["tank_members"] = rebuilt_members
+
+            # Pojemności bazowe nowo powstałych/opróżnionych zbiorników - jeśli slot ma produkty
+            # z receptury, podpowiedz pojemność jako max ich zadanych wielkości mieszalnika,
+            # żeby nie trzeba było ręcznie ustawiać po każdym przeniesieniu.
+            tank_volumes_now = st.session_state.prod_dict[selected_family_to_edit].setdefault("tank_volumes", [15.0])
+            while len(tank_volumes_now) < tanks_count_now:
+                tank_volumes_now.append(15.0)
+            del tank_volumes_now[tanks_count_now:]
 
         # --- Pojemności i cykle poszczególnych zbiorników, gdy linia jest rozbita na kilka mieszalników ---
         # Domyślnie każdy nowy zbiornik dziedziczy wartości bazowe powyżej, ale można je zróżnicować per
@@ -1487,7 +1550,7 @@ with tab1:
                 tank_members_list = st.session_state.prod_dict[kat].get("tank_members", [])
                 members = tank_members_list[t_idx] if t_idx < len(tank_members_list) else None
 
-                if members and len(members) > 1:
+                if members is not None and len(members) > 1:
                     # Zbiornik współdzielony przez kilka produktów (produkcja kampanijna) -
                     # każdy produkt ma WŁASNĄ masę szarży (ta sama pojemność zbiornika, ale
                     # własna gęstość) i własny cykl; sumujemy szarże i faktyczny czas zajętości
@@ -1503,10 +1566,24 @@ with tab1:
                     batches_per_tank = total_batches
                     mass_per_batch = max(mass_per_batch_list) if mass_per_batch_list else 0.0
                     real_utilization = (total_hours / AVAILABLE_HOURS_MONTH * 100.0) if AVAILABLE_HOURS_MONTH > 0 else 0.0
+                elif members is not None and len(members) == 1:
+                    # Zbiornik dedykowany DOKŁADNIE jednemu produktowi z receptury - liczymy
+                    # wprost z jego własnych danych (gęstość/roczna/cykl), bez zgadywania przez
+                    # podział proporcjonalny do pojemności (mamy dokładne dane, więc ich używamy).
+                    mem = members[0]
+                    mass_per_batch = v_tank_user * mem["density"] * 1000.0
+                    monthly_mass = mem["annual_kg"] / MONTHS_PER_YEAR
+                    batches_per_tank = math.ceil(monthly_mass / mass_per_batch) if mass_per_batch > 0 else 0
+                    real_utilization = (batches_per_tank * mem["cycle_h"]) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
+                elif members is not None and len(members) == 0:
+                    # Zbiornik jawnie opróżniony (przeniesiono z niego wszystkie produkty w
+                    # panelu przypisania powyżej) - nic w nim nie produkujemy.
+                    mass_per_batch, batches_per_tank, real_utilization = 0.0, 0, 0.0
                 else:
-                    # Podział rocznej produkcji rodziny między zbiorniki PROPORCJONALNIE do ich pojemności —
-                    # jeśli zbiorniki mają różne wielkości, większy zbiornik przejmuje większą część wolumenu
-                    # zamiast wymuszania tej samej liczby szarż co na małym zbiorniku.
+                    # Zbiornik niepowiązany z recepturą (dodany ręcznie, tryb w pełni manualny) —
+                    # podział rocznej produkcji rodziny między zbiorniki PROPORCJONALNIE do ich
+                    # pojemności, jeśli zbiorniki mają różne wielkości, większy zbiornik przejmuje
+                    # większą część wolumenu zamiast wymuszania tej samej liczby szarż co na małym.
                     capacity_share = (v_tank_user / total_capacity) if total_capacity > 0 else (1.0 / tanks_count)
                     annual_per_tank = m_annual * capacity_share
                     monthly_per_tank = annual_per_tank / MONTHS_PER_YEAR
@@ -1516,9 +1593,8 @@ with tab1:
                     real_utilization = (batches_per_tank * cyc_h) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
 
                 tag_id = f"MT-{tag_counter}" + (f"-Z{t_idx+1}" if tanks_count > 1 else "")
-                tank_products_list = st.session_state.prod_dict[kat].get("tank_products", [])
-                if t_idx < len(tank_products_list):
-                    st.session_state.tag_to_recipe_product[tag_id] = tank_products_list[t_idx]
+                if members is not None and len(members) == 1:
+                    st.session_state.tag_to_recipe_product[tag_id] = members[0]["product"]
                 status_txt = "🟢 Optymalna" if real_utilization <= MAX_TANK_UTILIZATION_PCT else "⚠️ Przeciążenie (>85%)"
                 if v_tank_user < MIN_TANK_VOLUME_M3:
                     status_txt = "❌ Poniżej min. fabryki (<5 m³)"
@@ -1565,7 +1641,11 @@ with tab1:
 
         st.markdown("### 📊 Aktualne Zestawienie Floty Produkcyjnej (Możesz usuwać wiersze)")
         st.caption("💡 **Instrukcja:** Aby usunąć zbiornik, zaznacz pole wyboru po lewej stronie wiersza i naciśnij `Delete` na klawiaturze (lub użyj ikony kosza). "
-                    "Kolumnę **Przypisana Linia** można edytować tylko na wartości z aktywnie wybranych linii produktowych - inne wartości zostaną odrzucone przy zatwierdzaniu.")
+                    "Kolumnę **Przypisana Linia** można edytować tylko na wartości z aktywnie wybranych linii produktowych - inne wartości zostaną odrzucone przy zatwierdzaniu. "
+                    "**Pojemność, Masa Szarży, Cykl, Szarże i Utylizacja są tylko do odczytu** w tej tabeli - to są wyliczone wartości; żeby je zmienić, edytuj pola "
+                    "'Pojemność Mieszalnika (bazowa)' / 'Zbiornik #N — Pojemność/Cykl' powyżej. Jeśli chcesz rozdzielić produkty ze **wspólnego zbiornika** "
+                    "(receptura ze wspólnym ID Zbiornika) na osobne fizyczne mieszalniki, zrób to w pliku Excel (usuń/zmień ID Zbiornika dla jednego z produktów) "
+                    "i wgraj recepturę ponownie w Zakładce 1 - samo zwiększenie liczby zbiorników tutaj dodaje pusty zbiornik, ale nie wie, który produkt ma do niego przenieść.")
 
         df_fleet = pd.DataFrame(final_fleet_rows)
 
@@ -1588,7 +1668,9 @@ with tab1:
             hide_index=True,
             use_container_width=True,
             num_rows="dynamic",
-            key=f"fleet_data_editor_v4_{fleet_signature}"
+            key=f"fleet_data_editor_v4_{fleet_signature}",
+            disabled=["ID Urządzenia", "Produkty", "Pojemność [m³]", "Masa Szarży [kg]",
+                      "Cykl Szacowany [h]", "Szarż / miesiąc (per aparat)", "Utylizacja Czasowa", "Status"]
         )
 
         if real_cycle_reference_rows:
