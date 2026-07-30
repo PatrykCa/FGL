@@ -161,6 +161,11 @@ RECIPE_LOSS_COL = "Szacowane Straty Procesowe [%]"
 RECIPE_RAW_DEMAND_COL = "Roczne Zapotrzebowanie Surowcowe [tony]"
 RECIPE_NOTES_COL = "Uwagi Technologiczne / Status QA"
 
+# Opcjonalna kolumna: kilka produktów może współdzielić JEDEN fizyczny mieszalnik (produkcja
+# kampanijna) zamiast dostawać każdy swój dedykowany zbiornik. Puste = własny zbiornik (jak
+# dotychczas); te samo ID w kilku wierszach TEJ SAMEJ grupy produktowej = wspólny zbiornik.
+RECIPE_TANK_ID_COL = "ID Zbiornika (opcjonalnie - te samo ID = wspólny mieszalnik)"
+
 # Wymiarowanie mieszalnika i szacowane wykorzystanie zdolności produkcyjnej - wpisywane
 # bezpośrednio w Excelu, żeby dać natychmiastową (choć uproszczoną) informację zwrotną, zanim
 # w ogóle dojdzie do konfiguracji floty w Zakładce 1/2 (tam wykorzystanie liczone jest w pełni,
@@ -267,7 +272,7 @@ def generate_recipe_template_bytes():
                 RECIPE_BATCH_MASS_COL, RECIPE_BATCHES_YEAR_COL, RECIPE_UTILIZATION_COL] +
                RECIPE_RAW_MATERIALS +
                [RECIPE_SUM_COL, RECIPE_DENSITY_COL, RECIPE_LOSS_COL, RECIPE_RAW_DEMAND_COL] +
-               pack_pct_cols + [RECIPE_PACK_SUM_COL, RECIPE_NOTES_COL])
+               pack_pct_cols + [RECIPE_PACK_SUM_COL, RECIPE_TANK_ID_COL, RECIPE_NOTES_COL])
 
     n_fixed_left = 3                      # Grupa, Produkt, Roczne Zapotrzebowanie Produktu
     mixer_vol_col = n_fixed_left + 1
@@ -286,7 +291,8 @@ def generate_recipe_template_bytes():
     first_pack_col = raw_demand_col + 1
     last_pack_col = first_pack_col + len(pack_names) - 1
     pack_sum_col = last_pack_col + 1
-    notes_col = pack_sum_col + 1
+    tank_id_col = pack_sum_col + 1
+    notes_col = tank_id_col + 1
 
     for col_idx, h in enumerate(headers, start=1):
         cell = ws.cell(row=1, column=col_idx, value=h)
@@ -315,6 +321,11 @@ def generate_recipe_template_bytes():
         "10. Puste komórki w kolumnach surowcowych/opakowaniowych są traktowane jako 0.",
         "11. Dodaj tyle wierszy produktów, ile potrzebujesz - przeciągnij formuły w dół.",
         "12. Przykładowe wiersze (niebieska kursywa) pokazują format - usuń je lub nadpisz własnymi danymi.",
+        f"13. '{RECIPE_TANK_ID_COL}' - zostaw puste, jeśli każdy produkt ma mieć własny, dedykowany mieszalnik "
+        "(domyślne zachowanie). Jeśli KILKA produktów TEJ SAMEJ grupy produktowej ma współdzielić JEDEN fizyczny "
+        "mieszalnik (produkcja kampanijna - różne produkty na przemian na tym samym reaktorze), wpisz im "
+        "IDENTYCZNY identyfikator, np. 'R-01'. Aplikacja policzy wtedy jeden zbiornik z łącznym wykorzystaniem "
+        "czasowym (suma szarż x cykl każdego produktu), dobierając pojemność pod największą recepturę spośród nich.",
     ]
     for i, line in enumerate(info_lines, start=1):
         c = ws_info.cell(row=i, column=1, value=line)
@@ -336,12 +347,25 @@ def generate_recipe_template_bytes():
         {
             RECIPE_GROUP_COL: "Engine Oils", RECIPE_PRODUCT_COL: "Przykład: Engine Oil 5W-30",
             RECIPE_ANNUAL_COL: 800, RECIPE_MIXER_VOL_COL: 20, RECIPE_CYCLE_COL: 5, RECIPE_AVAIL_HOURS_COL: 2000,
-            RECIPE_DENSITY_COL: 0.855, RECIPE_LOSS_COL: 2.0,
-            RECIPE_NOTES_COL: "Receptura referencyjna - status QA: w walidacji",
+            RECIPE_DENSITY_COL: 0.855, RECIPE_LOSS_COL: 2.0, RECIPE_TANK_ID_COL: "R-01",
+            RECIPE_NOTES_COL: "Receptura referencyjna - status QA: w walidacji. Współdzieli mieszalnik R-01 z Engine Oil 10W-40 poniżej.",
             "Base Oil Group III [kg/t]": 820, "Modyfikator Lepkości (VI Improver) [kg/t]": 80,
             "Depresator (PPD) [kg/t]": 3, "Dodatek Smarnościowy / Anti-wear (AW) [kg/t]": 10,
             "Inhibitor Utleniania (AO) [kg/t]": 12, "Inhibitor Korozji / Pasywator [kg/t]": 5,
             "Pakiet Silnikowy (PCMO/HDDO) [kg/t]": 68, "Dodatek Przeciwpienny (Antifoam) [kg/t]": 1,
+            "Modyfikator Tarcia (FM) [kg/t]": 1,
+            recipe_pack_pct_col("5l (Karton)"): 60, recipe_pack_pct_col("1000l (IBC)"): 40,
+        },
+        {
+            RECIPE_GROUP_COL: "Engine Oils", RECIPE_PRODUCT_COL: "Przykład: Engine Oil 10W-40 (współdzielony mieszalnik)",
+            RECIPE_ANNUAL_COL: 150, RECIPE_MIXER_VOL_COL: 20, RECIPE_CYCLE_COL: 5, RECIPE_AVAIL_HOURS_COL: 2000,
+            RECIPE_DENSITY_COL: 0.86, RECIPE_LOSS_COL: 2.0, RECIPE_TANK_ID_COL: "R-01",
+            RECIPE_NOTES_COL: "Współdzieli mieszalnik R-01 z Engine Oil 5W-30 powyżej (produkcja kampanijna - "
+                               "ten sam reaktor, na przemian).",
+            "Base Oil Group III [kg/t]": 850, "Modyfikator Lepkości (VI Improver) [kg/t]": 60,
+            "Depresator (PPD) [kg/t]": 3, "Dodatek Smarnościowy / Anti-wear (AW) [kg/t]": 10,
+            "Inhibitor Utleniania (AO) [kg/t]": 12, "Inhibitor Korozji / Pasywator [kg/t]": 5,
+            "Pakiet Silnikowy (PCMO/HDDO) [kg/t]": 58, "Dodatek Przeciwpienny (Antifoam) [kg/t]": 1,
             "Modyfikator Tarcia (FM) [kg/t]": 1,
             recipe_pack_pct_col("5l (Karton)"): 60, recipe_pack_pct_col("1000l (IBC)"): 40,
         },
@@ -389,6 +413,7 @@ def generate_recipe_template_bytes():
             ws.cell(row=row, column=loss_col, value=data.get(RECIPE_LOSS_COL, "")).font = font_to_use
             for p_idx, pname in enumerate(pack_names, start=first_pack_col):
                 ws.cell(row=row, column=p_idx, value=data.get(recipe_pack_pct_col(pname), 0)).font = font_to_use
+            ws.cell(row=row, column=tank_id_col, value=data.get(RECIPE_TANK_ID_COL, "")).font = font_to_use
             ws.cell(row=row, column=notes_col, value=data.get(RECIPE_NOTES_COL, "")).font = font_to_use
         else:
             prod_num = r_offset - len(example_rows) + 1
@@ -409,6 +434,7 @@ def generate_recipe_template_bytes():
                 cell = ws.cell(row=row, column=col_idx)
                 cell.font = normal_font
                 cell.fill = input_fill
+            ws.cell(row=row, column=tank_id_col).fill = input_fill
             ws.cell(row=row, column=notes_col).fill = input_fill
             group_dv.add(f"A{row}")
 
@@ -485,6 +511,7 @@ def generate_recipe_template_bytes():
         for col_idx in range(first_pack_col, last_pack_col + 1):
             ws.column_dimensions[get_column_letter(col_idx)].width = 14
     ws.column_dimensions[pack_sum_col_letter].width = 14
+    ws.column_dimensions[get_column_letter(tank_id_col)].width = 16
     ws.column_dimensions[get_column_letter(notes_col)].width = 30
 
     # --- Arkusz 'Opakowania' (opcjonalny) - predefiniowanie typów opakowań i pojemności ---
@@ -544,6 +571,10 @@ def parse_recipe_excel(uploaded_file):
 
     if RECIPE_NOTES_COL not in df.columns:
         df[RECIPE_NOTES_COL] = ""
+    if RECIPE_TANK_ID_COL not in df.columns:
+        df[RECIPE_TANK_ID_COL] = ""
+    else:
+        df[RECIPE_TANK_ID_COL] = df[RECIPE_TANK_ID_COL].fillna("").astype(str).str.strip()
 
     df = df[df[RECIPE_PRODUCT_COL].notna()].copy()
     df = df[~df[RECIPE_PRODUCT_COL].astype(str).str.startswith("Przykład")].copy()
@@ -1162,10 +1193,15 @@ def sync_recipes_into_fleet_defaults():
     Spina Zakładkę 1 (Receptury) z Zakładką 2 (Flota) NA POZIOMIE GRUPY PRODUKTOWEJ - tak jak
     w pliku Excel (Cleaners/Engine Oils/Glycols/Greases/Hydraulic Oils/Watermiscibles/Waxes),
     a nie per pojedynczy produkt czy stara szczegółowa linia FUCHS_PORTFOLIO. Każda grupa
-    obecna w recepturze staje się JEDNĄ pozycją do wyboru w panelu bocznym; poszczególne
-    produkty tej grupy stają się osobnymi zbiornikami (mechanizm 'wiele SKU / wiele
-    zbiorników' już istniejący w Zakładce 2), z ich WŁASNYMI pojemnościami i cyklami z
-    receptury. Gęstość/materiał/cp linii to średnia ważona produkcją / wartości domyślne grupy.
+    obecna w recepturze staje się JEDNĄ pozycją do wyboru w panelu bocznym.
+
+    W ramach grupy, wiersze (produkty) dzielą się na "sloty" zbiornikowe wg RECIPE_TANK_ID_COL:
+    - Puste ID -> każdy produkt dostaje swój własny, dedykowany zbiornik (jak dotychczas).
+    - To samo niepuste ID w kilku wierszach -> te produkty WSPÓŁDZIELĄ jeden fizyczny
+      mieszalnik (produkcja kampanijna). Pojemność takiego zbiornika = max spośród zadanych
+      (musi pomieścić największą recepturę), a wykorzystanie czasowe liczone jest jako SUMA
+      (szarże_i x cykl_i) po wszystkich produktach tego zbiornika - patrz tank_members,
+      zużywane w Zakładce 2 do właściwego (nie uproszczonego) przeliczenia utylizacji.
 
     active_portfolio odświeża się przy każdym uruchomieniu (bezpieczne - nic w Zakładce 2 tego
     ręcznie nie edytuje). prod_dict dla danej grupy ustawiany jest z receptury TYLKO przy jej
@@ -1188,16 +1224,46 @@ def sync_recipes_into_fleet_defaults():
         avg_density = float((group_rows[RECIPE_DENSITY_COL] * weights).sum() / weights.sum()) if weights.sum() > 0 else 0.88
         total_annual_kg = float(group_rows[RECIPE_ANNUAL_COL].sum()) * 1000.0
 
-        tank_volumes, tank_cycles, tank_products = [], [], []
-        for _, r in group_rows.iterrows():
-            v = r.get(RECIPE_MIXER_VOL_COL, 0) or 0
-            tank_volumes.append(float(v) if v > 0 else 15.0)
-            c = r.get(RECIPE_CYCLE_COL, 0) or 0
-            tank_cycles.append(float(c) if c > 0 else defaults["cycle_h"])
-            tank_products.append(str(r[RECIPE_PRODUCT_COL]))
+        # Podział wierszy grupy na sloty zbiornikowe wg ID Zbiornika (puste = własny slot).
+        tank_id_col_vals = group_rows[RECIPE_TANK_ID_COL].fillna("").astype(str).str.strip() if RECIPE_TANK_ID_COL in group_rows.columns else pd.Series([""] * len(group_rows), index=group_rows.index)
+        slots, seen_ids = [], {}
+        for idx, tid in tank_id_col_vals.items():
+            if tid:
+                if tid not in seen_ids:
+                    seen_ids[tid] = len(slots)
+                    slots.append([idx])
+                else:
+                    slots[seen_ids[tid]].append(idx)
+            else:
+                slots.append([idx])
+
+        tank_volumes, tank_cycles, tank_products, tank_members = [], [], [], []
+        for slot_idxs in slots:
+            slot_rows = group_rows.loc[slot_idxs]
+            members, slot_vols = [], []
+            for _, r in slot_rows.iterrows():
+                v = r.get(RECIPE_MIXER_VOL_COL, 0) or 0
+                v = float(v) if v > 0 else 15.0
+                slot_vols.append(v)
+                c = r.get(RECIPE_CYCLE_COL, 0) or 0
+                c = float(c) if c > 0 else defaults["cycle_h"]
+                dens = float(r.get(RECIPE_DENSITY_COL, 0) or 0.88)
+                annual_kg_i = float(r.get(RECIPE_ANNUAL_COL, 0) or 0) * 1000.0
+                members.append({"product": str(r[RECIPE_PRODUCT_COL]), "annual_kg": annual_kg_i, "density": dens, "cycle_h": c})
+
+            slot_vol = max(slot_vols) if slot_vols else 15.0
+            total_w = sum(m["annual_kg"] for m in members) or 1.0
+            weighted_cycle = sum(m["cycle_h"] * m["annual_kg"] for m in members) / total_w
+
+            tank_volumes.append(slot_vol)
+            tank_cycles.append(weighted_cycle)
+            tank_products.append(members[0]["product"] if len(members) == 1 else None)
+            tank_members.append(members)
+
         avg_vol = sum(tank_volumes) / len(tank_volumes) if tank_volumes else 15.0
         avg_cycle = sum(tank_cycles) / len(tank_cycles) if tank_cycles else defaults["cycle_h"]
-        n_products = len(group_rows)
+        n_tanks = len(slots)
+        n_skus = len(group_rows)
 
         # active_portfolio - bezpieczne do odświeżania co przebieg (nic tego ręcznie nie edytuje).
         st.session_state.active_portfolio[group_name] = {
@@ -1207,15 +1273,15 @@ def sync_recipes_into_fleet_defaults():
 
         if group_name not in st.session_state.recipe_groups_seen:
             st.session_state.prod_dict[group_name] = {
-                "roczna": total_annual_kg, "user_vol_m3": avg_vol, "skus": n_products, "num_tanks": n_products,
+                "roczna": total_annual_kg, "user_vol_m3": avg_vol, "skus": n_skus, "num_tanks": n_tanks,
                 "tank_volumes": tank_volumes, "tank_cycles": tank_cycles, "cycle_h_base": avg_cycle,
-                "tank_products": tank_products,
+                "tank_products": tank_products, "tank_members": tank_members,
             }
             st.session_state.recipe_groups_seen.add(group_name)
-        elif "tank_products" not in st.session_state.prod_dict[group_name]:
-            # Zgodność wsteczna: grupa zsynchronizowana starszą wersją tej funkcji (bez
-            # tank_products) - dopisz teraz, żeby rozbicie na opakowania mogło z tego korzystać.
+        elif "tank_members" not in st.session_state.prod_dict[group_name]:
+            # Zgodność wsteczna: grupa zsynchronizowana starszą wersją tej funkcji.
             st.session_state.prod_dict[group_name]["tank_products"] = tank_products
+            st.session_state.prod_dict[group_name]["tank_members"] = tank_members
 
 
     group_signature = tuple(groups_in_recipe)
@@ -1418,17 +1484,36 @@ with tab1:
 
             for t_idx, v_tank_user in enumerate(tank_volumes):
                 cyc_h = tank_cycles[t_idx]
+                tank_members_list = st.session_state.prod_dict[kat].get("tank_members", [])
+                members = tank_members_list[t_idx] if t_idx < len(tank_members_list) else None
 
-                # Podział rocznej produkcji rodziny między zbiorniki PROPORCJONALNIE do ich pojemności —
-                # jeśli zbiorniki mają różne wielkości, większy zbiornik przejmuje większą część wolumenu
-                # zamiast wymuszania tej samej liczby szarż co na małym zbiorniku.
-                capacity_share = (v_tank_user / total_capacity) if total_capacity > 0 else (1.0 / tanks_count)
-                annual_per_tank = m_annual * capacity_share
-                monthly_per_tank = annual_per_tank / MONTHS_PER_YEAR
+                if members and len(members) > 1:
+                    # Zbiornik współdzielony przez kilka produktów (produkcja kampanijna) -
+                    # każdy produkt ma WŁASNĄ masę szarży (ta sama pojemność zbiornika, ale
+                    # własna gęstość) i własny cykl; sumujemy szarże i faktyczny czas zajętości
+                    # zbiornika, zamiast zgadywać jednym uśrednionym cyklem.
+                    total_batches, total_hours, mass_per_batch_list = 0, 0.0, []
+                    for mem in members:
+                        mass_pb_i = v_tank_user * mem["density"] * 1000.0
+                        mass_per_batch_list.append(mass_pb_i)
+                        monthly_i = mem["annual_kg"] / MONTHS_PER_YEAR
+                        batches_i = math.ceil(monthly_i / mass_pb_i) if mass_pb_i > 0 else 0
+                        total_batches += batches_i
+                        total_hours += batches_i * mem["cycle_h"]
+                    batches_per_tank = total_batches
+                    mass_per_batch = max(mass_per_batch_list) if mass_per_batch_list else 0.0
+                    real_utilization = (total_hours / AVAILABLE_HOURS_MONTH * 100.0) if AVAILABLE_HOURS_MONTH > 0 else 0.0
+                else:
+                    # Podział rocznej produkcji rodziny między zbiorniki PROPORCJONALNIE do ich pojemności —
+                    # jeśli zbiorniki mają różne wielkości, większy zbiornik przejmuje większą część wolumenu
+                    # zamiast wymuszania tej samej liczby szarż co na małym zbiorniku.
+                    capacity_share = (v_tank_user / total_capacity) if total_capacity > 0 else (1.0 / tanks_count)
+                    annual_per_tank = m_annual * capacity_share
+                    monthly_per_tank = annual_per_tank / MONTHS_PER_YEAR
 
-                mass_per_batch = v_tank_user * rho_product * 1000.0
-                batches_per_tank = math.ceil(monthly_per_tank / mass_per_batch) if mass_per_batch > 0 else 0
-                real_utilization = (batches_per_tank * cyc_h) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
+                    mass_per_batch = v_tank_user * rho_product * 1000.0
+                    batches_per_tank = math.ceil(monthly_per_tank / mass_per_batch) if mass_per_batch > 0 else 0
+                    real_utilization = (batches_per_tank * cyc_h) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
 
                 tag_id = f"MT-{tag_counter}" + (f"-Z{t_idx+1}" if tanks_count > 1 else "")
                 tank_products_list = st.session_state.prod_dict[kat].get("tank_products", [])
@@ -1457,9 +1542,17 @@ with tab1:
                     "Cykl Szacowany [h]": round(cyc_h, 2), "Cykl Rzeczywisty [h]": real_cycle_txt,
                 })
 
+                if members and len(members) > 1:
+                    produkty_txt = f"{len(members)} produktów (współdzielony)"
+                elif members and len(members) == 1:
+                    produkty_txt = members[0]["product"]
+                else:
+                    produkty_txt = "—"
+
                 final_fleet_rows.append({
                     "ID Urządzenia": tag_id,
                     "Przypisana Linia": kat,
+                    "Produkty": produkty_txt,
                     "Pojemność [m³]": round(v_tank_user, 1),
                     "Masa Szarży [kg]": int(mass_per_batch),
                     "Cykl Szacowany [h]": round(cyc_h, 2),
