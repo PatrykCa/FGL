@@ -1352,35 +1352,6 @@ AVAILABLE_HOURS_MONTH = (WORKING_DAYS_YEAR * godziny_dziennie) / MONTHS_PER_YEAR
 
 st.sidebar.markdown("---")
 
-st.sidebar.header("⚙️ KROK 3: Konfiguracja i Split Opakowań")
-opakowania_podzial = st.session_state.setdefault("opakowania_podzial", {})
-
-# Porządkowanie: usuń wpisy procentowe dla linii, które nie są już wybrane,
-# żeby stare wartości nie "odżywały" po ponownym dodaniu linii.
-for stale_key in [k for k in list(opakowania_podzial.keys())
-                   if not any(k.startswith(f"pct_{kat}_") for kat in wybrane_kategorie)]:
-    opakowania_podzial.pop(stale_key, None)
-
-for kat in wybrane_kategorie:
-    st.sidebar.markdown(f"##### 🏭 Linia: **{kat}**")
-    packs = st.sidebar.multiselect(f"Dostępne opakowania:", list(st.session_state.pack_configs.keys()), default=["5l (Karton)", "200l (Beczka)", "1000l (IBC)"], key=f"packs_{kat}")
-
-    if packs:
-        domyslny_procent = round(100.0 / len(packs), 1)
-        suma_procentow_linii = 0.0
-        for p in packs:
-            key_id = f"pct_{kat}_{p}"
-            current_val = opakowania_podzial.get(key_id, domyslny_procent)
-            val = st.sidebar.number_input(f"    ↳ Udział {p} [%]", min_value=0.0, max_value=100.0, value=float(current_val), step=5.0, key=key_id)
-            opakowania_podzial[key_id] = val
-            suma_procentow_linii += val
-
-        if round(suma_procentow_linii, 1) == 100.0:
-            st.sidebar.success(f"    ✅ Bilans {kat}: 100%")
-        else:
-            st.sidebar.error(f"    ❌ Suma dla {kat}: {suma_procentow_linii}%")
-    st.sidebar.markdown("---")
-
 # --- STRUKTURA INTERFEJSU ---
 tab7, tab1, tab2, tab3, tab4, tab5, tab9, tab6 = st.tabs([
     "📋 1. Receptury Produktów (Start)",
@@ -2388,12 +2359,61 @@ with tab3:
         st.info("💡 Najpierw zatwierdź konfigurację floty w Zakładce 2.")
     else:
         mixers_fleet = st.session_state.confirmed_mixers
-        opakowania_podzial = st.session_state.get("opakowania_podzial", {})
 
-        aktywne_opakowania = set()
+        st.markdown("##### 📦 Typy Opakowań i Pojemności")
+        st.caption("Domyślnie wbudowane w aplikację, nadpisywane/uzupełniane przez opcjonalny arkusz 'Opakowania' "
+                   "w pliku z recepturami (Zakładka 1). Można je też edytować bezpośrednio tutaj.")
+        pack_editor_rows = [
+            {"Nazwa Opakowania": name, "Pojemność [L]": cfg["size_l"], "Sztuk na Palecie": cfg["per_pallet"]}
+            for name, cfg in st.session_state.pack_configs.items()
+        ]
+        edited_pack_df = st.data_editor(
+            pd.DataFrame(pack_editor_rows), hide_index=True, use_container_width=True,
+            num_rows="dynamic", key="pack_configs_editor"
+        )
+        new_pack_configs = {}
+        for _, row in edited_pack_df.iterrows():
+            name = str(row["Nazwa Opakowania"])
+            if not name or pd.isna(row["Pojemność [L]"]) or pd.isna(row["Sztuk na Palecie"]):
+                continue
+            existing = st.session_state.pack_configs.get(name, {"rate_szt_h": 0})
+            new_pack_configs[name] = {
+                "size_l": float(row["Pojemność [L]"]),
+                "per_pallet": int(row["Sztuk na Palecie"]),
+                "rate_szt_h": existing.get("rate_szt_h", 0),
+            }
+        st.session_state.pack_configs = new_pack_configs
+
+        st.markdown("---")
+        st.markdown("##### 🧴 Rozbicie na Opakowania (ręczne — używane, gdy receptura go nie określa)")
+        st.caption("Jeśli produkt ma w recepturze (Zakładka 1) wypełnione % opakowań, apka użyje ich wprost. "
+                   "Dla pozostałych produktów obowiązuje rozbicie z tej tabeli, per linia produktowa.")
+
+        opakowania_podzial = st.session_state.setdefault("opakowania_podzial", {})
+        split_editor_rows = []
         for kat in wybrane_kategorie:
-            for p in st.session_state.get(f"packs_{kat}", []): aktywne_opakowania.add(p)
-        if not aktywne_opakowania: aktywne_opakowania = set(st.session_state.pack_configs.keys())
+            for p in st.session_state.pack_configs.keys():
+                key_id = f"pct_{kat}_{p}"
+                split_editor_rows.append({"Linia": kat, "Opakowanie": p, "Udział [%]": opakowania_podzial.get(key_id, 0.0)})
+
+        if split_editor_rows:
+            edited_split_df = st.data_editor(
+                pd.DataFrame(split_editor_rows), hide_index=True, use_container_width=True,
+                disabled=["Linia", "Opakowanie"], key="opakowania_split_editor"
+            )
+            for _, row in edited_split_df.iterrows():
+                opakowania_podzial[f"pct_{row['Linia']}_{row['Opakowanie']}"] = float(row["Udział [%]"])
+
+            sum_check = edited_split_df.groupby("Linia")["Udział [%]"].sum()
+            bad_lines = sum_check[(sum_check > 0) & ((sum_check - 100).abs() > 0.5)]
+            if not bad_lines.empty:
+                st.warning("⚠️ Suma % różni się od 100% dla: " + ", ".join(f"{k} ({v:.0f}%)" for k, v in bad_lines.items()) +
+                           " — dotyczy tylko produktów bez własnego rozbicia w recepturze.")
+        else:
+            st.info("Wybierz aktywne linie produktowe w panelu bocznym, aby skonfigurować ręczny podział opakowań.")
+
+        st.markdown("---")
+        aktywne_opakowania = set(st.session_state.pack_configs.keys())
 
         if "filling_lines_config" not in st.session_state: st.session_state.filling_lines_config = {}
         for p in aktywne_opakowania:
@@ -2454,9 +2474,9 @@ with tab3:
                 split_source = "receptura"
                 pack_pcts = recipe_split
             else:
-                # Priorytet 2 (fallback): ręczny podział per GRUPA z panelu bocznego - jak dotychczas.
+                # Priorytet 2 (fallback): ręczny podział per linia z tabeli powyżej.
                 split_source = "ręczny"
-                pack_pcts = {p: opakowania_podzial.get(f"pct_{kat}_{p}", 0.0) for p in st.session_state.get(f"packs_{kat}", [])}
+                pack_pcts = {p: opakowania_podzial.get(f"pct_{kat}_{p}", 0.0) for p in st.session_state.pack_configs.keys()}
 
             for p, udzial_pct in pack_pcts.items():
                 if udzial_pct <= 0 or p not in st.session_state.pack_configs:
@@ -2667,24 +2687,63 @@ with tab5:
 
         if has_recipe_consumption:
             st.caption("Liczone **per pojedynczy surowiec** (np. osobno Base Oil II i Base Oil III) na podstawie "
-                       "receptur wgranych w **Zakładce 1** — dokładniejsze niż grupowanie wg 'Mineralne/Syntetyczne'.")
+                       "receptur wgranych w **Zakładce 1**. Dla każdego surowca sprawdzane jest też (a) czy fizycznie/"
+                       "praktycznie nadaje się do magazynowania luzem w zbiorniku, oraz (b) czy roczne zużycie "
+                       "przekracza próg opłacalności dedykowanego zbiornika — jeśli oba warunki są spełnione, "
+                       "proponowany jest zbiornik o określonej pojemności; w przeciwnym razie beczki/IBC/worki.")
+
+            c_thr1, c_thr2 = st.columns(2)
+            with c_thr1:
+                prog_zbiornika_t = st.number_input(
+                    "Próg rocznego zużycia do zbiornika dedykowanego [t/rok]:", min_value=1.0, value=50.0, step=5.0,
+                    key="prog_zbiornika_tab6",
+                    help="Poniżej tego wolumenu zbiornik dedykowany zwykle się nie zwraca — surowiec zostaje w "
+                         "beczkach/IBC, nawet jeśli fizycznie nadaje się do magazynowania luzem."
+                )
+            with c_thr2:
+                st.caption(f"Zapas bezpieczeństwa i pojemność silosu jak ustawione powyżej ({days_of_stock:.0f} dni, "
+                           f"{selected_tank_capacity_m3} m³).")
+
+            STANDARD_SMALL_TANK_SIZES_M3 = [5, 10, 15, 20, 30, 50, 60, 80, 100, 150, 200]
 
             recipe_silos_rows = []
             recipe_total_tanks = 0
-            for material, annual_tony in recipe_consumption.items():
+            for material, annual_tony in sorted(recipe_consumption.items(), key=lambda x: -x[1]):
                 if annual_tony <= 0:
                     continue
+                info = RAW_MATERIAL_STORAGE_INFO.get(material, {"bulk_eligible": True, "note": "Brak danych - domyślnie traktowany jak ciecz magazynowalna luzem."})
+                bulk_ok = info["bulk_eligible"]
+                recommend_tank = bulk_ok and annual_tony >= prog_zbiornika_t
+
                 daily_t = annual_tony / WORKING_DAYS_YEAR
-                required_m3 = (daily_t * days_of_stock) / OIL_FILL_FACTOR
-                needed_tanks = math.ceil(required_m3 / (selected_tank_capacity_m3 * TANK_SAFETY_FILL))
-                recipe_total_tanks += needed_tanks
+                if recommend_tank:
+                    required_m3 = (daily_t * days_of_stock) / OIL_FILL_FACTOR
+                    needed_tanks = math.ceil(required_m3 / (selected_tank_capacity_m3 * TANK_SAFETY_FILL))
+                    recommended_capacity = next((s for s in STANDARD_SMALL_TANK_SIZES_M3 if s >= required_m3 / TANK_SAFETY_FILL), required_m3 / TANK_SAFETY_FILL)
+                    recipe_total_tanks += needed_tanks
+                    rekomendacja = f"🛢️ Zbiornik dedykowany ({recommended_capacity:.0f} m³)"
+                    uzasadnienie = f"Zużycie {annual_tony:.1f} t/rok ≥ próg {prog_zbiornika_t:.0f} t/rok, nadaje się do magazynowania luzem."
+                    bufor_txt = f"{required_m3:.1f}"
+                    silosy_txt = f"{needed_tanks} szt."
+                else:
+                    rekomendacja = "🧴 Beczki / IBC / worki"
+                    uzasadnienie = info["note"] if not bulk_ok else f"Zużycie {annual_tony:.1f} t/rok < próg {prog_zbiornika_t:.0f} t/rok — zbiornik się nie opłaca."
+                    bufor_txt = "—"
+                    silosy_txt = "—"
+
                 recipe_silos_rows.append({
                     "Surowiec": material, "Konsumpcja [t/rok]": round(annual_tony, 2),
-                    "Wymagany Bufor [m³]": round(required_m3, 1), "Liczba silosów": f"{needed_tanks} szt."
+                    "Wymagany Bufor [m³]": bufor_txt, "Liczba silosów": silosy_txt,
+                    "Rekomendacja": rekomendacja, "Uzasadnienie": uzasadnienie,
                 })
 
             st.dataframe(pd.DataFrame(recipe_silos_rows), hide_index=True, use_container_width=True)
-            st.metric("🧱 Całkowita wymagana liczba silosów surowcowych", f"{recipe_total_tanks} szt.")
+            m_silo1, m_silo2 = st.columns(2)
+            with m_silo1:
+                st.metric("🧱 Całkowita liczba silosów (surowce w zbiornikach)", f"{recipe_total_tanks} szt.")
+            with m_silo2:
+                n_drums = sum(1 for r in recipe_silos_rows if "Beczki" in r["Rekomendacja"])
+                st.metric("🧴 Surowce zostające w beczkach/IBC", f"{n_drums} / {len(recipe_silos_rows)}")
         else:
             st.info("💡 Wgraj receptury produktów w **Zakładce 1**, aby uzyskać dokładniejsze wymiarowanie per "
                     "pojedynczy surowiec. Poniżej uproszczony szacunek grupowy (wg typu bazy z floty).")
@@ -3168,98 +3227,12 @@ with tab7:
                           .sum().reset_index().rename(columns={RECIPE_ANNUAL_COL: "Roczne zapotrzebowanie [t]"}))
         st.dataframe(group_summary, hide_index=True, use_container_width=True)
 
-        st.info("💡 Przejdź do **Zakładki 5 (Surowce i Park Zbiorników)**, aby zobaczyć wymiarowanie silosów "
-                "per pojedynczy surowiec na podstawie tego zużycia.")
-
-        # ============================================================
-        # KROK 5: REKOMENDACJA SPOSOBU MAGAZYNOWANIA (zbiornik dedykowany vs. beczki/IBC/worki)
-        # ============================================================
-        st.markdown("---")
-        st.markdown("### 🏗️ Krok 5: Rekomendacja Sposobu Magazynowania Surowców")
-        st.caption("Dla każdego surowca sprawdzana jest (a) czy fizycznie/praktycznie nadaje się do magazynowania "
-                   "luzem w zbiorniku, oraz (b) czy roczne zużycie przekracza próg opłacalności dedykowanego "
-                   "zbiornika. Jeśli oba warunki są spełnione — proponowany jest zbiornik o określonej pojemności; "
-                   "w przeciwnym razie zalecane jest magazynowanie w beczkach/IBC/workach.")
-
-        c_s1, c_s2 = st.columns(2)
-        with c_s1:
-            prog_zbiornika_t = st.number_input(
-                "Próg rocznego zużycia do zbiornika dedykowanego [t/rok]:", min_value=1.0, value=50.0, step=5.0,
-                key="prog_zbiornika_recipe",
-                help="Poniżej tego wolumenu zbiornik dedykowany zwykle się nie zwraca — surowiec zostaje w beczkach/IBC, "
-                     "nawet jeśli fizycznie nadaje się do magazynowania luzem."
-            )
-        with c_s2:
-            dni_zapasu_recipe = st.number_input(
-                "Zakładany zapas bezpieczeństwa [dni]:", min_value=3, value=int(st.session_state.get("days_of_stock_tab5", 14)),
-                step=1, key="dni_zapasu_recipe"
-            )
-
-        STANDARD_SMALL_TANK_SIZES_M3 = [5, 10, 15, 20, 30, 50, 60, 80, 100, 150, 200]
-
-        storage_rows = []
-        for mat, annual_t in sorted(consumption_tony.items(), key=lambda x: -x[1]):
-            if annual_t <= 0:
-                continue
-            info = RAW_MATERIAL_STORAGE_INFO.get(mat, {"bulk_eligible": True, "note": "Brak danych - domyślnie traktowany jak ciecz magazynowalna luzem."})
-            bulk_ok = info["bulk_eligible"]
-            recommend_tank = bulk_ok and annual_t >= prog_zbiornika_t
-
-            if recommend_tank:
-                daily_t = annual_t / WORKING_DAYS_YEAR
-                required_m3 = (daily_t * dni_zapasu_recipe) / OIL_FILL_FACTOR
-                recommended_capacity = next((s for s in STANDARD_SMALL_TANK_SIZES_M3 if s >= required_m3 / TANK_SAFETY_FILL), required_m3 / TANK_SAFETY_FILL)
-                rekomendacja = f"🛢️ Zbiornik dedykowany ({recommended_capacity:.0f} m³)"
-                uzasadnienie = f"Zużycie {annual_t:.1f} t/rok ≥ próg {prog_zbiornika_t:.0f} t/rok, surowiec nadaje się do magazynowania luzem."
-            else:
-                rekomendacja = "🧴 Beczki / IBC / worki"
-                if not bulk_ok:
-                    uzasadnienie = info["note"]
-                else:
-                    uzasadnienie = f"Zużycie {annual_t:.1f} t/rok < próg {prog_zbiornika_t:.0f} t/rok — zbiornik dedykowany się nie opłaca."
-
-            storage_rows.append({
-                "Surowiec": mat, "Zużycie [t/rok]": round(annual_t, 2),
-                "Rekomendacja": rekomendacja, "Uzasadnienie": uzasadnienie
-            })
-
-        if storage_rows:
-            st.dataframe(pd.DataFrame(storage_rows), hide_index=True, use_container_width=True)
-            n_tanks_recommended = sum(1 for r in storage_rows if "Zbiornik" in r["Rekomendacja"])
-            st.metric("🛢️ Surowce rekomendowane do zbiornika dedykowanego", f"{n_tanks_recommended} / {len(storage_rows)}")
-        else:
-            st.info("Brak surowców z niezerowym zużyciem do oceny sposobu magazynowania.")
+        st.info("💡 Przejdź do **Zakładki 6 (Surowce i Park Zbiorników)**, aby zobaczyć wymiarowanie silosów "
+                "per pojedynczy surowiec oraz rekomendację zbiornik-vs-beczki na podstawie tego zużycia. "
+                "Typy opakowań i ich rozbicie procentowe skonfigurujesz w **Zakładce 4 (Logistyka i Czas Rozlewu)**.")
 
     else:
-        st.info("💡 Wgraj plik z recepturami powyżej, aby zobaczyć tu zagregowane zużycie surowców i rekomendacje magazynowania.")
-
-    st.markdown("---")
-    st.markdown("### 📦 Konfiguracja Opakowań (Zakładki 1 i 3)")
-    st.caption("Typy opakowań i ich pojemności — domyślnie wbudowane w aplikację, nadpisywane/uzupełniane przez "
-               "opcjonalny arkusz 'Opakowania' w pliku z recepturami (Krok 2 powyżej). Możesz je też edytować "
-               "bezpośrednio tutaj — zmiany obowiązują od razu w Zakładce 2 (wybór opakowań per linia) i "
-               "Zakładce 4 (logistyka/rozlew), bez potrzeby ponownego wgrywania pliku.")
-
-    pack_editor_rows = [
-        {"Nazwa Opakowania": name, "Pojemność [L]": cfg["size_l"], "Sztuk na Palecie": cfg["per_pallet"]}
-        for name, cfg in st.session_state.pack_configs.items()
-    ]
-    edited_pack_df = st.data_editor(
-        pd.DataFrame(pack_editor_rows), hide_index=True, use_container_width=True,
-        num_rows="dynamic", key="pack_configs_editor"
-    )
-    new_pack_configs = {}
-    for _, row in edited_pack_df.iterrows():
-        name = str(row["Nazwa Opakowania"])
-        if not name or pd.isna(row["Pojemność [L]"]) or pd.isna(row["Sztuk na Palecie"]):
-            continue
-        existing = st.session_state.pack_configs.get(name, {"rate_szt_h": 0})
-        new_pack_configs[name] = {
-            "size_l": float(row["Pojemność [L]"]),
-            "per_pallet": int(row["Sztuk na Palecie"]),
-            "rate_szt_h": existing.get("rate_szt_h", 0),
-        }
-    st.session_state.pack_configs = new_pack_configs
+        st.info("💡 Wgraj plik z recepturami powyżej, aby zobaczyć tu zagregowane zużycie surowców.")
 
 # ==========================================
 # ZAKŁADKA 7 (tab9): CENNIK I STANDARDOWA INSTALACJA (CAPEX)
