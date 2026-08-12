@@ -1213,6 +1213,13 @@ if "recipe_groups_seen" not in st.session_state:
 if "_last_recipe_group_signature" not in st.session_state:
     st.session_state._last_recipe_group_signature = None
 
+if "shared_pumps" not in st.session_state:
+    # Pompy współdzielone przez kilka zbiorników (jedna fizyczna pompa obsługująca kilka
+    # mieszalników na przemian) - jedno źródło prawdy dla przepływu/sprawności/MTBF/MTTR
+    # takiej pompy, niezależnie od tego, ile zbiorników ją współdzieli. Klucz = ID pompy
+    # nadane przez użytkownika (np. "P-01"), wartość = dict z parametrami.
+    st.session_state.shared_pumps = {}
+
 
 def sync_recipes_into_fleet_defaults():
     """
@@ -1755,6 +1762,12 @@ with tab2:
                 "agitator_type": "Turbinowe (Rushton)",
                 "agitator_rpm": 90.0,
                 "agitator_diameter_m": 0.6,
+                "pump_mode": "Dedykowana (dla tego zbiornika)",
+                "shared_pump_id": "",
+                "pump_mtbf_h": 2000.0,
+                "pump_mttr_h": 8.0,
+                "reactor_mtbf_h": 4000.0,
+                "reactor_mttr_h": 12.0,
             }
             for key, val in defaults.items():
                 if key not in p:
@@ -1774,11 +1787,28 @@ with tab2:
             p = st.session_state.mixer_tech_advanced_details[m_id]
 
             with st.expander(f"🛠️ Konfiguracja hydrauliki, mieszania i bilansu energii: {m_id}", expanded=False):
-                c1, c2, c3, c4 = st.columns(4)
+                c1, c2, c3, c4, c5 = st.columns(5)
                 with c1:
                     st.markdown("**🌊 Średnice, Przepływ i Reologia**")
+                    p["pump_mode"] = st.selectbox(
+                        "Tryb pompy:", ["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"],
+                        index=["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"].index(p["pump_mode"]),
+                        key=f"pump_mode_{m_id}",
+                        help="Jedna fizyczna pompa może obsługiwać kilka zbiorników na przemian — wybierz "
+                             "'Współdzielona' i podaj ten sam ID pompy dla wszystkich zbiorników, które ją dzielą. "
+                             "Przepływ, sprawność, MTBF i MTTR takiej pompy edytujesz wtedy raz, w tabeli "
+                             "'Pompy Współdzielone' poniżej listy urządzeń — obowiązują dla wszystkich zbiorników z tym ID."
+                    )
+                    if p["pump_mode"] == "Współdzielona (kilka zbiorników)":
+                        p["shared_pump_id"] = st.text_input(
+                            "ID pompy współdzielonej:", value=p["shared_pump_id"] or "P-01", key=f"shared_pump_id_{m_id}"
+                        )
+                        st.caption("Przepływ pompy [m³/h], sprawność, MTBF i MTTR dla tej pompy skonfigurujesz w tabeli "
+                                   "'🔧 Pompy Współdzielone' poniżej — tu jedynie przypisujesz zbiornik do pompy.")
+                    else:
+                        p["shared_pump_id"] = ""
+                        p["pump_flow_m3h"] = st.number_input(f"Przepływ pompy [m³/h]:", min_value=1.0, value=float(p["pump_flow_m3h"]), key=f"q_adv_{m_id}")
                     p["pipe_dn"] = st.number_input(f"Średnica rury [DN]:", min_value=15, value=int(p["pipe_dn"]), key=f"dn_adv_{m_id}")
-                    p["pump_flow_m3h"] = st.number_input(f"Przepływ pompy [m³/h]:", min_value=1.0, value=float(p["pump_flow_m3h"]), key=f"q_adv_{m_id}")
                     p["viscosity_min_cst"] = st.number_input(f"Lepkość MIN [cSt]:", min_value=0.5, value=float(p["viscosity_min_cst"]), key=f"v_min_{m_id}")
                     p["viscosity_max_cst"] = st.number_input(f"Lepkość MAX [cSt]:", min_value=1.0, value=float(p["viscosity_max_cst"]), key=f"v_max_{m_id}")
                 with c2:
@@ -1818,6 +1848,36 @@ with tab2:
                     st.caption("ℹ️ Czas grzania nie jest już wpisywany ręcznie — jest wyliczany z mocy grzania "
                                "(k × A × ΔT) i wymaganej energii, tak samo jak czas chłodzenia. Przepływy obu mediów są "
                                "teraz również wyliczane, nie zgadywane.")
+                with c5:
+                    st.markdown("**🔧 Niezawodność (MTBF/MTTR)**")
+                    st.caption("Zasila automatycznie 'Dostępność [%]' w Zakładce 8 (VSM/OEE) — patrz przycisk "
+                               "'Zastosuj wyliczoną Dostępność' w tamtej zakładce.")
+                    p["reactor_mtbf_h"] = st.number_input(
+                        "MTBF reaktora/mieszadła [h]:", min_value=1.0, value=float(p["reactor_mtbf_h"]), key=f"reactor_mtbf_{m_id}",
+                        help="Średni czas między awariami samego zbiornika/mieszadła (bez pompy)."
+                    )
+                    p["reactor_mttr_h"] = st.number_input(
+                        "MTTR reaktora/mieszadła [h]:", min_value=0.1, value=float(p["reactor_mttr_h"]), key=f"reactor_mttr_{m_id}",
+                        help="Średni czas naprawy/usunięcia awarii zbiornika/mieszadła."
+                    )
+                    if p["pump_mode"] == "Dedykowana (dla tego zbiornika)":
+                        p["pump_mtbf_h"] = st.number_input(
+                            "MTBF pompy [h]:", min_value=1.0, value=float(p["pump_mtbf_h"]), key=f"pump_mtbf_{m_id}"
+                        )
+                        p["pump_mttr_h"] = st.number_input(
+                            "MTTR pompy [h]:", min_value=0.1, value=float(p["pump_mttr_h"]), key=f"pump_mttr_{m_id}"
+                        )
+                        avail_pump_preview = p["pump_mtbf_h"] / (p["pump_mtbf_h"] + p["pump_mttr_h"]) * 100.0
+                    else:
+                        shared = st.session_state.shared_pumps.get(p["shared_pump_id"], {})
+                        pump_mtbf_disp = shared.get("mtbf_h", 2000.0)
+                        pump_mttr_disp = shared.get("mttr_h", 8.0)
+                        st.caption(f"Pompa '{p['shared_pump_id']}': MTBF {pump_mtbf_disp:.0f} h / MTTR {pump_mttr_disp:.1f} h "
+                                   f"(edytuj w tabeli 'Pompy Współdzielone' poniżej).")
+                        avail_pump_preview = pump_mtbf_disp / (pump_mtbf_disp + pump_mttr_disp) * 100.0
+                    avail_reactor_preview = p["reactor_mtbf_h"] / (p["reactor_mtbf_h"] + p["reactor_mttr_h"]) * 100.0
+                    avail_combined_preview = (avail_pump_preview / 100.0) * (avail_reactor_preview / 100.0) * 100.0
+                    st.metric("Dostępność łączna (reaktor × pompa)", f"{avail_combined_preview:.1f}%")
 
                 st.markdown("---")
                 st.markdown("**🌫️ Typ Procesu i Bilans Pary (dla smarów/waxów)**")
@@ -1842,6 +1902,41 @@ with tab2:
                     with cs3:
                         p["steam_max_decompress"] = st.number_input("Maks. strumień dekompresji [kg/s]:", min_value=0.0, value=float(p["steam_max_decompress"]), step=0.001, format="%.4f", key=f"steam_decomp_{m_id}")
 
+        # --- Pompy współdzielone: jedno miejsce edycji przepływu/sprawności/MTBF/MTTR, ---
+        # wspólne dla wszystkich zbiorników, które przypisano do tej samej pompy powyżej.
+        shared_pump_ids_in_use = sorted(set(
+            st.session_state.mixer_tech_advanced_details[m["tag"]]["shared_pump_id"]
+            for m in st.session_state.confirmed_mixers
+            if st.session_state.mixer_tech_advanced_details.get(m["tag"], {}).get("pump_mode") == "Współdzielona (kilka zbiorników)"
+            and st.session_state.mixer_tech_advanced_details[m["tag"]]["shared_pump_id"]
+        ))
+
+        if shared_pump_ids_in_use:
+            st.markdown("### 🔧 Pompy Współdzielone — Przepływ, Sprawność, MTBF/MTTR")
+            st.caption("Jeden wiersz = jedna fizyczna pompa obsługująca kilka zbiorników na przemian. Zmiana tutaj "
+                       "dotyczy od razu wszystkich zbiorników przypisanych do tej pompy powyżej.")
+            for pid in shared_pump_ids_in_use:
+                st.session_state.shared_pumps.setdefault(pid, {
+                    "flow_m3h": 15.0, "efficiency": 0.65, "mtbf_h": 2000.0, "mttr_h": 8.0,
+                })
+
+            shared_pump_rows = [
+                {"ID Pompy": pid, "Przepływ [m³/h]": cfg["flow_m3h"], "Sprawność [-]": cfg["efficiency"],
+                 "MTBF [h]": cfg["mtbf_h"], "MTTR [h]": cfg["mttr_h"],
+                 "Zbiorniki": ", ".join(m["tag"] for m in st.session_state.confirmed_mixers
+                                        if st.session_state.mixer_tech_advanced_details.get(m["tag"], {}).get("shared_pump_id") == pid)}
+                for pid, cfg in st.session_state.shared_pumps.items() if pid in shared_pump_ids_in_use
+            ]
+            edited_shared_pumps = st.data_editor(
+                pd.DataFrame(shared_pump_rows), hide_index=True, use_container_width=True,
+                disabled=["ID Pompy", "Zbiorniki"], key="shared_pumps_editor"
+            )
+            for _, row in edited_shared_pumps.iterrows():
+                st.session_state.shared_pumps[row["ID Pompy"]] = {
+                    "flow_m3h": float(row["Przepływ [m³/h]"]), "efficiency": float(row["Sprawność [-]"]),
+                    "mtbf_h": float(row["MTBF [h]"]), "mttr_h": float(row["MTTR [h]"]),
+                }
+
         st.markdown("---")
 
         # --- KROK 3: Przeliczenie hydrauliki/bilansu cieplnego — TERAZ z aktualnymi wartościami z KROKU 2. ---
@@ -1851,6 +1946,24 @@ with tab2:
             p = st.session_state.mixer_tech_advanced_details[m_id]
 
             try:
+                # --- 0. Rozwiązanie parametrów pompy (dedykowana vs. współdzielona) i niezawodności ---
+                if p["pump_mode"] == "Współdzielona (kilka zbiorników)" and p["shared_pump_id"] in st.session_state.shared_pumps:
+                    shared_pump_cfg = st.session_state.shared_pumps[p["shared_pump_id"]]
+                    effective_pump_flow_m3h = shared_pump_cfg["flow_m3h"]
+                    effective_pump_efficiency = shared_pump_cfg["efficiency"]
+                    pump_mtbf_h = shared_pump_cfg["mtbf_h"]
+                    pump_mttr_h = shared_pump_cfg["mttr_h"]
+                else:
+                    effective_pump_flow_m3h = p["pump_flow_m3h"]
+                    effective_pump_efficiency = p["pump_efficiency"]
+                    pump_mtbf_h = p["pump_mtbf_h"]
+                    pump_mttr_h = p["pump_mttr_h"]
+
+                availability_pump_pct = pump_mtbf_h / (pump_mtbf_h + pump_mttr_h) * 100.0 if (pump_mtbf_h + pump_mttr_h) > 0 else 100.0
+                availability_reactor_pct = p["reactor_mtbf_h"] / (p["reactor_mtbf_h"] + p["reactor_mttr_h"]) * 100.0 \
+                    if (p["reactor_mtbf_h"] + p["reactor_mttr_h"]) > 0 else 100.0
+                availability_combined_pct = (availability_pump_pct / 100.0) * (availability_reactor_pct / 100.0) * 100.0
+
                 # --- 1. HYDRAULIKA POMPY (Re / opór / moc), po 3 punktach lepkości ---
                 visc_min = p["viscosity_min_cst"]
                 visc_max = p["viscosity_max_cst"]
@@ -1859,14 +1972,14 @@ with tab2:
                 zeta_sum_calculated = (p["count_elbows_90"] * 0.5) + (p["count_tees"] * 1.5) + (p["count_valves"] * 0.2)
 
                 re_min, p_bar_min, power_kw_min, velocity = compute_hydraulics(
-                    p["pump_flow_m3h"], p["pipe_dn"], p["pipe_length_m"], p["delta_h_m"],
-                    visc_min, p["density_kg_m3"], zeta_sum_calculated, p["pump_efficiency"])
+                    effective_pump_flow_m3h, p["pipe_dn"], p["pipe_length_m"], p["delta_h_m"],
+                    visc_min, p["density_kg_m3"], zeta_sum_calculated, effective_pump_efficiency)
                 re_avg, p_bar_avg, power_kw_avg, _ = compute_hydraulics(
-                    p["pump_flow_m3h"], p["pipe_dn"], p["pipe_length_m"], p["delta_h_m"],
-                    visc_avg, p["density_kg_m3"], zeta_sum_calculated, p["pump_efficiency"])
+                    effective_pump_flow_m3h, p["pipe_dn"], p["pipe_length_m"], p["delta_h_m"],
+                    visc_avg, p["density_kg_m3"], zeta_sum_calculated, effective_pump_efficiency)
                 re_max, p_bar_max, power_kw_max, _ = compute_hydraulics(
-                    p["pump_flow_m3h"], p["pipe_dn"], p["pipe_length_m"], p["delta_h_m"],
-                    visc_max, p["density_kg_m3"], zeta_sum_calculated, p["pump_efficiency"])
+                    effective_pump_flow_m3h, p["pipe_dn"], p["pipe_length_m"], p["delta_h_m"],
+                    visc_max, p["density_kg_m3"], zeta_sum_calculated, effective_pump_efficiency)
 
                 # --- 2. MOC MIESZANIA (dawniej zdefiniowane, ale nigdy nie używane) ---
                 re_mix, mix_regime, agitator_power_kw = compute_agitator_power(
@@ -1888,7 +2001,7 @@ with tab2:
 
                 # --- 5. Zapis wyników z powrotem do stanu sesji, aby Zakładka 4 mogła z nich realnie korzystać ---
                 # Czas pompowania: objętość szarży / wydajność pompy.
-                pumping_time_h = (mass_product / p["density_kg_m3"]) / p["pump_flow_m3h"] if p["pump_flow_m3h"] > 0 else 0.0
+                pumping_time_h = (mass_product / p["density_kg_m3"]) / effective_pump_flow_m3h if effective_pump_flow_m3h > 0 else 0.0
 
                 st.session_state.calculated_times[m_id] = {
                     "power_mix_kw": agitator_power_kw,
@@ -1905,6 +2018,9 @@ with tab2:
                     "medium_grz": p["utility_type_heat"],
                     "medium_chl": p["utility_type_cool"],
                     "is_steam": thermal["is_steam"],
+                    "availability_pct": availability_combined_pct,
+                    "availability_pump_pct": availability_pump_pct,
+                    "availability_reactor_pct": availability_reactor_pct,
                 }
 
                 cooling_txt = f"{cooling_time_h:.2f}" if cooling_status == "ok" else ("—" if cooling_status == "brak_potrzeby" else "⚠️ N/A")
@@ -1925,6 +2041,7 @@ with tab2:
                     "Moc Chłodzenia [kW]": round(cooling_power_kw, 1),
                     "Przepływ medium chłodzącego [kg/h]": round(flow_cooling_kg_h, 1) if cooling_status == "ok" else 0.0,
                     "Czas chłodzenia [h]": cooling_txt,
+                    "Dostępność (MTBF/MTTR) [%]": round(availability_combined_pct, 1),
                     "_velocity_val": velocity,
                     "_lmtd_trigger": thermal["lmtd_trigger"],
                     "_cooling_status": cooling_status,
@@ -2910,6 +3027,36 @@ with tab6:
         oee_cfg = st.session_state.vsm_oee.setdefault(selected_vsm_family, {})
         for s in process_steps:
             oee_cfg.setdefault(s["name"], {"co_h": 0.0, "uptime_pct": 100.0, "availability_pct": 100.0, "pass_pct": 100.0})
+
+        # Dostępność wyliczona z MTBF/MTTR (Zakładka 3, karta maszyn) — średnia dla mieszalników
+        # tej rodziny, ważona liczbą szarż/miesiąc (urządzenia bardziej obciążone mają większy
+        # wpływ na realną dostępność linii). Dotyczy etapów, w których fizycznie bierze udział
+        # reaktor i/lub pompa (Dozowanie/Grzanie/Homogenizacja/Pompowanie/Chłodzenie) — Zwolnienie
+        # QC i Rozlew korzystają z innych zasobów (laboratorium, linia pakująca), nieujętych tu.
+        reactor_pump_steps = ["Dozowanie", "Grzanie", "Homogenizacja", "Pompowanie", "Chłodzenie"]
+        mtbf_weighted_avail, mtbf_weight_sum = 0.0, 0.0
+        for mx in mixers_in_family:
+            ct_mx = st.session_state.calculated_times.get(mx["tag"])
+            if ct_mx is not None and "availability_pct" in ct_mx:
+                w = max(mx.get("batches_count", 1), 1)
+                mtbf_weighted_avail += ct_mx["availability_pct"] * w
+                mtbf_weight_sum += w
+        mtbf_derived_availability_pct = (mtbf_weighted_avail / mtbf_weight_sum) if mtbf_weight_sum > 0 else None
+
+        c_avail1, c_avail2 = st.columns([3, 1])
+        with c_avail1:
+            if mtbf_derived_availability_pct is not None:
+                st.caption(f"📟 Dostępność wyliczona z MTBF/MTTR (Zakładka 3, ważona liczbą szarż) dla tej rodziny: "
+                           f"**{mtbf_derived_availability_pct:.1f}%**. Dotyczy etapów: {', '.join(reactor_pump_steps)}.")
+            else:
+                st.caption("ℹ️ Skonfiguruj MTBF/MTTR w Zakładce 3 (karta maszyn, sekcja 🔧 Niezawodność), aby móc "
+                           "podstawić tu wyliczoną dostępność zamiast wpisywać ją ręcznie.")
+        with c_avail2:
+            if st.button("🔄 Zastosuj wyliczoną Dostępność", key=f"apply_mtbf_avail_{selected_vsm_family}",
+                          disabled=mtbf_derived_availability_pct is None, use_container_width=True):
+                for step_name in reactor_pump_steps:
+                    oee_cfg[step_name]["availability_pct"] = round(mtbf_derived_availability_pct, 1)
+                st.rerun()
 
         df_oee_in = pd.DataFrame([{
             "Etap": s["name"],
