@@ -230,6 +230,26 @@ RAW_MATERIAL_STORAGE_INFO = {
     "Biocyd / Fungicyd [kg/t]": {"bulk_eligible": False, "note": "Ograniczona trwałość i niskie dozowanie - zalecane beczki/IBC z szybką rotacją, nie długie magazynowanie luzem."},
 }
 
+# Typy pojemników dla surowców NIE magazynowanych luzem (beczki/IBC/worki) - do przeliczenia
+# rocznego zużycia [t/rok] na liczbę pojemników/palet/miejsc magazynowych w Zakładce 6, żeby
+# te surowce trafiły do tego samego bilansu powierzchni magazynowej co wyroby gotowe (Zakładka
+# 4) - w końcu wszystko, co nie trafia do zbiornika, musi stanąć w magazynie. Pojemność podana
+# w kg (nie L), bo dla surowców pracujemy na masie, nie na objętości/gęstości.
+RM_CONTAINER_TYPES = {
+    "Beczka 200 kg (ciecz)": {"capacity_kg": 200.0, "per_pallet": 4},
+    "IBC 1000 kg (ciecz)": {"capacity_kg": 1000.0, "per_pallet": 1},
+    "Worek 25 kg (ciało stałe, na palecie)": {"capacity_kg": 25.0, "per_pallet": 40},
+    "Big Bag 500 kg (ciało stałe)": {"capacity_kg": 500.0, "per_pallet": 1},
+}
+
+
+def default_rm_container_for(material_name, info):
+    """Sensowna domyślna propozycja pojemnika na podstawie opisu surowca w RAW_MATERIAL_STORAGE_INFO."""
+    note_lower = (info.get("note", "") + " " + material_name).lower()
+    if "worki" in note_lower or "proszek" in note_lower or "pasta" in note_lower:
+        return "Worek 25 kg (ciało stałe, na palecie)"
+    return "Beczka 200 kg (ciecz)"
+
 
 def generate_recipe_template_bytes():
     """
@@ -2477,19 +2497,30 @@ with tab3:
     else:
         mixers_fleet = st.session_state.confirmed_mixers
 
-        st.markdown("##### 📦 Typy Opakowań i Pojemności")
-        st.caption("Domyślnie wbudowane w aplikację, nadpisywane/uzupełniane przez opcjonalny arkusz 'Opakowania' "
-                   "w pliku z recepturami (Zakładka 1). Można je też edytować bezpośrednio tutaj.")
-        pack_editor_rows = [
-            {"Nazwa Opakowania": name, "Pojemność [L]": cfg["size_l"], "Sztuk na Palecie": cfg["per_pallet"]}
+        st.markdown("##### 📦 Konfiguracja Opakowań i Głowic Rozlewniczych")
+        st.caption("Jedna tabela na typ opakowania: pojemność i sztuk/paletę (domyślnie wbudowane, nadpisywane przez "
+                   "opcjonalny arkusz 'Opakowania' z Zakładki 1) razem z parametrami głowic nalewaka tego opakowania. "
+                   "Dodaj/usuń wiersz, aby dodać/usunąć typ opakowania.")
+
+        if "filling_lines_config" not in st.session_state:
+            st.session_state.filling_lines_config = {}
+        for p in st.session_state.pack_configs.keys():
+            if p not in st.session_state.filling_lines_config:
+                st.session_state.filling_lines_config[p] = {"nozzles": 4, "speed_kg_min": 15.0} if "5l" in p.lower() or "1l" in p.lower() else {"nozzles": 1, "speed_kg_min": 60.0}
+
+        pack_fill_editor_rows = [
+            {"Nazwa Opakowania": name, "Pojemność [L]": cfg["size_l"], "Sztuk na Palecie": cfg["per_pallet"],
+             "Głowice nalewaka [szt]": int(st.session_state.filling_lines_config.get(name, {"nozzles": 1})["nozzles"]),
+             "Wydajność 1 głowicy [kg/min]": float(st.session_state.filling_lines_config.get(name, {"speed_kg_min": 30.0})["speed_kg_min"])}
             for name, cfg in st.session_state.pack_configs.items()
         ]
-        edited_pack_df = st.data_editor(
-            pd.DataFrame(pack_editor_rows), hide_index=True, use_container_width=True,
-            num_rows="dynamic", key="pack_configs_editor"
+        edited_pack_fill_df = st.data_editor(
+            pd.DataFrame(pack_fill_editor_rows), hide_index=True, use_container_width=True,
+            num_rows="dynamic", key="pack_fill_editor"
         )
         new_pack_configs = {}
-        for _, row in edited_pack_df.iterrows():
+        new_filling_config = {}
+        for _, row in edited_pack_fill_df.iterrows():
             name = str(row["Nazwa Opakowania"])
             if not name or pd.isna(row["Pojemność [L]"]) or pd.isna(row["Sztuk na Palecie"]):
                 continue
@@ -2499,66 +2530,43 @@ with tab3:
                 "per_pallet": int(row["Sztuk na Palecie"]),
                 "rate_szt_h": existing.get("rate_szt_h", 0),
             }
+            new_filling_config[name] = {
+                "nozzles": float(row["Głowice nalewaka [szt]"]) if pd.notna(row["Głowice nalewaka [szt]"]) else 1.0,
+                "speed_kg_min": float(row["Wydajność 1 głowicy [kg/min]"]) if pd.notna(row["Wydajność 1 głowicy [kg/min]"]) else 30.0,
+            }
         st.session_state.pack_configs = new_pack_configs
+        st.session_state.filling_lines_config = new_filling_config
 
-        st.markdown("---")
-        st.markdown("##### 🧴 Rozbicie na Opakowania (ręczne — używane, gdy receptura go nie określa)")
-        st.caption("Jeśli produkt ma w recepturze (Zakładka 1) wypełnione % opakowań, apka użyje ich wprost. "
-                   "Dla pozostałych produktów obowiązuje rozbicie z tej tabeli, per linia produktowa.")
-
-        opakowania_podzial = st.session_state.setdefault("opakowania_podzial", {})
-        split_editor_rows = []
-        for kat in wybrane_kategorie:
-            for p in st.session_state.pack_configs.keys():
-                key_id = f"pct_{kat}_{p}"
-                split_editor_rows.append({"Linia": kat, "Opakowanie": p, "Udział [%]": opakowania_podzial.get(key_id, 0.0)})
-
-        if split_editor_rows:
-            edited_split_df = st.data_editor(
-                pd.DataFrame(split_editor_rows), hide_index=True, use_container_width=True,
-                disabled=["Linia", "Opakowanie"], key="opakowania_split_editor"
-            )
-            for _, row in edited_split_df.iterrows():
-                opakowania_podzial[f"pct_{row['Linia']}_{row['Opakowanie']}"] = float(row["Udział [%]"])
-
-            sum_check = edited_split_df.groupby("Linia")["Udział [%]"].sum()
-            bad_lines = sum_check[(sum_check > 0) & ((sum_check - 100).abs() > 0.5)]
-            if not bad_lines.empty:
-                st.warning("⚠️ Suma % różni się od 100% dla: " + ", ".join(f"{k} ({v:.0f}%)" for k, v in bad_lines.items()) +
-                           " — dotyczy tylko produktów bez własnego rozbicia w recepturze.")
-        else:
-            st.info("Wybierz aktywne linie produktowe w panelu bocznym, aby skonfigurować ręczny podział opakowań.")
-
-        st.markdown("---")
         aktywne_opakowania = set(st.session_state.pack_configs.keys())
 
-        if "filling_lines_config" not in st.session_state: st.session_state.filling_lines_config = {}
-        for p in aktywne_opakowania:
-            if p not in st.session_state.filling_lines_config:
-                st.session_state.filling_lines_config[p] = {"nozzles": 4, "speed_kg_min": 15.0} if "5l" in p.lower() or "1l" in p.lower() else {"nozzles": 1, "speed_kg_min": 60.0}
+        with st.expander("🧴 Rozbicie na Opakowania (ręczne, per linia) — używane, gdy receptura go nie określa", expanded=False):
+            st.caption("Jeśli produkt ma w recepturze (Zakładka 1) wypełnione % opakowań, apka użyje ich wprost. "
+                       "Dla pozostałych produktów obowiązuje rozbicie z tej tabeli, per linia produktowa.")
 
-        filling_table_rows = []
-        for p in aktywne_opakowania:
-            cfg = st.session_state.filling_lines_config[p]
-            filling_table_rows.append({
-                "Typ Opakowania 🔒": p, "Liczba głowic nalewaka [szt] 🟦": int(cfg["nozzles"]), "Wydajność 1 głowicy [kg/min] 🟦": float(cfg["speed_kg_min"])
-            })
+            opakowania_podzial = st.session_state.setdefault("opakowania_podzial", {})
+            split_editor_rows = []
+            for kat in wybrane_kategorie:
+                for p in st.session_state.pack_configs.keys():
+                    key_id = f"pct_{kat}_{p}"
+                    split_editor_rows.append({"Linia": kat, "Opakowanie": p, "Udział [%]": opakowania_podzial.get(key_id, 0.0)})
 
-        st.markdown("##### Konfiguracja Sekcji Głowic Rozlewniczych")
-        edited_filling_df = st.data_editor(
-            pd.DataFrame(filling_table_rows), hide_index=True, use_container_width=True,
-            disabled=["Typ Opakowania 🔒"], key="filling_editor"
-        )
-        # POPRAWKA: edytowana tabela była wcześniej tylko wyświetlana i nigdy nie zapisywana
-        # z powrotem do filling_lines_config, więc wpisane tu wartości nigdy nie trafiały do
-        # obliczeń poniżej ("czas rozlewu" wyglądał na "zamrożony" na wartościach domyślnych).
-        for _, row in edited_filling_df.iterrows():
-            p_name = row["Typ Opakowania 🔒"]
-            st.session_state.filling_lines_config[p_name] = {
-                "nozzles": float(row["Liczba głowic nalewaka [szt] 🟦"]),
-                "speed_kg_min": float(row["Wydajność 1 głowicy [kg/min] 🟦"]),
-            }
+            if split_editor_rows:
+                edited_split_df = st.data_editor(
+                    pd.DataFrame(split_editor_rows), hide_index=True, use_container_width=True,
+                    disabled=["Linia", "Opakowanie"], key="opakowania_split_editor"
+                )
+                for _, row in edited_split_df.iterrows():
+                    opakowania_podzial[f"pct_{row['Linia']}_{row['Opakowanie']}"] = float(row["Udział [%]"])
 
+                sum_check = edited_split_df.groupby("Linia")["Udział [%]"].sum()
+                bad_lines = sum_check[(sum_check > 0) & ((sum_check - 100).abs() > 0.5)]
+                if not bad_lines.empty:
+                    st.warning("⚠️ Suma % różni się od 100% dla: " + ", ".join(f"{k} ({v:.0f}%)" for k, v in bad_lines.items()) +
+                               " — dotyczy tylko produktów bez własnego rozbicia w recepturze.")
+            else:
+                st.info("Wybierz aktywne linie produktowe w panelu bocznym, aby skonfigurować ręczny podział opakowań.")
+
+        st.markdown("---")
         czas_skladowania_dni = st.number_input("Czas składowania palety (Rotacja) [dni]:", min_value=1, value=14)
         st.session_state["czas_skladowania_tab3"] = czas_skladowania_dni
         dni_robocze_miesiac = WORKING_DAYS_YEAR / MONTHS_PER_YEAR
@@ -2616,7 +2624,7 @@ with tab3:
                 miejsca_paletowe = math.ceil((liczba_palet_month / dni_robocze_miesiac) * czas_skladowania_dni)
 
                 real_split_rows.append({
-                    "Reaktor 🔒": m["tag"], "Linia 🔒": kat, "Opakowanie 📦": p, "Udział": f"{udzial_pct:.1f}%",
+                    "Typ": "FG", "Reaktor 🔒": m["tag"], "Linia 🔒": kat, "Opakowanie 📦": p, "Udział": f"{udzial_pct:.1f}%",
                     "Źródło %": split_source,
                     "Opakowań [/mies]": int(liczba_sztuk_month), "Palet [/mies] 🧱": int(liczba_palet_month),
                     "Miejsca magazynowe [szt] 📐": int(miejsca_paletowe), "Czas rozlewu strumienia [h] ⏱️": round(czas_rozlewu_h, 1),
@@ -2626,7 +2634,7 @@ with tab3:
         st.session_state["logistics_results"] = real_split_rows
 
         if real_split_rows:
-            st.markdown("##### 🔀 Wyniki Symulacji Logistyczno-Magazynowej")
+            st.markdown("##### 🔀 Wyniki Symulacji Logistyczno-Magazynowej (Wyroby Gotowe, FG)")
             st.caption("Kolumna **Źródło %** pokazuje, czy rozbicie na opakowania tego wiersza pochodzi z receptury "
                        "(Zakładka 1, per produkt) czy z ręcznego podziału w panelu bocznym (per grupa, gdy receptura "
                        "nie precyzuje opakowań dla tego produktu). Kolumna **Wąskie gardło** pokazuje, czy czas rozlewu "
@@ -2634,40 +2642,73 @@ with tab3:
             st.dataframe(pd.DataFrame(real_split_rows), hide_index=True, use_container_width=True)
 
             # ============================================================
-            # PODSUMOWANIE POWIERZCHNI MAGAZYNOWEJ (suma miejsc paletowych -> m²)
+            # SUROWCE (RM) W BECZKACH/IBC/WORKACH — z Zakładki 6, jeśli policzone
             # ============================================================
-            st.markdown("##### 📐 Podsumowanie Powierzchni Magazynowej")
-            st.caption("Powierzchnia na jedno miejsce paletowe zależy od typu składowania — regały selektywne wymagają dużo więcej "
-                       "przestrzeni na alejki niż składowanie blokowe. Wybierz typ poniżej lub wpisz własną wartość.")
+            rm_warehouse_rows = st.session_state.get("raw_material_warehouse_rows", [])
+            if rm_warehouse_rows:
+                with st.expander("🧴 Surowce w Beczkach/IBC/Workach (RM) — z Zakładki 6", expanded=False):
+                    st.caption("Surowce nietrafiające do zbiorników (Zakładka 6) — te też stoją w tym samym "
+                               "magazynie co wyroby gotowe i wliczają się do łącznej powierzchni poniżej.")
+                    st.dataframe(pd.DataFrame(rm_warehouse_rows), hide_index=True, use_container_width=True)
+            else:
+                st.info("ℹ️ Brak policzonych surowców w beczkach/IBC/workach — wgraj receptury (Zakładka 1) i "
+                        "odwiedź Zakładkę 6, aby doliczyć ich miejsca magazynowe do bilansu poniżej.")
+
+            # ============================================================
+            # PODSUMOWANIE POWIERZCHNI MAGAZYNOWEJ — FG + RM RAZEM (suma miejsc paletowych -> m²)
+            # ============================================================
+            st.markdown("##### 📐 Podsumowanie Powierzchni Magazynowej (FG + RM, wspólny magazyn)")
+            st.caption("Ten sam magazyn przechowuje zarówno wyroby gotowe (FG), jak i surowce nietrafiające do "
+                       "zbiorników (RM) — wszystko, co nie stoi w silosie, musi stanąć tutaj. Powierzchnia na "
+                       "jedno miejsce paletowe zależy od typu składowania — regały selektywne wymagają więcej "
+                       "przestrzeni na alejki niż składowanie blokowe, ale za to (razem z liczbą poziomów poniżej) "
+                       "pozwalają postawić więcej palet na tej samej powierzchni podłogi.")
 
             RACKING_PRESETS_M2 = {
-                "Składowanie blokowe (block stacking)": 1.3,
-                "Regały wjezdne (drive-in)": 1.8,
-                "Regały paletowe selektywne (standardowe)": 3.0,
-                "Własna wartość": None,
+                "Składowanie blokowe (block stacking)": {"m2": 1.3, "poziomy": 2},
+                "Regały wjezdne (drive-in)": {"m2": 1.8, "poziomy": 3},
+                "Regały paletowe selektywne (standardowe)": {"m2": 3.0, "poziomy": 4},
+                "Własna wartość": {"m2": None, "poziomy": None},
             }
-            c_wh1, c_wh2 = st.columns(2)
+            c_wh1, c_wh2, c_wh3 = st.columns(3)
             with c_wh1:
                 typ_skladowania = st.selectbox("Typ składowania:", list(RACKING_PRESETS_M2.keys()), index=2, key="typ_skladowania_tab3")
             with c_wh2:
-                domyslna_powierzchnia = RACKING_PRESETS_M2[typ_skladowania]
+                domyslna_powierzchnia = RACKING_PRESETS_M2[typ_skladowania]["m2"]
                 powierzchnia_na_miejsce = st.number_input(
-                    "Powierzchnia na 1 miejsce paletowe [m²]:", min_value=0.5,
+                    "Powierzchnia / miejsce paletowe (1 poziom) [m²]:", min_value=0.5,
                     value=float(domyslna_powierzchnia) if domyslna_powierzchnia is not None else 3.0,
                     step=0.1, disabled=domyslna_powierzchnia is not None,
-                    help="Odblokowuje się przy wyborze 'Własna wartość' powyżej. Wartość obejmuje udział alejek i dróg transportowych, nie tylko odcisk samej palety."
+                    help="Odblokowuje się przy wyborze 'Własna wartość' powyżej. Wartość obejmuje udział alejek i "
+                         "dróg transportowych, dla JEDNEGO poziomu składowania (nie całej wysokości regału)."
+                )
+            with c_wh3:
+                domyslne_poziomy = RACKING_PRESETS_M2[typ_skladowania]["poziomy"]
+                liczba_poziomow = st.number_input(
+                    "Liczba poziomów składowania:", min_value=1, max_value=10,
+                    value=int(domyslne_poziomy) if domyslne_poziomy is not None else 3, step=1,
+                    disabled=domyslne_poziomy is not None,
+                    help="Ile palet w pionie mieści jedno miejsce podłogowe — dla block stackingu to fizyczne "
+                         "piętrzenie palet jedna na drugiej (zwykle 2-3), dla regałów to liczba poziomów "
+                         "regału (zwykle 3-5). Więcej poziomów = mniejsza wymagana powierzchnia podłogi przy "
+                         "tej samej liczbie miejsc paletowych. Wybierz 'Własna wartość' powyżej, aby to odblokować."
                 )
 
-            total_miejsca_magazynowe = sum(r["Miejsca magazynowe [szt] 📐"] for r in real_split_rows)
-            total_powierzchnia_m2 = total_miejsca_magazynowe * powierzchnia_na_miejsce
+            total_fg_positions = sum(r["Miejsca magazynowe [szt] 📐"] for r in real_split_rows)
+            total_rm_positions = sum(r["Miejsca magazynowe [szt]"] for r in rm_warehouse_rows)
+            total_miejsca_magazynowe = total_fg_positions + total_rm_positions
+            total_floor_slots = math.ceil(total_miejsca_magazynowe / liczba_poziomow) if liczba_poziomow > 0 else total_miejsca_magazynowe
+            total_powierzchnia_m2 = total_floor_slots * powierzchnia_na_miejsce
 
-            m_wh1, m_wh2, m_wh3 = st.columns(3)
-            with m_wh1: st.metric("📦 Łączna liczba miejsc paletowych", f"{total_miejsca_magazynowe:,} szt.")
-            with m_wh2: st.metric("📐 Wymagana powierzchnia magazynowa", f"{total_powierzchnia_m2:,.0f} m²")
-            with m_wh3: st.metric("📏 Powierzchnia / miejsce paletowe", f"{powierzchnia_na_miejsce:.2f} m²")
+            m_wh1, m_wh2, m_wh3, m_wh4 = st.columns(4)
+            with m_wh1: st.metric("📦 Miejsca paletowe razem (FG + RM)", f"{total_miejsca_magazynowe:,} szt.",
+                                   help=f"FG: {total_fg_positions:,} szt. · RM: {total_rm_positions:,} szt.")
+            with m_wh2: st.metric("🏗️ Miejsc podłogowych (po podziale na poziomy)", f"{total_floor_slots:,} szt.")
+            with m_wh3: st.metric("📐 Wymagana powierzchnia magazynowa", f"{total_powierzchnia_m2:,.0f} m²")
+            with m_wh4: st.metric("📏 Poziomów składowania", f"{liczba_poziomow:.0f}")
 
-            st.caption("💡 Powyższa suma to zapotrzebowanie na miejsca paletowe **wyrobów gotowych** (Zakładka 4). Bufor **surowców** "
-                       "(zbiorniki/silosy) jest liczony i wymiarowany osobno w Zakładce 6 (Surowce i Park Zbiorników).")
+            st.caption("💡 Powierzchnia = ⌈(miejsca paletowe FG + RM) / liczba poziomów⌉ × powierzchnia/miejsce (1 poziom). "
+                       "Bufor **surowców w zbiornikach** (silosy) jest liczony i wymiarowany osobno w Zakładce 6.")
         else:
             st.info("Brak skonfigurowanego podziału opakowań o niezerowym udziale — uzupełnij procenty w panelu bocznym.")
 
@@ -2825,6 +2866,7 @@ with tab5:
 
             recipe_silos_rows = []
             recipe_total_tanks = 0
+            drummed_materials = []  # surowce NIE trafiające do zbiornika - potrzebują miejsca w magazynie
             for material, annual_tony in sorted(recipe_consumption.items(), key=lambda x: -x[1]):
                 if annual_tony <= 0:
                     continue
@@ -2847,6 +2889,7 @@ with tab5:
                     uzasadnienie = info["note"] if not bulk_ok else f"Zużycie {annual_tony:.1f} t/rok < próg {prog_zbiornika_t:.0f} t/rok — zbiornik się nie opłaca."
                     bufor_txt = "—"
                     silosy_txt = "—"
+                    drummed_materials.append({"material": material, "annual_tony": annual_tony, "info": info})
 
                 recipe_silos_rows.append({
                     "Surowiec": material, "Konsumpcja [t/rok]": round(annual_tony, 2),
@@ -2861,6 +2904,56 @@ with tab5:
             with m_silo2:
                 n_drums = sum(1 for r in recipe_silos_rows if "Beczki" in r["Rekomendacja"])
                 st.metric("🧴 Surowce zostające w beczkach/IBC", f"{n_drums} / {len(recipe_silos_rows)}")
+
+            st.markdown("---")
+            st.markdown("### 📦 Magazynowanie Surowców w Beczkach/IBC/Workach")
+            st.caption("Surowce, które nie trafiają do zbiornika (powyżej), i tak muszą stanąć w magazynie — "
+                       "przypisz każdemu typ pojemnika, a aplikacja przeliczy liczbę pojemników/palet/miejsc "
+                       "magazynowych. Wynik doliczy się do **łącznej powierzchni magazynowej w Zakładce 4** "
+                       "razem z wyrobami gotowymi (FG) — to jeden, wspólny magazyn.")
+
+            if drummed_materials:
+                if "rm_container_assignment" not in st.session_state:
+                    st.session_state.rm_container_assignment = {}
+                rm_container_rows = []
+                for dm in drummed_materials:
+                    mat, ann_t, info = dm["material"], dm["annual_tony"], dm["info"]
+                    default_container = st.session_state.rm_container_assignment.get(
+                        mat, default_rm_container_for(mat, info))
+                    rm_container_rows.append({"Surowiec": mat, "Konsumpcja [t/rok]": round(ann_t, 2),
+                                               "Typ pojemnika": default_container})
+
+                edited_rm_containers = st.data_editor(
+                    pd.DataFrame(rm_container_rows), hide_index=True, use_container_width=True,
+                    disabled=["Surowiec", "Konsumpcja [t/rok]"], key="rm_container_editor",
+                    column_config={"Typ pojemnika": st.column_config.SelectboxColumn(options=list(RM_CONTAINER_TYPES.keys()))}
+                )
+                for _, row in edited_rm_containers.iterrows():
+                    st.session_state.rm_container_assignment[row["Surowiec"]] = row["Typ pojemnika"]
+
+                dni_robocze_miesiac_rm = WORKING_DAYS_YEAR / MONTHS_PER_YEAR
+                rm_warehouse_rows = []
+                for dm in drummed_materials:
+                    mat, ann_t = dm["material"], dm["annual_tony"]
+                    container_name = st.session_state.rm_container_assignment.get(mat, "Beczka 200 kg (ciecz)")
+                    container_cfg = RM_CONTAINER_TYPES[container_name]
+                    monthly_kg = (ann_t * 1000.0) / MONTHS_PER_YEAR
+                    n_containers_month = math.ceil(monthly_kg / container_cfg["capacity_kg"]) if container_cfg["capacity_kg"] > 0 else 0
+                    n_pallets_month = math.ceil(n_containers_month / container_cfg["per_pallet"])
+                    miejsca_paletowe_rm = math.ceil((n_pallets_month / dni_robocze_miesiac_rm) * days_of_stock)
+                    rm_warehouse_rows.append({
+                        "Surowiec 🔒": mat, "Typ pojemnika 🔒": container_name,
+                        "Pojemników [/mies]": int(n_containers_month), "Palet [/mies]": int(n_pallets_month),
+                        "Miejsca magazynowe [szt]": int(miejsca_paletowe_rm),
+                    })
+
+                st.dataframe(pd.DataFrame(rm_warehouse_rows), hide_index=True, use_container_width=True)
+                total_rm_pallet_positions = sum(r["Miejsca magazynowe [szt]"] for r in rm_warehouse_rows)
+                st.metric("📦 Miejsca magazynowe surowców (RM)", f"{total_rm_pallet_positions} szt.")
+                st.session_state["raw_material_warehouse_rows"] = rm_warehouse_rows
+            else:
+                st.info("Wszystkie surowce z receptur trafiają do zbiorników — brak surowców do magazynowania w beczkach/IBC/workach.")
+                st.session_state["raw_material_warehouse_rows"] = []
         else:
             st.info("💡 Wgraj receptury produktów w **Zakładce 1**, aby uzyskać dokładniejsze wymiarowanie per "
                     "pojedynczy surowiec. Poniżej uproszczony szacunek grupowy (wg typu bazy z floty).")
