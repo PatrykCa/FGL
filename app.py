@@ -37,6 +37,7 @@ LMTD_MIN_K = 15.0                # dolna granica "zdrowego" LMTD
 LMTD_MAX_K = 60.0                # górna granica "zdrowego" LMTD
 STEAM_LATENT_HEAT_KJKG = 2200.0  # ciepło skraplania pary nasyconej (~2 bar) [kJ/kg], wartość orientacyjna
 G_ACCEL = 9.81
+RAMPUP_YEARS = 5                 # horyzont symulacji rozruchu (Zakładka 2 + Zakładka 4)
 
 # --- 1. BAZA DANYCH PROCESOWYCH I FIZYKOCHEMICZNYCH FUCHS ---
 # (Dawny zestaw FUCHS_PORTFOLIO z liniami marek - np. "Hydraulic Oils (RENOLIN)" - został
@@ -1240,6 +1241,32 @@ if "shared_pumps" not in st.session_state:
     # nadane przez użytkownika (np. "P-01"), wartość = dict z parametrami.
     st.session_state.shared_pumps = {}
 
+if "rampup_global_pct" not in st.session_state:
+    # Domyślna krzywa rozruchu (% docelowej produkcji osiągane w kolejnych latach) - flota i
+    # magazyn są wymiarowane od razu pod docelową (100%) produkcję; ta krzywa opisuje jedynie
+    # jak rośnie ich WYKORZYSTANIE w pierwszych RAMPUP_YEARS latach.
+    st.session_state.rampup_global_pct = [40.0, 60.0, 80.0, 95.0, 100.0][:RAMPUP_YEARS]
+if "rampup_differentiate" not in st.session_state:
+    st.session_state.rampup_differentiate = False
+if "rampup_per_line_pct" not in st.session_state:
+    st.session_state.rampup_per_line_pct = {}  # dict: linia -> lista % per rok (tylko gdy differentiate=True)
+
+
+def get_rampup_fraction(product_family, year_idx):
+    """
+    Ułamek (0-1) docelowej produkcji osiąganej w danym roku symulacji rozruchu, dla danej
+    linii produktowej. Jedno źródło prawdy używane zarówno w Zakładce 2 (utylizacja floty)
+    jak i Zakładce 4 (wykorzystanie magazynu FG+RM) - patrz sync_recipes_into_fleet_defaults
+    dla analogicznego wzorca "jedno miejsce prawdy, wiele zakładek czyta".
+    """
+    if st.session_state.get("rampup_differentiate") and product_family in st.session_state.get("rampup_per_line_pct", {}):
+        pct_list = st.session_state.rampup_per_line_pct[product_family]
+    else:
+        pct_list = st.session_state.get("rampup_global_pct", [100.0] * RAMPUP_YEARS)
+    if year_idx < 0 or year_idx >= len(pct_list):
+        return 1.0
+    return max(0.0, min(float(pct_list[year_idx]), 100.0)) / 100.0
+
 
 def sync_recipes_into_fleet_defaults():
     """
@@ -1730,6 +1757,82 @@ with tab1:
                     st.success(f"🎉 Zapisano strukturę floty ({len(confirmed_mixers_blueprint)} urządzeń).")
     else:
         st.info("💡 Wybierz co najmniej jedną linię produktową w panelu bocznym, aby rozpocząć.")
+
+    # ==========================================
+    # SYMULACJA ROZRUCHU (RAMPUP) — flota budowana od razu pod cel, ale wykorzystanie
+    # rośnie w czasie. Ta sama krzywa % jest reużywana w Zakładce 4 (magazyn FG+RM), żeby
+    # historia "startujemy nisko, dochodzimy do celu" była spójna w całej aplikacji.
+    # ==========================================
+    if st.session_state.confirmed_mixers:
+        st.markdown("---")
+        with st.expander("📈 Symulacja Rozruchu (Rampup) — 5 lat", expanded=False):
+            st.caption("Flota i magazyn (Zakładka 4) są wymiarowane od razu pod docelową produkcję wpisaną powyżej — "
+                       "to buduje się raz. Poniższa krzywa pokazuje/symuluje, jak realnie rośnie WYKORZYSTANIE tej "
+                       "floty i magazynu w pierwszych 5 latach, zanim produkcja dojdzie do 100% celu.")
+
+            st.session_state.rampup_differentiate = st.checkbox(
+                "🔧 Zróżnicuj tempo rozruchu per linia produktowa", value=st.session_state.rampup_differentiate,
+                help="Domyślnie jedna wspólna krzywa dla całej fabryki. Włącz, jeśli np. Engine Oils ma ruszyć "
+                     "szybciej niż Greases."
+            )
+
+            year_labels = [f"Rok {i+1}" for i in range(RAMPUP_YEARS)]
+
+            if not st.session_state.rampup_differentiate:
+                st.markdown("###### Wspólna krzywa dla całej fabryki")
+                cols_ramp = st.columns(RAMPUP_YEARS)
+                for i, c in enumerate(cols_ramp):
+                    with c:
+                        st.session_state.rampup_global_pct[i] = st.number_input(
+                            f"{year_labels[i]} [%]", min_value=0.0, max_value=100.0,
+                            value=float(st.session_state.rampup_global_pct[i]), step=5.0, key=f"rampup_global_{i}"
+                        )
+            else:
+                st.markdown("###### Krzywa per linia produktowa")
+                for kat in wybrane_kategorie:
+                    st.session_state.rampup_per_line_pct.setdefault(kat, list(st.session_state.rampup_global_pct))
+                    st.markdown(f"**{kat}**")
+                    cols_ramp = st.columns(RAMPUP_YEARS)
+                    for i, c in enumerate(cols_ramp):
+                        with c:
+                            st.session_state.rampup_per_line_pct[kat][i] = st.number_input(
+                                f"{year_labels[i]} [%]", min_value=0.0, max_value=100.0,
+                                value=float(st.session_state.rampup_per_line_pct[kat][i]), step=5.0,
+                                key=f"rampup_line_{kat}_{i}"
+                            )
+
+            # --- Przeliczenie: tonaż roczny i średnia utylizacja floty per rok symulacji ---
+            target_annual_t = sum(m["annual_volume"] for m in st.session_state.confirmed_mixers) / 1000.0
+            rampup_summary_rows = []
+            rampup_tonnage_chart = {"Rok": [], "Tonaż [t/rok]": [], "Cel [t/rok]": []}
+            for i in range(RAMPUP_YEARS):
+                year_tonnage_t = 0.0
+                util_weighted, util_weight_sum = 0.0, 0.0
+                for m in st.session_state.confirmed_mixers:
+                    frac = get_rampup_fraction(m["product_family"], i)
+                    year_tonnage_t += (m["annual_volume"] / 1000.0) * frac
+
+                    scaled_monthly_mass = (m["annual_volume"] / MONTHS_PER_YEAR) * frac
+                    scaled_batches = math.ceil(scaled_monthly_mass / m["mass_per_batch"]) if m["mass_per_batch"] > 0 else 0
+                    scaled_util_pct = (scaled_batches * m["cycle_h"]) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
+                    util_weighted += scaled_util_pct * m["capacity_m3"]
+                    util_weight_sum += m["capacity_m3"]
+
+                avg_util_pct = (util_weighted / util_weight_sum) if util_weight_sum > 0 else 0.0
+                rampup_summary_rows.append({
+                    "Rok": year_labels[i], "Tonaż [t/rok]": round(year_tonnage_t, 0),
+                    "% Celu": f"{(year_tonnage_t / target_annual_t * 100.0) if target_annual_t > 0 else 0:.0f}%",
+                    "Śr. Utylizacja Floty [%]": round(avg_util_pct, 1),
+                })
+                rampup_tonnage_chart["Rok"].append(year_labels[i])
+                rampup_tonnage_chart["Tonaż [t/rok]"].append(year_tonnage_t)
+                rampup_tonnage_chart["Cel [t/rok]"].append(target_annual_t)
+
+            chart_df = pd.DataFrame(rampup_tonnage_chart).set_index("Rok")
+            st.line_chart(chart_df)
+            st.dataframe(pd.DataFrame(rampup_summary_rows), hide_index=True, use_container_width=True)
+            st.caption(f"🎯 Docelowa produkcja (100%, jak wymiarowana jest flota): **{target_annual_t:,.0f} t/rok**. "
+                       "Ta sama krzywa steruje wykorzystaniem magazynu w Zakładce 4 (wybór roku symulacji).")
 
 # ==========================================
 # ZAKŁADKA 2: KARTA MASZYN, HYDRAULIKA, MIESZANIE I BILANS CIEPLNY
@@ -2497,6 +2600,17 @@ with tab3:
     else:
         mixers_fleet = st.session_state.confirmed_mixers
 
+        rampup_year_options = ["Docelowa produkcja (100%)"] + [f"Rok {i+1}" for i in range(RAMPUP_YEARS)]
+        selected_rampup_year_label = st.selectbox(
+            "📈 Rok symulacji rozruchu:", rampup_year_options, index=0, key="tab3_rampup_year_select",
+            help="Magazyn i flota są budowane od razu pod docelową (100%) produkcję — ten wybór tylko pokazuje, "
+                 "jaki wolumen FG i RM realnie przepłynie przez fabrykę w danym roku rozruchu (krzywa z Zakładki 2), "
+                 "i ile z gotowej powierzchni magazynowej to zajmie."
+        )
+        selected_rampup_year_idx = None if selected_rampup_year_label.startswith("Docelowa") else int(selected_rampup_year_label.split(" ")[1]) - 1
+
+        st.markdown("---")
+
         st.markdown("##### 📦 Konfiguracja Opakowań i Głowic Rozlewniczych")
         st.caption("Jedna tabela na typ opakowania: pojemność i sztuk/paletę (domyślnie wbudowane, nadpisywane przez "
                    "opcjonalny arkusz 'Opakowania' z Zakładki 1) razem z parametrami głowic nalewaka tego opakowania. "
@@ -2572,6 +2686,7 @@ with tab3:
         dni_robocze_miesiac = WORKING_DAYS_YEAR / MONTHS_PER_YEAR
 
         real_split_rows = []
+        fg_positions_target_list = []  # miejsca magazynowe FG liczone przy 100% celu (stały rozmiar budynku)
         recipes_df_lookup = st.session_state.get("recipes_df")
         pack_cols_in_recipe = []
         if recipes_df_lookup is not None and not recipes_df_lookup.empty:
@@ -2579,7 +2694,9 @@ with tab3:
 
         for m in mixers_fleet:
             kat = m["product_family"]
-            mixer_monthly_mass = m["batches_count"] * m["mass_per_batch"]
+            rampup_frac_fg = get_rampup_fraction(kat, selected_rampup_year_idx) if selected_rampup_year_idx is not None else 1.0
+            target_monthly_mass = m["batches_count"] * m["mass_per_batch"]
+            mixer_monthly_mass = target_monthly_mass * rampup_frac_fg
             rho_linii = st.session_state.active_portfolio[kat]["density"]
 
             # Priorytet 1: rozbicie na opakowania WPROST z receptury tego konkretnego produktu
@@ -2622,6 +2739,14 @@ with tab3:
                 czas_rozlewu_h = (masa_opakowania_month / (rho_linii * 1000.0)) / q_effective_flow_m3h if q_effective_flow_m3h > 0 else 0.0
                 liczba_palet_month = math.ceil(liczba_sztuk_month / st.session_state.pack_configs[p]["per_pallet"])
                 miejsca_paletowe = math.ceil((liczba_palet_month / dni_robocze_miesiac) * czas_skladowania_dni)
+
+                # Miejsca magazynowe przy 100% celu (niezależnie od wybranego roku symulacji) -
+                # to jest rozmiar BUDYNKU, który stawia się raz, pod docelową zdolność produkcyjną.
+                masa_opakowania_month_target = target_monthly_mass * (udzial_pct / 100.0)
+                liczba_sztuk_month_target = math.ceil(masa_opakowania_month_target / pack_capacity_kg) if pack_capacity_kg > 0 else 0
+                liczba_palet_month_target = math.ceil(liczba_sztuk_month_target / st.session_state.pack_configs[p]["per_pallet"])
+                miejsca_paletowe_target = math.ceil((liczba_palet_month_target / dni_robocze_miesiac) * czas_skladowania_dni)
+                fg_positions_target_list.append(miejsca_paletowe_target)
 
                 real_split_rows.append({
                     "Typ": "FG", "Reaktor 🔒": m["tag"], "Linia 🔒": kat, "Opakowanie 📦": p, "Udział": f"{udzial_pct:.1f}%",
@@ -2695,20 +2820,35 @@ with tab3:
                 )
 
             total_fg_positions = sum(r["Miejsca magazynowe [szt] 📐"] for r in real_split_rows)
-            total_rm_positions = sum(r["Miejsca magazynowe [szt]"] for r in rm_warehouse_rows)
+            rm_rampup_frac = (get_rampup_fraction("__global__", selected_rampup_year_idx)
+                               if selected_rampup_year_idx is not None else 1.0)
+            total_rm_positions = math.ceil(sum(r["Miejsca magazynowe [szt]"] for r in rm_warehouse_rows) * rm_rampup_frac)
             total_miejsca_magazynowe = total_fg_positions + total_rm_positions
-            total_floor_slots = math.ceil(total_miejsca_magazynowe / liczba_poziomow) if liczba_poziomow > 0 else total_miejsca_magazynowe
-            total_powierzchnia_m2 = total_floor_slots * powierzchnia_na_miejsce
+
+            # Budynek stawiany RAZ, pod docelową (100%) produkcję — niezależnie od wybranego roku
+            # symulacji. RM w rm_warehouse_rows jest już liczone przy 100% (Zakładka 6 nie skaluje
+            # rampupem), więc target = suma bez przeliczenia; FG target liczony osobno w pętli wyżej.
+            total_fg_positions_target = sum(fg_positions_target_list)
+            total_rm_positions_target = sum(r["Miejsca magazynowe [szt]"] for r in rm_warehouse_rows)
+            total_miejsca_magazynowe_target = total_fg_positions_target + total_rm_positions_target
+            total_floor_slots_target = math.ceil(total_miejsca_magazynowe_target / liczba_poziomow) if liczba_poziomow > 0 else total_miejsca_magazynowe_target
+            total_powierzchnia_m2 = total_floor_slots_target * powierzchnia_na_miejsce
+
+            wykorzystanie_magazynu_pct = (total_miejsca_magazynowe / total_miejsca_magazynowe_target * 100.0) \
+                if total_miejsca_magazynowe_target > 0 else 0.0
 
             m_wh1, m_wh2, m_wh3, m_wh4 = st.columns(4)
-            with m_wh1: st.metric("📦 Miejsca paletowe razem (FG + RM)", f"{total_miejsca_magazynowe:,} szt.",
+            with m_wh1: st.metric("📦 Miejsca paletowe — ten rok (FG + RM)", f"{total_miejsca_magazynowe:,} szt.",
                                    help=f"FG: {total_fg_positions:,} szt. · RM: {total_rm_positions:,} szt.")
-            with m_wh2: st.metric("🏗️ Miejsc podłogowych (po podziale na poziomy)", f"{total_floor_slots:,} szt.")
-            with m_wh3: st.metric("📐 Wymagana powierzchnia magazynowa", f"{total_powierzchnia_m2:,.0f} m²")
-            with m_wh4: st.metric("📏 Poziomów składowania", f"{liczba_poziomow:.0f}")
+            with m_wh2: st.metric("🎯 Miejsca paletowe — docelowe (100%)", f"{total_miejsca_magazynowe_target:,} szt.")
+            with m_wh3: st.metric("📐 Powierzchnia magazynu (budowana pod 100%)", f"{total_powierzchnia_m2:,.0f} m²")
+            with m_wh4: st.metric("📊 Wykorzystanie magazynu w tym roku", f"{wykorzystanie_magazynu_pct:.0f}%")
 
-            st.caption("💡 Powierzchnia = ⌈(miejsca paletowe FG + RM) / liczba poziomów⌉ × powierzchnia/miejsce (1 poziom). "
-                       "Bufor **surowców w zbiornikach** (silosy) jest liczony i wymiarowany osobno w Zakładce 6.")
+            st.caption("💡 Powierzchnia = ⌈(docelowe miejsca paletowe FG + RM) / liczba poziomów⌉ × powierzchnia/miejsce "
+                       "(1 poziom) — budynek stawiany RAZ, pod pełną (100%) zdolność. "
+                       "Bufor **surowców w zbiornikach** (silosy) jest liczony i wymiarowany osobno w Zakładce 6. "
+                       f"Powierzchnia budynku pozostaje wymiarowana pod 100% celu niezależnie od wybranego roku — "
+                       f"zmienia się tylko pokazane wykorzystanie ({selected_rampup_year_label}).")
         else:
             st.info("Brak skonfigurowanego podziału opakowań o niezerowym udziale — uzupełnij procenty w panelu bocznym.")
 
