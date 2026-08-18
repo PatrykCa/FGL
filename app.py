@@ -162,6 +162,21 @@ RECIPE_LOSS_COL = "Szacowane Straty Procesowe [%]"
 RECIPE_RAW_DEMAND_COL = "Roczne Zapotrzebowanie Surowcowe [tony]"
 RECIPE_NOTES_COL = "Uwagi Technologiczne / Status QA"
 
+# Sposób pozyskania produktu: na starcie część produktów bywa IMPOROWANA (z innego zakładu/od
+# dostawcy) zamiast produkowana lokalnie, a dopiero po jakimś czasie zaczyna się produkcja
+# własna. Przejście modelowane jest jako NAGŁE, w jednym pełnym roku symulacji rozruchu
+# (Zakładka 2/4) - przed rokiem przejścia produkt w 100% importowany, od tego roku w 100%
+# produkowany lokalnie. "Nigdy" = produkt na stałe pozostaje importowany (nigdy nie trafia do
+# floty mieszalników - typowy przypadek dla niszowego SKU, którego produkcja lokalna się nie
+# opłaca nawet w dojrzałości).
+RECIPE_SOURCING_COL = "Sposób Pozyskania"
+RECIPE_SOURCING_OPTIONS = ["Produkcja własna", "Import"]
+RECIPE_IMPORT_TRANSITION_COL = "Rok Przejścia na Produkcję Własną"
+RECIPE_IMPORT_TRANSITION_OPTIONS = ["Rok 1", "Rok 2", "Rok 3", "Rok 4", "Rok 5", "Nigdy (stały import)"]
+RECIPE_IMPORT_FREQ_COL = "Częstotliwość Dostawy Importowej [dni]"
+RECIPE_IMPORT_LOT_COL = "Wielkość 1 Dostawy Importowej [tony]"
+RECIPE_IMPORT_SAFETY_DAYS_COL = "Bufor Bezpieczeństwa Importu [dni]"
+
 # Opcjonalna kolumna: kilka produktów może współdzielić JEDEN fizyczny mieszalnik (produkcja
 # kampanijna) zamiast dostawać każdy swój dedykowany zbiornik. Puste = własny zbiornik (jak
 # dotychczas); te samo ID w kilku wierszach TEJ SAMEJ grupy produktowej = wspólny zbiornik.
@@ -193,6 +208,29 @@ RECIPE_SUM_TOLERANCE_KG = 50.0
 def recipe_pack_pct_col(pack_name):
     """Nazwa kolumny procentowego udziału danego opakowania w arkuszu receptur."""
     return f"Opak: {pack_name} [%]"
+
+
+RAMPUP_YEAR_TARGET_SENTINEL = 9999  # "Docelowa (100%)" = pełna dojrzałość, po wszystkich przejściach z importu
+
+
+def is_product_imported_in_year(sourcing, transition_label, year_idx):
+    """
+    Czy dany produkt jest w danym roku symulacji (year_idx, 0-based; RAMPUP_YEAR_TARGET_SENTINEL
+    = widok docelowy/100%) nadal importowany, czy już produkowany lokalnie. Przejście jest
+    NAGŁE (patrz komentarz przy RECIPE_SOURCING_COL) - przed rokiem przejścia 100% import, od
+    tego roku 100% produkcja własna. "Nigdy" = zawsze import, nawet w widoku docelowym.
+    """
+    if sourcing != "Import":
+        return False
+    if transition_label == "Nigdy (stały import)" or not transition_label:
+        return True
+    if year_idx == RAMPUP_YEAR_TARGET_SENTINEL:
+        return False  # widok docelowy = pełna dojrzałość = po przejściu (chyba że "Nigdy", obsłużone wyżej)
+    try:
+        transition_year = int(transition_label.split(" ")[1])
+    except (IndexError, ValueError):
+        transition_year = 1
+    return (year_idx + 1) < transition_year
 
 # Informacja, czy dany surowiec nadaje się fizycznie/praktycznie do magazynowania
 # w zbiorniku (płyn luzem) czy zawsze zostaje w beczkach/IBC/workach - niezależnie od
@@ -290,6 +328,8 @@ def generate_recipe_template_bytes():
     pack_pct_cols = [recipe_pack_pct_col(n) for n in pack_names]
 
     headers = ([RECIPE_GROUP_COL, RECIPE_PRODUCT_COL, RECIPE_ANNUAL_COL,
+                RECIPE_SOURCING_COL, RECIPE_IMPORT_TRANSITION_COL, RECIPE_IMPORT_FREQ_COL,
+                RECIPE_IMPORT_LOT_COL, RECIPE_IMPORT_SAFETY_DAYS_COL,
                 RECIPE_MIXER_VOL_COL, RECIPE_CYCLE_COL, RECIPE_AVAIL_HOURS_COL,
                 RECIPE_BATCH_MASS_COL, RECIPE_BATCHES_YEAR_COL, RECIPE_UTILIZATION_COL] +
                RECIPE_RAW_MATERIALS +
@@ -297,7 +337,12 @@ def generate_recipe_template_bytes():
                pack_pct_cols + [RECIPE_PACK_SUM_COL, RECIPE_TANK_ID_COL, RECIPE_SHARED_UTIL_COL, RECIPE_NOTES_COL])
 
     n_fixed_left = 3                      # Grupa, Produkt, Roczne Zapotrzebowanie Produktu
-    mixer_vol_col = n_fixed_left + 1
+    sourcing_col = n_fixed_left + 1
+    transition_col = sourcing_col + 1
+    import_freq_col = transition_col + 1
+    import_lot_col = import_freq_col + 1
+    import_safety_col = import_lot_col + 1
+    mixer_vol_col = import_safety_col + 1
     cycle_col = mixer_vol_col + 1
     avail_hours_col = cycle_col + 1
     batch_mass_col = avail_hours_col + 1
@@ -354,6 +399,13 @@ def generate_recipe_template_bytes():
         "indywidualne wykorzystania (orientacyjnie, każde liczone tak, jakby miało cały zbiornik dla siebie), "
         f"żeby wykryć przeciążenie WSPÓLNEGO zbiornika już tutaj, przed wgraniem do aplikacji - podświetla się na "
         f"czerwono powyżej {RECIPE_UTILIZATION_WARN_PCT:.0f}%.",
+        f"15. '{RECIPE_SOURCING_COL}' - 'Produkcja własna' (domyślne) albo 'Import'. Produkty importowane NIE trafiają "
+        f"do floty mieszalników, dopóki nie nadejdzie ich '{RECIPE_IMPORT_TRANSITION_COL}' (Rok 1-5, zgodnie z 5-letnią "
+        "symulacją rozruchu w Zakładce 2) - przejście jest NAGŁE, w jednym pełnym roku. Wybierz 'Nigdy (stały import)', "
+        "jeśli produkt ma zawsze pozostać importowany (nigdy nie dostanie własnego mieszalnika, nawet w widoku "
+        f"docelowym). '{RECIPE_IMPORT_FREQ_COL}', '{RECIPE_IMPORT_LOT_COL}' i '{RECIPE_IMPORT_SAFETY_DAYS_COL}' "
+        "opisują rytm dostaw - używane w Zakładce 4 do wyliczenia miejsc magazynowych na produkt importowany "
+        "(analogicznie do bufora surowców w Zakładce 6, ale liczone z rytmu dostaw, nie z cyklu produkcji).",
     ]
     for i, line in enumerate(info_lines, start=1):
         c = ws_info.cell(row=i, column=1, value=line)
@@ -365,7 +417,9 @@ def generate_recipe_template_bytes():
             RECIPE_GROUP_COL: "Hydraulic Oils", RECIPE_PRODUCT_COL: "Przykład: Hydraulic Oil 46",
             RECIPE_ANNUAL_COL: 500, RECIPE_MIXER_VOL_COL: 15, RECIPE_CYCLE_COL: 4, RECIPE_AVAIL_HOURS_COL: 2000,
             RECIPE_DENSITY_COL: 0.876, RECIPE_LOSS_COL: 1.5,
-            RECIPE_NOTES_COL: "Receptura referencyjna - status QA: zatwierdzona",
+            RECIPE_SOURCING_COL: "Import", RECIPE_IMPORT_TRANSITION_COL: "Rok 3",
+            RECIPE_IMPORT_FREQ_COL: 21, RECIPE_IMPORT_LOT_COL: 20, RECIPE_IMPORT_SAFETY_DAYS_COL: 10,
+            RECIPE_NOTES_COL: "Receptura referencyjna - status QA: zatwierdzona. Importowana do Roku 3, od Roku 3 produkcja własna.",
             "Base Oil Group II [kg/t]": 965, "Depresator (PPD) [kg/t]": 5,
             "Inhibitor Utleniania (AO) [kg/t]": 8, "Inhibitor Korozji / Pasywator [kg/t]": 3,
             "Dodatek Przeciwpienny (Antifoam) [kg/t]": 1, "Deemulgatory / Emulgatory [kg/t]": 18,
@@ -423,6 +477,10 @@ def generate_recipe_template_bytes():
 
     group_dv = DataValidation(type="list", formula1='"' + ",".join(RECIPE_PRODUCT_GROUPS) + '"', allow_blank=True)
     ws.add_data_validation(group_dv)
+    sourcing_dv = DataValidation(type="list", formula1='"' + ",".join(RECIPE_SOURCING_OPTIONS) + '"', allow_blank=True)
+    ws.add_data_validation(sourcing_dv)
+    transition_dv = DataValidation(type="list", formula1='"' + ",".join(RECIPE_IMPORT_TRANSITION_OPTIONS) + '"', allow_blank=True)
+    ws.add_data_validation(transition_dv)
 
     for r_offset in range(total_rows):
         row = start_data_row + r_offset
@@ -434,6 +492,11 @@ def generate_recipe_template_bytes():
             ws.cell(row=row, column=1, value=data.get(RECIPE_GROUP_COL, "")).font = font_to_use
             ws.cell(row=row, column=2, value=data.get(RECIPE_PRODUCT_COL, "")).font = font_to_use
             ws.cell(row=row, column=3, value=data.get(RECIPE_ANNUAL_COL, "")).font = font_to_use
+            ws.cell(row=row, column=sourcing_col, value=data.get(RECIPE_SOURCING_COL, "Produkcja własna")).font = font_to_use
+            ws.cell(row=row, column=transition_col, value=data.get(RECIPE_IMPORT_TRANSITION_COL, "")).font = font_to_use
+            ws.cell(row=row, column=import_freq_col, value=data.get(RECIPE_IMPORT_FREQ_COL, "")).font = font_to_use
+            ws.cell(row=row, column=import_lot_col, value=data.get(RECIPE_IMPORT_LOT_COL, "")).font = font_to_use
+            ws.cell(row=row, column=import_safety_col, value=data.get(RECIPE_IMPORT_SAFETY_DAYS_COL, "")).font = font_to_use
             ws.cell(row=row, column=mixer_vol_col, value=data.get(RECIPE_MIXER_VOL_COL, "")).font = font_to_use
             ws.cell(row=row, column=cycle_col, value=data.get(RECIPE_CYCLE_COL, "")).font = font_to_use
             ws.cell(row=row, column=avail_hours_col, value=data.get(RECIPE_AVAIL_HOURS_COL, "")).font = font_to_use
@@ -454,6 +517,11 @@ def generate_recipe_template_bytes():
             for col_idx in [3, mixer_vol_col, cycle_col, avail_hours_col]:
                 ws.cell(row=row, column=col_idx).font = normal_font
                 ws.cell(row=row, column=col_idx).fill = input_fill
+            ws.cell(row=row, column=sourcing_col, value="Produkcja własna").font = normal_font
+            ws.cell(row=row, column=sourcing_col).fill = input_fill
+            for col_idx in [transition_col, import_freq_col, import_lot_col, import_safety_col]:
+                ws.cell(row=row, column=col_idx).font = normal_font
+                ws.cell(row=row, column=col_idx).fill = input_fill
             for col_idx in range(first_mat_col, last_mat_col + 1):
                 cell = ws.cell(row=row, column=col_idx)
                 cell.font = normal_font
@@ -467,6 +535,8 @@ def generate_recipe_template_bytes():
             ws.cell(row=row, column=tank_id_col).fill = input_fill
             ws.cell(row=row, column=notes_col).fill = input_fill
             group_dv.add(f"A{row}")
+            sourcing_dv.add(ws.cell(row=row, column=sourcing_col).coordinate)
+            transition_dv.add(ws.cell(row=row, column=transition_col).coordinate)
 
         # Masa Szarży [kg] = pojemność [m3] * 1000 (L/m3) * gęstość [kg/L, liczbowo = g/cm3]
         batch_mass_formula = f"=IF(OR({mixer_vol_letter}{row}<=0,{density_col_letter}{row}<=0),0,{mixer_vol_letter}{row}*1000*{density_col_letter}{row})"
@@ -545,6 +615,11 @@ def generate_recipe_template_bytes():
     ws.column_dimensions["A"].width = 18
     ws.column_dimensions["B"].width = 28
     ws.column_dimensions["C"].width = 16
+    ws.column_dimensions[get_column_letter(sourcing_col)].width = 16
+    ws.column_dimensions[get_column_letter(transition_col)].width = 18
+    ws.column_dimensions[get_column_letter(import_freq_col)].width = 16
+    ws.column_dimensions[get_column_letter(import_lot_col)].width = 16
+    ws.column_dimensions[get_column_letter(import_safety_col)].width = 16
     for letter in [mixer_vol_letter, cycle_letter, avail_hours_letter, batch_mass_letter, batches_year_letter, utilization_letter]:
         ws.column_dimensions[letter].width = 14
     for col_idx in range(first_mat_col, last_mat_col + 1):
@@ -623,11 +698,48 @@ def parse_recipe_excel(uploaded_file):
     else:
         df[RECIPE_TANK_ID_COL] = df[RECIPE_TANK_ID_COL].fillna("").astype(str).str.strip()
 
+    # Sposób pozyskania (Import/Produkcja własna) - opcjonalne kolumny, dla zgodności wstecznej
+    # z plikami wygenerowanymi starszą wersją szablonu (bez tych kolumn -> wszystko "Produkcja
+    # własna", zero zmiany zachowania).
+    if RECIPE_SOURCING_COL not in df.columns:
+        df[RECIPE_SOURCING_COL] = "Produkcja własna"
+    else:
+        df[RECIPE_SOURCING_COL] = df[RECIPE_SOURCING_COL].fillna("Produkcja własna").astype(str).str.strip()
+        invalid_sourcing = df[~df[RECIPE_SOURCING_COL].isin(RECIPE_SOURCING_OPTIONS)]
+        if not invalid_sourcing.empty:
+            bad = invalid_sourcing[RECIPE_PRODUCT_COL].tolist()
+            errors.append(f"Nieznany '{RECIPE_SOURCING_COL}' (musi być jednym z: {', '.join(RECIPE_SOURCING_OPTIONS)}) dla: "
+                           f"{', '.join(map(str, bad))} - przyjęto 'Produkcja własna'.")
+            df.loc[~df[RECIPE_SOURCING_COL].isin(RECIPE_SOURCING_OPTIONS), RECIPE_SOURCING_COL] = "Produkcja własna"
+    if RECIPE_IMPORT_TRANSITION_COL not in df.columns:
+        df[RECIPE_IMPORT_TRANSITION_COL] = ""
+    else:
+        df[RECIPE_IMPORT_TRANSITION_COL] = df[RECIPE_IMPORT_TRANSITION_COL].fillna("").astype(str).str.strip()
+        import_mask = df[RECIPE_SOURCING_COL] == "Import"
+        invalid_transition = df[import_mask & ~df[RECIPE_IMPORT_TRANSITION_COL].isin(RECIPE_IMPORT_TRANSITION_OPTIONS)]
+        if not invalid_transition.empty:
+            bad = invalid_transition[RECIPE_PRODUCT_COL].tolist()
+            errors.append(f"Produkty importowane bez poprawnego '{RECIPE_IMPORT_TRANSITION_COL}' (jeden z: "
+                           f"{', '.join(RECIPE_IMPORT_TRANSITION_OPTIONS)}): {', '.join(map(str, bad))} - przyjęto 'Rok 1'.")
+            bad_idx = invalid_transition.index
+            df.loc[bad_idx, RECIPE_IMPORT_TRANSITION_COL] = "Rok 1"
+    for col in [RECIPE_IMPORT_FREQ_COL, RECIPE_IMPORT_LOT_COL, RECIPE_IMPORT_SAFETY_DAYS_COL]:
+        if col not in df.columns:
+            df[col] = 0.0
+        else:
+            df[col] = pd.to_numeric(df[col], errors="coerce").fillna(0.0)
+
     df = df[df[RECIPE_PRODUCT_COL].notna()].copy()
     df = df[~df[RECIPE_PRODUCT_COL].astype(str).str.startswith("Przykład")].copy()
 
     if df.empty:
         return None, ["Plik nie zawiera żadnych wierszy produktów poza przykładami."]
+
+    import_no_lot = df[(df[RECIPE_SOURCING_COL] == "Import") & (df[RECIPE_IMPORT_LOT_COL] <= 0)]
+    if not import_no_lot.empty:
+        bad = import_no_lot[RECIPE_PRODUCT_COL].tolist()
+        errors.append(f"Produkty importowane bez podanej '{RECIPE_IMPORT_LOT_COL}' (>0): {', '.join(map(str, bad))} - "
+                       f"bufor magazynowy importu w Zakładce 4 dla nich nie policzy się poprawnie, dopóki nie uzupełnisz tej wartości.")
 
     for mat in RECIPE_RAW_MATERIALS:
         df[mat] = pd.to_numeric(df[mat], errors="coerce").fillna(0.0)
@@ -1297,7 +1409,22 @@ def sync_recipes_into_fleet_defaults():
     groups_in_recipe = sorted(df[RECIPE_GROUP_COL].dropna().unique().tolist())
 
     for group_name in groups_in_recipe:
-        group_rows = df[df[RECIPE_GROUP_COL] == group_name]
+        group_rows_all = df[df[RECIPE_GROUP_COL] == group_name]
+
+        # Produkty "Import - Nigdy" (stały import) nigdy nie dostają własnego mieszalnika -
+        # nawet w widoku docelowym/100% pozostają importowane, więc wykluczamy je z sizingu
+        # floty. Produkty "Import" z ustalonym rokiem przejścia ZOSTAJĄ w sizingu, bo flota
+        # jest wymiarowana pod docelową (w pełni dojrzałą, czyli już produkowaną) zdolność.
+        if RECIPE_SOURCING_COL in group_rows_all.columns and RECIPE_IMPORT_TRANSITION_COL in group_rows_all.columns:
+            permanent_import_mask = (group_rows_all[RECIPE_SOURCING_COL] == "Import") & \
+                                     (group_rows_all[RECIPE_IMPORT_TRANSITION_COL] == "Nigdy (stały import)")
+            group_rows = group_rows_all[~permanent_import_mask]
+        else:
+            group_rows = group_rows_all
+
+        if group_rows.empty:
+            continue  # cała grupa to stały import - brak mieszalnika dla tej grupy
+
         defaults = GROUP_PHYSICAL_DEFAULTS.get(group_name, GROUP_PHYSICAL_DEFAULTS["Hydraulic Oils"])
 
         weights = group_rows[RECIPE_ANNUAL_COL].clip(lower=0.001)
@@ -1808,6 +1935,7 @@ with tab1:
             for i in range(RAMPUP_YEARS):
                 year_tonnage_t = 0.0
                 util_weighted, util_weight_sum = 0.0, 0.0
+                util_ciagla_weighted = 0.0
                 for m in st.session_state.confirmed_mixers:
                     frac = get_rampup_fraction(m["product_family"], i)
                     year_tonnage_t += (m["annual_volume"] / 1000.0) * frac
@@ -1818,11 +1946,20 @@ with tab1:
                     util_weighted += scaled_util_pct * m["capacity_m3"]
                     util_weight_sum += m["capacity_m3"]
 
+                    # Wariant ciągły (bez zaokrąglania w górę do pełnych szarż) - czysto
+                    # diagnostyczny, żeby pokazać płynny trend rosnącego zapotrzebowania nawet
+                    # gdy realna (całkowita) liczba szarż jeszcze się nie zmienia między latami.
+                    scaled_batches_ciagle = scaled_monthly_mass / m["mass_per_batch"] if m["mass_per_batch"] > 0 else 0.0
+                    scaled_util_pct_ciagly = (scaled_batches_ciagle * m["cycle_h"]) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
+                    util_ciagla_weighted += scaled_util_pct_ciagly * m["capacity_m3"]
+
                 avg_util_pct = (util_weighted / util_weight_sum) if util_weight_sum > 0 else 0.0
+                avg_util_ciagly_pct = (util_ciagla_weighted / util_weight_sum) if util_weight_sum > 0 else 0.0
                 rampup_summary_rows.append({
                     "Rok": year_labels[i], "Tonaż [t/rok]": round(year_tonnage_t, 0),
                     "% Celu": f"{(year_tonnage_t / target_annual_t * 100.0) if target_annual_t > 0 else 0:.0f}%",
-                    "Śr. Utylizacja Floty [%]": round(avg_util_pct, 1),
+                    "Śr. Utylizacja Floty [%] (pełne szarże)": round(avg_util_pct, 1),
+                    "Śr. Utylizacja Floty [%] (ciągła)": round(avg_util_ciagly_pct, 1),
                 })
                 rampup_tonnage_chart["Rok"].append(year_labels[i])
                 rampup_tonnage_chart["Tonaż [t/rok]"].append(year_tonnage_t)
@@ -1831,6 +1968,11 @@ with tab1:
             chart_df = pd.DataFrame(rampup_tonnage_chart).set_index("Rok")
             st.line_chart(chart_df)
             st.dataframe(pd.DataFrame(rampup_summary_rows), hide_index=True, use_container_width=True)
+            st.caption("ℹ️ **Pełne szarże** — realna liczba szarż zaokrąglona w górę do liczb całkowitych (tak faktycznie "
+                       "planuje się produkcję); może być identyczna w sąsiednich latach, jeśli wzrost popytu nie "
+                       "przekroczył jeszcze progu kolejnej pełnej szarży na wystarczającej liczbie mieszalników. "
+                       "**Ciągła** — ta sama utylizacja bez zaokrąglania, czysto diagnostyczna: pokazuje płynny trend "
+                       "rosnącego zapotrzebowania nawet między takimi progami.")
             st.caption(f"🎯 Docelowa produkcja (100%, jak wymiarowana jest flota): **{target_annual_t:,.0f} t/rok**. "
                        "Ta sama krzywa steruje wykorzystaniem magazynu w Zakładce 4 (wybór roku symulacji).")
 
@@ -2692,17 +2834,40 @@ with tab3:
         if recipes_df_lookup is not None and not recipes_df_lookup.empty:
             pack_cols_in_recipe = [c for c in recipes_df_lookup.columns if c.startswith("Opak: ") and c.endswith(" [%]")]
 
+        effective_year_idx_for_import = selected_rampup_year_idx if selected_rampup_year_idx is not None else RAMPUP_YEAR_TARGET_SENTINEL
+        products_imported_this_view = set()  # produkty (recipe_product) importowane w wybranym roku/widoku
+
         for m in mixers_fleet:
             kat = m["product_family"]
+            recipe_product = m.get("recipe_product")
+
+            # Produkt z DEDYKOWANYM zbiornikiem (recipe_product ustawiony), który w wybranym
+            # roku/widoku jest jeszcze importowany (nie osiągnął swojego roku przejścia) - jego
+            # BIEŻĄCA (ten rok) produkcja to 0, a zapotrzebowanie na magazyn liczy się osobno w
+            # sekcji "Import" poniżej, z rytmu dostaw. Budynek (docelowe 100%) i tak MUSI
+            # uwzględnić jego docelową (już produkowaną) wielkość, więc target liczy się zawsze,
+            # niezależnie od statusu importu w wybranym roku. Zbiorniki współdzielone (bez
+            # pojedynczego recipe_product) nie są dziś rozbijane per produkt - traktowane jak
+            # dotychczas, w całości jako produkcja.
+            is_imported_this_view = False
+            if recipe_product and recipes_df_lookup is not None and RECIPE_SOURCING_COL in recipes_df_lookup.columns:
+                match_src = recipes_df_lookup[recipes_df_lookup[RECIPE_PRODUCT_COL] == recipe_product]
+                if not match_src.empty:
+                    src_row = match_src.iloc[0]
+                    if is_product_imported_in_year(src_row.get(RECIPE_SOURCING_COL, "Produkcja własna"),
+                                                    src_row.get(RECIPE_IMPORT_TRANSITION_COL, ""),
+                                                    effective_year_idx_for_import):
+                        is_imported_this_view = True
+                        products_imported_this_view.add(recipe_product)
+
             rampup_frac_fg = get_rampup_fraction(kat, selected_rampup_year_idx) if selected_rampup_year_idx is not None else 1.0
             target_monthly_mass = m["batches_count"] * m["mass_per_batch"]
-            mixer_monthly_mass = target_monthly_mass * rampup_frac_fg
+            mixer_monthly_mass = 0.0 if is_imported_this_view else target_monthly_mass * rampup_frac_fg
             rho_linii = st.session_state.active_portfolio[kat]["density"]
 
             # Priorytet 1: rozbicie na opakowania WPROST z receptury tego konkretnego produktu
             # (Zakładka 1), jeśli podano i sumuje się w przybliżeniu do 100%.
             recipe_split = None
-            recipe_product = m.get("recipe_product")
             if recipe_product and pack_cols_in_recipe:
                 match = recipes_df_lookup[recipes_df_lookup[RECIPE_PRODUCT_COL] == recipe_product]
                 if not match.empty:
@@ -2748,28 +2913,106 @@ with tab3:
                 miejsca_paletowe_target = math.ceil((liczba_palet_month_target / dni_robocze_miesiac) * czas_skladowania_dni)
                 fg_positions_target_list.append(miejsca_paletowe_target)
 
-                real_split_rows.append({
-                    "Typ": "FG", "Reaktor 🔒": m["tag"], "Linia 🔒": kat, "Opakowanie 📦": p, "Udział": f"{udzial_pct:.1f}%",
-                    "Źródło %": split_source,
-                    "Opakowań [/mies]": int(liczba_sztuk_month), "Palet [/mies] 🧱": int(liczba_palet_month),
-                    "Miejsca magazynowe [szt] 📐": int(miejsca_paletowe), "Czas rozlewu strumienia [h] ⏱️": round(czas_rozlewu_h, 1),
-                    "Wąskie gardło": "Pompa" if q_pump_m3h < sekcja_nalewania_m3_h else "Sekcja nalewania"
-                })
+                if not is_imported_this_view:
+                    real_split_rows.append({
+                        "Typ": "FG", "Reaktor 🔒": m["tag"], "Linia 🔒": kat, "Opakowanie 📦": p, "Udział": f"{udzial_pct:.1f}%",
+                        "Źródło %": split_source,
+                        "Opakowań [/mies]": int(liczba_sztuk_month), "Palet [/mies] 🧱": int(liczba_palet_month),
+                        "Miejsca magazynowe [szt] 📐": int(miejsca_paletowe), "Czas rozlewu strumienia [h] ⏱️": round(czas_rozlewu_h, 1),
+                        "Wąskie gardło": "Pompa" if q_pump_m3h < sekcja_nalewania_m3_h else "Sekcja nalewania"
+                    })
 
         st.session_state["logistics_results"] = real_split_rows
 
-        if real_split_rows:
+        # ============================================================
+        # IMPORT — bufor magazynowy dla produktów jeszcze/na stałe importowanych, liczony z
+        # rytmu dostaw (częstotliwość + wielkość), a nie z cyklu produkcji. Model zapasu
+        # cyklicznego: szczytowy stan magazynu = wielkość 1 dostawy + bufor bezpieczeństwa
+        # (bo tuż przed kolejną dostawą bufor bezpieczeństwa wciąż stoi, a nowa dostawa
+        # dokłada się na wierzch) - to jest wartość, pod którą trzeba realnie zarezerwować
+        # miejsce, nie średnia.
+        # ============================================================
+        import_pallet_mass_kg = st.session_state.get("import_pallet_mass_kg", 800.0)
+
+        def compute_import_positions(year_idx_for_calc):
+            rows, total_positions = [], 0
+            if recipes_df_lookup is None or recipes_df_lookup.empty or RECIPE_SOURCING_COL not in recipes_df_lookup.columns:
+                return rows, total_positions
+            import_rows_df = recipes_df_lookup[recipes_df_lookup[RECIPE_SOURCING_COL] == "Import"]
+            for _, r in import_rows_df.iterrows():
+                if not is_product_imported_in_year(r.get(RECIPE_SOURCING_COL, "Produkcja własna"),
+                                                     r.get(RECIPE_IMPORT_TRANSITION_COL, ""), year_idx_for_calc):
+                    continue
+                annual_t_target = float(r.get(RECIPE_ANNUAL_COL, 0) or 0)
+                frac = get_rampup_fraction(r[RECIPE_GROUP_COL], year_idx_for_calc) if year_idx_for_calc != RAMPUP_YEAR_TARGET_SENTINEL else 1.0
+                effective_annual_t = annual_t_target * frac
+                daily_t = effective_annual_t / WORKING_DAYS_YEAR if WORKING_DAYS_YEAR > 0 else 0.0
+                freq_days = float(r.get(RECIPE_IMPORT_FREQ_COL, 0) or 0)
+                lot_t = float(r.get(RECIPE_IMPORT_LOT_COL, 0) or 0)
+                safety_days = float(r.get(RECIPE_IMPORT_SAFETY_DAYS_COL, 0) or 0)
+                safety_stock_t = safety_days * daily_t
+                peak_stock_t = lot_t + safety_stock_t
+                deliveries_per_year = math.ceil(effective_annual_t / lot_t) if lot_t > 0 else 0
+                miejsca_paletowe_import = math.ceil((peak_stock_t * 1000.0) / import_pallet_mass_kg) if import_pallet_mass_kg > 0 else 0
+                rows.append({
+                    "Produkt": r[RECIPE_PRODUCT_COL], "Linia": r[RECIPE_GROUP_COL],
+                    "Tryb": "Stały import" if r.get(RECIPE_IMPORT_TRANSITION_COL, "") == "Nigdy (stały import)" else r.get(RECIPE_IMPORT_TRANSITION_COL, ""),
+                    "Wolumen [t/rok]": round(effective_annual_t, 1),
+                    "Częstotliwość dostawy [dni]": freq_days if freq_days > 0 else "—",
+                    "Wielkość dostawy [t]": lot_t,
+                    "Dostaw/rok": deliveries_per_year,
+                    "Bufor bezpieczeństwa [t]": round(safety_stock_t, 2),
+                    "Szczytowy zapas [t]": round(peak_stock_t, 2),
+                    "Miejsca magazynowe [szt]": int(miejsca_paletowe_import),
+                })
+                total_positions += miejsca_paletowe_import
+            return rows, total_positions
+
+        import_warehouse_rows_view, total_import_positions = compute_import_positions(effective_year_idx_for_import)
+        # Baseline "budynku" (target/100%) uwzględnia TYLKO stały import ("Nigdy") - produkty z
+        # rokiem przejścia w widoku docelowym są już produkowane, więc ich miejsce liczy fg_positions_target_list.
+        import_warehouse_rows_target, total_import_positions_target = compute_import_positions(RAMPUP_YEAR_TARGET_SENTINEL)
+
+        rm_warehouse_rows = st.session_state.get("raw_material_warehouse_rows", [])
+
+        if real_split_rows or rm_warehouse_rows or import_warehouse_rows_view:
             st.markdown("##### 🔀 Wyniki Symulacji Logistyczno-Magazynowej (Wyroby Gotowe, FG)")
-            st.caption("Kolumna **Źródło %** pokazuje, czy rozbicie na opakowania tego wiersza pochodzi z receptury "
-                       "(Zakładka 1, per produkt) czy z ręcznego podziału w panelu bocznym (per grupa, gdy receptura "
-                       "nie precyzuje opakowań dla tego produktu). Kolumna **Wąskie gardło** pokazuje, czy czas rozlewu "
-                       "jest dziś limitowany przez wydajność pompy TEGO reaktora (Zakładka 3), czy przez sekcję głowic nalewczych.")
-            st.dataframe(pd.DataFrame(real_split_rows), hide_index=True, use_container_width=True)
+            if real_split_rows:
+                st.caption("Kolumna **Źródło %** pokazuje, czy rozbicie na opakowania tego wiersza pochodzi z receptury "
+                           "(Zakładka 1, per produkt) czy z ręcznego podziału w panelu bocznym (per grupa, gdy receptura "
+                           "nie precyzuje opakowań dla tego produktu). Kolumna **Wąskie gardło** pokazuje, czy czas rozlewu "
+                           "jest dziś limitowany przez wydajność pompy TEGO reaktora (Zakładka 3), czy przez sekcję głowic nalewczych.")
+                st.dataframe(pd.DataFrame(real_split_rows), hide_index=True, use_container_width=True)
+            else:
+                st.info("ℹ️ W wybranym roku/widoku wszystkie produkty tej floty są jeszcze importowane (patrz sekcja "
+                        "'📦 Import' poniżej) — brak własnej produkcji FG do pokazania.")
+
+            # ============================================================
+            # IMPORT — produkty importowane w wybranym roku/widoku
+            # ============================================================
+            if import_warehouse_rows_view:
+                st.markdown("##### 📦 Import — Bufor Magazynowy")
+                st.caption("Produkty jeszcze (lub na stałe) importowane w wybranym roku/widoku — bufor liczony z rytmu "
+                           "dostaw, nie z cyklu produkcji. **Szczytowy zapas** = wielkość 1 dostawy + bufor bezpieczeństwa "
+                           "(bo tuż przed kolejną dostawą bufor bezpieczeństwa wciąż stoi w magazynie).")
+                import_pallet_mass_kg = st.number_input(
+                    "Masa 1 palety importowej [kg]:", min_value=1.0, value=float(import_pallet_mass_kg), step=50.0,
+                    key="import_pallet_mass_kg_input",
+                    help="Uproszczenie: jedna wspólna masa/paletę dla wszystkich produktów importowanych, do przeliczenia "
+                         "szczytowego zapasu [t] na miejsca magazynowe [szt]."
+                )
+                st.session_state["import_pallet_mass_kg"] = import_pallet_mass_kg
+                import_warehouse_rows_view, total_import_positions = compute_import_positions(effective_year_idx_for_import)
+                import_warehouse_rows_target, total_import_positions_target = compute_import_positions(RAMPUP_YEAR_TARGET_SENTINEL)
+                st.dataframe(pd.DataFrame(import_warehouse_rows_view), hide_index=True, use_container_width=True)
+                st.metric("📦 Miejsca magazynowe — Import (ten rok)", f"{total_import_positions} szt.")
+            else:
+                st.info("ℹ️ Brak produktów importowanych w wybranym roku/widoku (albo brak wgranych receptur z "
+                        "'Sposób Pozyskania' = 'Import' w Zakładce 1).")
 
             # ============================================================
             # SUROWCE (RM) W BECZKACH/IBC/WORKACH — z Zakładki 6, jeśli policzone
             # ============================================================
-            rm_warehouse_rows = st.session_state.get("raw_material_warehouse_rows", [])
             if rm_warehouse_rows:
                 with st.expander("🧴 Surowce w Beczkach/IBC/Workach (RM) — z Zakładki 6", expanded=False):
                     st.caption("Surowce nietrafiające do zbiorników (Zakładka 6) — te też stoją w tym samym "
@@ -2823,14 +3066,16 @@ with tab3:
             rm_rampup_frac = (get_rampup_fraction("__global__", selected_rampup_year_idx)
                                if selected_rampup_year_idx is not None else 1.0)
             total_rm_positions = math.ceil(sum(r["Miejsca magazynowe [szt]"] for r in rm_warehouse_rows) * rm_rampup_frac)
-            total_miejsca_magazynowe = total_fg_positions + total_rm_positions
+            total_miejsca_magazynowe = total_fg_positions + total_rm_positions + total_import_positions
 
             # Budynek stawiany RAZ, pod docelową (100%) produkcję — niezależnie od wybranego roku
             # symulacji. RM w rm_warehouse_rows jest już liczone przy 100% (Zakładka 6 nie skaluje
-            # rampupem), więc target = suma bez przeliczenia; FG target liczony osobno w pętli wyżej.
+            # rampupem), więc target = suma bez przeliczenia; FG target liczony osobno w pętli wyżej;
+            # Import target = TYLKO produkty na stałe importowane ("Nigdy") - te potrzebują miejsca
+            # w magazynie nawet w pełnej dojrzałości.
             total_fg_positions_target = sum(fg_positions_target_list)
             total_rm_positions_target = sum(r["Miejsca magazynowe [szt]"] for r in rm_warehouse_rows)
-            total_miejsca_magazynowe_target = total_fg_positions_target + total_rm_positions_target
+            total_miejsca_magazynowe_target = total_fg_positions_target + total_rm_positions_target + total_import_positions_target
             total_floor_slots_target = math.ceil(total_miejsca_magazynowe_target / liczba_poziomow) if liczba_poziomow > 0 else total_miejsca_magazynowe_target
             total_powierzchnia_m2 = total_floor_slots_target * powierzchnia_na_miejsce
 
@@ -2838,19 +3083,21 @@ with tab3:
                 if total_miejsca_magazynowe_target > 0 else 0.0
 
             m_wh1, m_wh2, m_wh3, m_wh4 = st.columns(4)
-            with m_wh1: st.metric("📦 Miejsca paletowe — ten rok (FG + RM)", f"{total_miejsca_magazynowe:,} szt.",
-                                   help=f"FG: {total_fg_positions:,} szt. · RM: {total_rm_positions:,} szt.")
-            with m_wh2: st.metric("🎯 Miejsca paletowe — docelowe (100%)", f"{total_miejsca_magazynowe_target:,} szt.")
+            with m_wh1: st.metric("📦 Miejsca paletowe — ten rok (FG + RM + Import)", f"{total_miejsca_magazynowe:,} szt.",
+                                   help=f"FG: {total_fg_positions:,} szt. · RM: {total_rm_positions:,} szt. · Import: {total_import_positions:,} szt.")
+            with m_wh2: st.metric("🎯 Miejsca paletowe — docelowe (100%)", f"{total_miejsca_magazynowe_target:,} szt.",
+                                   help=f"W tym stały import (\"Nigdy\"): {total_import_positions_target:,} szt.")
             with m_wh3: st.metric("📐 Powierzchnia magazynu (budowana pod 100%)", f"{total_powierzchnia_m2:,.0f} m²")
             with m_wh4: st.metric("📊 Wykorzystanie magazynu w tym roku", f"{wykorzystanie_magazynu_pct:.0f}%")
 
-            st.caption("💡 Powierzchnia = ⌈(docelowe miejsca paletowe FG + RM) / liczba poziomów⌉ × powierzchnia/miejsce "
-                       "(1 poziom) — budynek stawiany RAZ, pod pełną (100%) zdolność. "
+            st.caption("💡 Powierzchnia = ⌈(docelowe miejsca paletowe FG + RM + stały Import) / liczba poziomów⌉ × "
+                       "powierzchnia/miejsce (1 poziom) — budynek stawiany RAZ, pod pełną (100%) zdolność. "
                        "Bufor **surowców w zbiornikach** (silosy) jest liczony i wymiarowany osobno w Zakładce 6. "
                        f"Powierzchnia budynku pozostaje wymiarowana pod 100% celu niezależnie od wybranego roku — "
                        f"zmienia się tylko pokazane wykorzystanie ({selected_rampup_year_label}).")
         else:
-            st.info("Brak skonfigurowanego podziału opakowań o niezerowym udziale — uzupełnij procenty w panelu bocznym.")
+            st.info("Brak skonfigurowanego podziału opakowań o niezerowym udziale — uzupełnij procenty w panelu bocznym, "
+                    "albo (dla produktów importowanych) uzupełnij dane importu w Zakładce 1.")
 
 # ==========================================
 # ZAKŁADKA 4: ANALIZA FINANSOWA
@@ -3537,6 +3784,8 @@ with tab7:
             key="recipes_data_editor",
             column_config={
                 RECIPE_GROUP_COL: st.column_config.SelectboxColumn(options=RECIPE_PRODUCT_GROUPS),
+                RECIPE_SOURCING_COL: st.column_config.SelectboxColumn(options=RECIPE_SOURCING_OPTIONS),
+                RECIPE_IMPORT_TRANSITION_COL: st.column_config.SelectboxColumn(options=[""] + RECIPE_IMPORT_TRANSITION_OPTIONS),
             }
         )
         st.session_state.recipes_df = edited_recipes_df
