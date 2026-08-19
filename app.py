@@ -3200,18 +3200,34 @@ with tab3:
 
             # ============================================================
             # SYMULACJA STANU MAGAZYNOWEGO W CZASIE (60 miesięcy = 5 lat rozruchu): jak zapas
-            # WG będzie się zmieniał w zależności od rosnącej produkcji (krzywa rozruchu) przy
-            # ZAŁOŻONYM TEMPIE WYSYŁEK (pole "Rzeczywiste/planowane wysyłki/dzień" powyżej) -
-            # to bezpośrednio pokazuje, czy i kiedy zapas rośnie ponad projektową pojemność.
+            # WG będzie się zmieniał w zależności od PLANOWANEJ PRODUKCJI (krzywa rozruchu) przy
+            # ZAŁOŻONYM TEMPIE WYSYŁEK (pole "Rzeczywiste/planowane wysyłki/dzień" powyżej) - sam
+            # poziom wysyłek na wykresie POMIJAMY (jest już ujęty w komunikacie ostrzegawczym
+            # powyżej) i pokazujemy tylko wynikowy stan magazynowy, razem z jego wartością.
             # ============================================================
             st.markdown("###### 📈 Symulacja Stanu Magazynowego — 5 lat")
-            st.caption("Miesiąc po miesiącu: ile palet WG przybywa z produkcji (wg krzywej rozruchu z Zakładki 2) "
-                       "kontra ile wyjeżdża (wg wysyłek ustawionych powyżej) — i jak w efekcie zmienia się stan "
-                       "magazynowy na tle projektowej pojemności budynku.")
+            st.caption("Zgodnie z planowaną produkcją (krzywa rozruchu z Zakładki 2) i wysyłkami ustawionymi "
+                       "powyżej: jak zmienia się stan magazynowy WG w palet oraz jego wartość, na tle projektowej "
+                       "pojemności budynku.")
 
             total_palety_month_fg_target = sum(fg_pallets_target_list)
             target_annual_t_ship = sum(m["annual_volume"] for m in mixers_fleet) / 1000.0
             shipped_pallets_month_assumed = actual_pallets_per_day * dni_robocze_miesiac
+            fg_capacity_pallets = total_fg_positions_target
+
+            # Przelicznik palety -> kg -> koszt, do wyceny zapasu. Koszt/kg pochodzi z Zakładki 6
+            # (per grupa produktowa), ważony rzeczywistym miksem produkcji tej floty; jeśli
+            # Zakładka 6 nie była jeszcze skonfigurowana w tej sesji, używana jest wartość domyślna.
+            target_monthly_mass_kg_total = sum(m["batches_count"] * m["mass_per_batch"] for m in mixers_fleet)
+            avg_kg_per_pallet = (target_monthly_mass_kg_total / total_palety_month_fg_target) if total_palety_month_fg_target > 0 else 0.0
+            manuf_cost_per_group_stock = st.session_state.get("manuf_cost_per_group", {})
+            total_annual_volume_kg = sum(m["annual_volume"] for m in mixers_fleet)
+            avg_manuf_cost_per_kg = (sum(m["annual_volume"] * manuf_cost_per_group_stock.get(m["product_family"], 2.12) for m in mixers_fleet)
+                                      / total_annual_volume_kg) if total_annual_volume_kg > 0 else 2.12
+            waluta_stock = st.selectbox("Waluta wyceny zapasu:", ["PLN", "EUR", "USD"], key="waluta_stock_value")
+            if not manuf_cost_per_group_stock:
+                st.caption(f"ℹ️ Koszt produkcyjny per grupa nie był jeszcze ustawiany w Zakładce 6 — użyto wartości "
+                           f"domyślnej ({avg_manuf_cost_per_kg:.2f} {waluta_stock}/kg). Ustaw go w Zakładce 6, aby wycena była dokładniejsza.")
 
             stock_rows = []
             stock_level = 0.0
@@ -3223,37 +3239,29 @@ with tab3:
 
                 for mi in range(1, 13):
                     stock_level = max(stock_level + production_pallets_month_yi - shipped_pallets_month_assumed, 0.0)
+                    wartosc_zapasu = stock_level * avg_kg_per_pallet * avg_manuf_cost_per_kg
                     stock_rows.append({
                         "Miesiąc": yi * 12 + mi, "Okres": f"Rok {yi + 1}, mies. {mi}",
-                        "Produkcja [pal/mies]": production_pallets_month_yi,
-                        "Wysyłki [pal/mies]": shipped_pallets_month_assumed,
                         "Stan magazynowy [pal]": stock_level,
+                        "Pojemność FG [pal]": fg_capacity_pallets,
+                        f"Wartość zapasu [{waluta_stock}]": wartosc_zapasu,
                     })
 
             df_stock = pd.DataFrame(stock_rows)
-            fg_capacity_pallets = total_fg_positions_target
-            try:
-                import altair as alt
-                base = alt.Chart(df_stock).encode(x=alt.X("Miesiąc:Q", title="Miesiąc symulacji (1-60, 12/rok)"))
-                area_stock = base.mark_area(opacity=0.25, color="#1f77b4").encode(
-                    y=alt.Y("Stan magazynowy [pal]:Q", axis=alt.Axis(title="Stan magazynowy [palety]", titleColor="#1f77b4"))
-                )
-                line_stock = base.mark_line(color="#1f77b4").encode(y="Stan magazynowy [pal]:Q")
-                capacity_df = pd.DataFrame({"y": [fg_capacity_pallets]})
-                line_capacity = alt.Chart(capacity_df).mark_rule(color="#d62728", strokeDash=[6, 4]).encode(y="y:Q")
-                line_production = base.mark_line(color="#2ca02c", strokeDash=[2, 2]).encode(
-                    y=alt.Y("Produkcja [pal/mies]:Q", axis=alt.Axis(title="Przepływ [palety/mies.]", titleColor="#2ca02c"))
-                )
-                line_shipments = base.mark_line(color="#ff7f0e", strokeDash=[2, 2]).encode(
-                    y=alt.Y("Wysyłki [pal/mies]:Q", axis=alt.Axis(title="Przepływ [palety/mies.]"))
-                )
-                combo_chart = alt.layer(area_stock, line_stock, line_capacity, line_production, line_shipments).resolve_scale(y="independent")
-                st.altair_chart(combo_chart, use_container_width=True)
-                st.caption("🔵 Stan magazynowy (lewa oś) · 🔴 przerywana = projektowa pojemność FG · "
-                           "🟢/🟠 przerywane = produkcja/wysyłki miesięczne (prawa oś).")
-            except ImportError:
-                st.line_chart(df_stock.set_index("Miesiąc")[["Stan magazynowy [pal]", "Produkcja [pal/mies]", "Wysyłki [pal/mies]"]])
-                st.caption(f"ℹ️ Altair niedostępny — pokazano wspólną oś Y. Projektowa pojemność FG: {fg_capacity_pallets:,.0f} palet.")
+
+            st.markdown(f"**Stan magazynowy [palety]** (na tle projektowej pojemności FG = {fg_capacity_pallets:,.0f} palet)")
+            st.line_chart(df_stock.set_index("Miesiąc")[["Stan magazynowy [pal]", "Pojemność FG [pal]"]])
+
+            st.markdown(f"**Wartość zapasu [{waluta_stock}]** (koszt produkcyjny × ilość magazynowana)")
+            st.line_chart(df_stock.set_index("Miesiąc")[[f"Wartość zapasu [{waluta_stock}]"]])
+
+            v_c1, v_c2, v_c3 = st.columns(3)
+            with v_c1:
+                st.metric("💰 Wartość zapasu — koniec Roku 1", f"{df_stock.iloc[11][f'Wartość zapasu [{waluta_stock}]']:,.0f} {waluta_stock}")
+            with v_c2:
+                st.metric("💰 Wartość zapasu — koniec Roku 5", f"{df_stock.iloc[-1][f'Wartość zapasu [{waluta_stock}]']:,.0f} {waluta_stock}")
+            with v_c3:
+                st.metric("📈 Szczytowa wartość zapasu", f"{df_stock[f'Wartość zapasu [{waluta_stock}]'].max():,.0f} {waluta_stock}")
 
             if stock_level > fg_capacity_pallets:
                 st.error(f"🔴 Przy tych założeniach stan magazynowy po 5 latach ({stock_level:,.0f} palet) "
