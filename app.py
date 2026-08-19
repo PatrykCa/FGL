@@ -1098,6 +1098,251 @@ def parse_equipment_excel(uploaded_file):
     return df.reset_index(drop=True), errors
 
 
+# ==========================================
+# RAPORT 5-LETNI (PDF) - zbieranie danych i generowanie dokumentu
+# ==========================================
+
+def compute_pdf_report_year_data():
+    """
+    Zbiera dane per rok symulacji rozruchu (1-5) potrzebne do raportu PDF: tonaż docelowy vs
+    produkowany vs importowany, produkty, flota (kotły/mieszalniki), wykorzystanie magazynu i
+    KPI energetyczne. Czyta WYŁĄCZNIE z session_state / już policzonych struktur (confirmed_mixers,
+    recipes_df, stock_simulation_df z Zakładki 4, energy_kpi_rows_report z Zakładki 6) - nie
+    przelicza niczego od nowa poza prostym rozbiciem produkcja/import per produkt, tą samą logiką
+    co Zakładka 4 (is_product_imported_in_year). Zwraca None, jeśli flota nie jest jeszcze
+    zatwierdzona (nic do zaraportowania).
+    """
+    mixers = st.session_state.get("confirmed_mixers", [])
+    if not mixers:
+        return None
+
+    target_annual_t = sum(m["annual_volume"] for m in mixers) / 1000.0
+    recipes_df = st.session_state.get("recipes_df")
+    energy_rows = st.session_state.get("energy_kpi_rows_report", [])
+    stock_df = st.session_state.get("stock_simulation_df")
+    fg_capacity = st.session_state.get("fg_capacity_pallets_report", 0.0)
+    has_recipes = recipes_df is not None and not recipes_df.empty and RECIPE_SOURCING_COL in recipes_df.columns
+
+    years_data = []
+    for i in range(RAMPUP_YEARS):
+        year_tonnage_t = sum((m["annual_volume"] / 1000.0) * get_rampup_fraction(m["product_family"], i) for m in mixers)
+        frac_year = (year_tonnage_t / target_annual_t) if target_annual_t > 0 else 0.0
+
+        produced_t, imported_t = 0.0, 0.0
+        product_rows = []
+        if has_recipes:
+            for _, r in recipes_df.iterrows():
+                ann_t_target = float(r.get(RECIPE_ANNUAL_COL, 0) or 0)
+                line_frac = get_rampup_fraction(r[RECIPE_GROUP_COL], i)
+                eff_t = ann_t_target * line_frac
+                is_imp = is_product_imported_in_year(r.get(RECIPE_SOURCING_COL, "Produkcja własna"),
+                                                      r.get(RECIPE_IMPORT_TRANSITION_COL, ""), i)
+                if is_imp:
+                    imported_t += eff_t
+                else:
+                    produced_t += eff_t
+                if eff_t > 0:
+                    product_rows.append({"product": str(r[RECIPE_PRODUCT_COL]), "group": str(r[RECIPE_GROUP_COL]),
+                                          "kg": eff_t * 1000.0, "mode": "Import" if is_imp else "Production"})
+        else:
+            produced_t = year_tonnage_t  # brak wgranej receptury - zakładamy 100% produkcja własna
+
+        wh_util_pct, wh_value = None, None
+        if stock_df is not None and not stock_df.empty:
+            month_row_idx = i * 12 + 11  # ostatni miesiąc danego roku (indeks 0-based)
+            if month_row_idx < len(stock_df):
+                row = stock_df.iloc[month_row_idx]
+                stock_pal = row["Stan magazynowy [pal]"]
+                wh_util_pct = (stock_pal / fg_capacity * 100.0) if fg_capacity > 0 else None
+                value_cols = [c for c in stock_df.columns if c.startswith("Wartość zapasu")]
+                wh_value = row[value_cols[0]] if value_cols else None
+
+        years_data.append({
+            "year": i + 1, "target_pct": frac_year * 100.0, "total_t": year_tonnage_t,
+            "produced_t": produced_t, "imported_t": imported_t,
+            "products": sorted(product_rows, key=lambda x: -x["kg"])[:12],
+            "wh_util_pct": wh_util_pct, "wh_value": wh_value,
+            "energy": energy_rows[i] if i < len(energy_rows) else {},
+        })
+
+    return {"years": years_data, "target_annual_t": target_annual_t, "fleet": mixers, "has_recipes": has_recipes}
+
+
+def _mpl_fig_to_png_bytes(fig):
+    """Zapisuje figurę matplotlib do bajtów PNG (do osadzenia w PDF przez reportlab)."""
+    buf = io.BytesIO()
+    fig.savefig(buf, format="png", dpi=150, bbox_inches="tight")
+    buf.seek(0)
+    return buf.getvalue()
+
+
+def generate_pdf_report_bytes(report_data, waluta_report):
+    """
+    Buduje dokument PDF (reportlab) po angielsku, z tabelami i wykresami (matplotlib -> PNG),
+    podsumowujący 5-letnią symulację rozruchu: skala produkcji per rok, produkty, produkcja
+    własna vs import, flota (mieszalniki), wykorzystanie magazynu, KPI energetyczne.
+    Zwraca bajty PDF. Zgłasza ImportError, jeśli reportlab/matplotlib nie są zainstalowane -
+    obsługiwane w UI (Zakładka 6) komunikatem z instrukcją dopisania do requirements.txt.
+    """
+    import os
+    import matplotlib
+    matplotlib.use("Agg")
+    import matplotlib.pyplot as plt
+    from reportlab.lib.pagesizes import A4
+    from reportlab.lib.units import cm
+    from reportlab.lib import colors
+    from reportlab.platypus import (SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer, Image, PageBreak)
+    from reportlab.lib.styles import getSampleStyleSheet, ParagraphStyle
+    from reportlab.pdfbase import pdfmetrics
+    from reportlab.pdfbase.ttfonts import TTFont
+
+    # Domyślne czcionki reportlab (Helvetica) nie obsługują polskich znaków diakrytycznych -
+    # rejestrujemy DejaVu Sans (dołączone do matplotlib, więc zawsze dostępne skoro matplotlib
+    # jest już zależnością tej apki), żeby np. polskie nazwy produktów wpisane w recepturach
+    # renderowały się poprawnie zamiast jako czarne kwadraty.
+    try:
+        mpl_font_dir = os.path.join(matplotlib.get_data_path(), "fonts", "ttf")
+        pdfmetrics.registerFont(TTFont("DejaVuSans", os.path.join(mpl_font_dir, "DejaVuSans.ttf")))
+        pdfmetrics.registerFont(TTFont("DejaVuSans-Bold", os.path.join(mpl_font_dir, "DejaVuSans-Bold.ttf")))
+        font_regular, font_bold = "DejaVuSans", "DejaVuSans-Bold"
+    except Exception:
+        font_regular, font_bold = "Helvetica", "Helvetica-Bold"
+
+    years = report_data["years"]
+    target_annual_t = report_data["target_annual_t"]
+    fleet = report_data["fleet"]
+
+    styles = getSampleStyleSheet()
+    title_style = ParagraphStyle("TitleCustom", parent=styles["Title"], fontSize=20, fontName=font_bold)
+    h2_style = ParagraphStyle("H2Custom", parent=styles["Heading2"], spaceBefore=14, fontName=font_bold)
+    body_style = ParagraphStyle("BodyCustom", parent=styles["BodyText"], fontName=font_regular)
+    h4_style = ParagraphStyle("H4Custom", parent=styles["Heading4"], fontName=font_bold)
+
+    def styled_table(data_rows, col_widths=None):
+        t = Table(data_rows, colWidths=col_widths, repeatRows=1)
+        t.setStyle(TableStyle([
+            ("BACKGROUND", (0, 0), (-1, 0), colors.HexColor("#1F4E78")),
+            ("TEXTCOLOR", (0, 0), (-1, 0), colors.white),
+            ("FONTNAME", (0, 0), (-1, 0), font_bold),
+            ("FONTNAME", (0, 1), (-1, -1), font_regular),
+            ("FONTSIZE", (0, 0), (-1, -1), 8),
+            ("GRID", (0, 0), (-1, -1), 0.5, colors.grey),
+            ("ROWBACKGROUNDS", (0, 1), (-1, -1), [colors.white, colors.HexColor("#F2F2F2")]),
+            ("VALIGN", (0, 0), (-1, -1), "MIDDLE"),
+        ]))
+        return t
+
+    story = []
+
+    # --- Strona tytułowa ---
+    story.append(Paragraph("5-Year Production Scale-Up Report", title_style))
+    story.append(Spacer(1, 0.3 * cm))
+    story.append(Paragraph(f"Generated: {pd.Timestamp.now().strftime('%Y-%m-%d %H:%M')}", body_style))
+    story.append(Paragraph(f"Target annual production capacity (100%, Year 5+): {target_annual_t:,.0f} t/year", body_style))
+    story.append(Paragraph(f"Currency: {waluta_report}", body_style))
+    story.append(Spacer(1, 0.8 * cm))
+
+    # --- Wykres 1: tonaż produkowany vs importowany vs cel, per rok ---
+    fig1, ax1 = plt.subplots(figsize=(6.5, 3.2))
+    yrs = [y["year"] for y in years]
+    ax1.bar(yrs, [y["produced_t"] for y in years], label="Produced", color="#1f77b4")
+    ax1.bar(yrs, [y["imported_t"] for y in years], bottom=[y["produced_t"] for y in years], label="Imported", color="#ff7f0e")
+    ax1.axhline(target_annual_t, color="#d62728", linestyle="--", linewidth=1.2, label="Target (100%)")
+    ax1.set_xlabel("Year")
+    ax1.set_ylabel("Tonnage [t/year]")
+    ax1.set_title("Production Volume: Own Production vs. Import")
+    ax1.set_xticks(yrs)
+    ax1.legend(fontsize=8)
+    story.append(Image(io.BytesIO(_mpl_fig_to_png_bytes(fig1)), width=16 * cm, height=7.9 * cm))
+    plt.close(fig1)
+
+    # --- Wykres 2: stan magazynowy w czasie (jeśli dostępny) ---
+    stock_df = st.session_state.get("stock_simulation_df")
+    if stock_df is not None and not stock_df.empty:
+        fig2, ax2 = plt.subplots(figsize=(6.5, 3.0))
+        ax2.bar(stock_df["Miesiąc"], stock_df["Stan magazynowy [pal]"], color="#1f77b4", width=0.8)
+        ax2.set_xlabel("Month (1-60)")
+        ax2.set_ylabel("Pallet positions")
+        ax2.set_title("Finished-Goods Warehouse Stock Level (Monthly)")
+        story.append(Spacer(1, 0.3 * cm))
+        story.append(Image(io.BytesIO(_mpl_fig_to_png_bytes(fig2)), width=16 * cm, height=7.4 * cm))
+        plt.close(fig2)
+
+    # --- Wykres 3: koszt energii per rok, w podziale ---
+    if years[0].get("energy"):
+        fig3, ax3 = plt.subplots(figsize=(6.5, 3.0))
+        heat_vals = [y["energy"].get("Ogrzewanie [waluta/rok]", 0) for y in years]
+        proc_vals = [y["energy"].get("Elektryczność - proces (w tym chłodzenie) [waluta/rok]", 0) for y in years]
+        fac_vals = [y["energy"].get("Elektryczność - pozaprodukcyjne (stałe) [waluta/rok]", 0) for y in years]
+        ax3.bar(yrs, heat_vals, label="Heating", color="#d62728")
+        ax3.bar(yrs, proc_vals, bottom=heat_vals, label="Electricity - Process (incl. cooling)", color="#1f77b4")
+        bottom2 = [h + p for h, p in zip(heat_vals, proc_vals)]
+        ax3.bar(yrs, fac_vals, bottom=bottom2, label="Electricity - Facility (fixed)", color="#2ca02c")
+        ax3.set_xlabel("Year")
+        ax3.set_ylabel(f"Energy cost [{waluta_report}/year]")
+        ax3.set_title("Energy Cost Breakdown by Year")
+        ax3.set_xticks(yrs)
+        ax3.legend(fontsize=7)
+        story.append(Spacer(1, 0.3 * cm))
+        story.append(Image(io.BytesIO(_mpl_fig_to_png_bytes(fig3)), width=16 * cm, height=7.4 * cm))
+        plt.close(fig3)
+
+    story.append(PageBreak())
+
+    # --- Flota (kotły / mieszalniki) - raz, bo nie zmienia się per rok ---
+    story.append(Paragraph("Production Fleet (Kettles / Mixers)", h2_style))
+    fleet_table_data = [["Tag", "Product Family", "Capacity [m3]", "Batch Mass [kg]", "Cycle [h]"]]
+    for m in fleet:
+        fleet_table_data.append([m["tag"], m["product_family"], f'{m["capacity_m3"]:.1f}',
+                                  f'{m["mass_per_batch"]:,.0f}', f'{m["cycle_h"]:.2f}'])
+    story.append(styled_table(fleet_table_data))
+
+    # --- Sekcje per rok ---
+    for y in years:
+        story.append(PageBreak())
+        story.append(Paragraph(f"Year {y['year']} — {y['target_pct']:.0f}% of Target", h2_style))
+
+        summary_data = [
+            ["Metric", "Value"],
+            ["Total volume (target x rampup)", f"{y['total_t']:,.0f} t"],
+            ["Produced in-house", f"{y['produced_t']:,.0f} t"],
+            ["Imported", f"{y['imported_t']:,.0f} t"],
+            ["Warehouse utilization (FG, year-end)", f"{y['wh_util_pct']:.0f}%" if y["wh_util_pct"] is not None else "n/a"],
+            ["Warehouse stock value (year-end)", f"{y['wh_value']:,.0f} {waluta_report}" if y["wh_value"] is not None else "n/a"],
+        ]
+        story.append(styled_table(summary_data, col_widths=[9 * cm, 7 * cm]))
+        story.append(Spacer(1, 0.4 * cm))
+
+        if y["energy"]:
+            energy_label_en = {
+                "Ogrzewanie [waluta/rok]": "Heating",
+                "Elektryczność - proces (w tym chłodzenie) [waluta/rok]": "Electricity - Process (incl. cooling)",
+                "Elektryczność - pozaprodukcyjne (stałe) [waluta/rok]": "Electricity - Facility (fixed)",
+                "Energia razem [waluta/rok]": "Total Energy",
+            }
+            energy_data = [["Energy KPI", f"Value [{waluta_report}/year]"]]
+            for k, v in y["energy"].items():
+                if k == "Rok":
+                    continue
+                energy_data.append([energy_label_en.get(k, k), f"{v:,.0f}"])
+            story.append(styled_table(energy_data, col_widths=[11 * cm, 5 * cm]))
+            story.append(Spacer(1, 0.4 * cm))
+
+        if y["products"]:
+            story.append(Paragraph("Products (this year, top 12 by volume)", h4_style))
+            prod_data = [["Product", "Group", "Mode", "Volume [kg]"]]
+            for p in y["products"]:
+                prod_data.append([p["product"], p["group"], p["mode"], f'{p["kg"]:,.0f}'])
+            story.append(styled_table(prod_data, col_widths=[6 * cm, 4 * cm, 3 * cm, 3 * cm]))
+
+    doc_buf = io.BytesIO()
+    doc = SimpleDocTemplate(doc_buf, pagesize=A4, topMargin=1.5 * cm, bottomMargin=1.5 * cm,
+                             leftMargin=1.5 * cm, rightMargin=1.5 * cm)
+    doc.build(story)
+    doc_buf.seek(0)
+    return doc_buf.getvalue()
+
+
 
 # ==========================================
 # FUNKCJE POMOCNICZE (wydzielone z pętli UI, aby dało się je testować niezależnie)
@@ -3260,39 +3505,42 @@ with tab3:
 
             df_stock = pd.DataFrame(stock_rows)
             wartosc_col = f"Wartość zapasu [{waluta_stock}]"
+            st.session_state["stock_simulation_df"] = df_stock  # do raportu PDF (Zakładka 6)
+            st.session_state["fg_capacity_pallets_report"] = fg_capacity_pallets
 
             st.caption(f"Wartość produktu z marżą użyta do wyceny: {avg_selling_value_per_kg:.2f} {waluta_stock}/kg "
                        f"(koszt produkcyjny × (1 + {marza_pct_stock:.0f}% marży), ważony miksem produkcji floty). "
                        "Rosnące słupki w kolejnych latach pokazują rosnące wykorzystanie magazynu wraz z rozruchem produkcji.")
 
-            st.markdown("**Stan magazynowy [palety]** (wartość zapasu na koniec każdego roku podpisana nad słupkiem)")
-            try:
-                import altair as alt
-                # Jeden wykres, JEDNA oś (palety) - słupki + etykiety tekstowe, bez niezależnej
-                # drugiej skali (to właśnie ta konstrukcja psuła się dwukrotnie wcześniej).
-                # Etykieta z wartością pojawia się tylko na ostatnim miesiącu każdego roku, żeby
-                # nie zaśmiecić wykresu 60 nakładającymi się podpisami.
-                okres_order = df_stock["Okres"].tolist()
-                df_stock["Etykieta wartości"] = ""
-                year_end_idx = list(range(11, len(df_stock), 12))  # miesiące 12, 24, 36, 48, 60
-                for idx in year_end_idx:
-                    df_stock.loc[idx, "Etykieta wartości"] = f"{df_stock.loc[idx, wartosc_col]:,.0f} {waluta_stock}"
+            st.markdown("**Stan magazynowy [palety]**")
+            st.bar_chart(df_stock.set_index("Okres")[["Stan magazynowy [pal]"]])
 
-                base = alt.Chart(df_stock).encode(x=alt.X("Okres:N", sort=okres_order, title="Okres"))
-                bars = base.mark_bar().encode(
-                    y=alt.Y("Stan magazynowy [pal]:Q", title="Stan magazynowy [palety]"),
-                    color=alt.Color("Rok:N", legend=alt.Legend(title="Rok"))
-                )
-                labels = base.mark_text(dy=-8, fontSize=11, fontWeight="bold", color="#333").encode(
-                    y=alt.Y("Stan magazynowy [pal]:Q"),
-                    text="Etykieta wartości:N"
-                )
-                st.altair_chart(bars + labels, use_container_width=True)
-            except Exception:
-                # Bezpieczny fallback, gdyby coś poszło nie tak - sam wykres słupkowy zawsze działa.
-                st.bar_chart(df_stock.set_index("Okres")[["Stan magazynowy [pal]"]])
-                st.caption("ℹ️ Nie udało się dodać etykiet z wartością na wykresie — pokazano sam stan magazynowy. "
-                           "Wartość zapasu znajdziesz w metrykach poniżej.")
+            # Max/min/średnia liczba palet w symulacji + odpowiadający im metraż, tym samym
+            # przelicznikiem co w podsumowaniu powierzchni magazynowej wyżej (poziomy składowania
+            # + powierzchnia/miejsce). Min pomijamy jeśli i tak wynosi 0 (naturalny start symulacji).
+            pal_max = df_stock["Stan magazynowy [pal]"].max()
+            pal_min = df_stock["Stan magazynowy [pal]"].min()
+            pal_avg = df_stock["Stan magazynowy [pal]"].mean()
+
+            def _pal_to_m2(pal_count):
+                floor_slots = math.ceil(pal_count / liczba_poziomow) if liczba_poziomow > 0 else pal_count
+                return floor_slots * powierzchnia_na_miejsce
+
+            p_c1, p_c2, p_c3 = st.columns(3)
+            with p_c1:
+                st.metric("📉 Min. stan magazynowy", f"{pal_min:,.0f} pal.", help=f"≈ {_pal_to_m2(pal_min):,.0f} m² potrzebnej powierzchni")
+            with p_c2:
+                st.metric("📊 Śr. stan magazynowy", f"{pal_avg:,.0f} pal.", help=f"≈ {_pal_to_m2(pal_avg):,.0f} m² potrzebnej powierzchni")
+            with p_c3:
+                st.metric("📈 Maks. stan magazynowy", f"{pal_max:,.0f} pal.", help=f"≈ {_pal_to_m2(pal_max):,.0f} m² potrzebnej powierzchni")
+            st.caption(f"Metraż liczony tym samym przelicznikiem co powyżej ({powierzchnia_na_miejsce:.2f} m²/miejsce, "
+                       f"{liczba_poziomow:.0f} poziomów składowania).")
+
+            st.caption("Wartość zapasu na koniec każdego roku (patrz też metryki poniżej):")
+            year_end_table = df_stock.iloc[[11, 23, 35, 47, 59]][["Rok", "Stan magazynowy [pal]", wartosc_col]].copy()
+            year_end_table["Stan magazynowy [pal]"] = year_end_table["Stan magazynowy [pal]"].round(0).astype(int)
+            year_end_table[wartosc_col] = year_end_table[wartosc_col].round(0)
+            st.dataframe(year_end_table, hide_index=True, use_container_width=True)
 
             v_c1, v_c2, v_c3 = st.columns(3)
             with v_c1:
@@ -3538,6 +3786,7 @@ with tab4:
         # Zakładkę 2 w tej samej sesji przeglądarki.
         target_annual_t_fin = sum(m["annual_volume"] for m in st.session_state.confirmed_mixers) / 1000.0
         roi_rows = []
+        energy_kpi_rows = []  # do raportu PDF i wglądu tutaj: rozbicie energii per rok
         cumulative_profit = 0.0
         payback_year_fraction = None
         for i in range(RAMPUP_YEARS):
@@ -3550,6 +3799,21 @@ with tab4:
             annual_opex_year = annual_variable_opex + annual_fixed_opex
             annual_revenue_year = annual_opex_year * (1.0 + marza_pct / 100.0)
             annual_profit_year = annual_revenue_year - annual_opex_year
+
+            # Rozbicie energii per rok - każdy składnik OPEX-u zmiennego skaluje się tym samym
+            # frac_year (bo wszystkie razem tworzą variable_monthly_opex_target), więc dekompozycja
+            # jest bezpośrednia. Chłodzenie jest wliczone w "Elektryczność - proces" (COP, Zakładka 3),
+            # bo nie jest tam liczone jako osobna pozycja kosztowa.
+            heating_annual_year = koszt_paliwa_grzewczego * MONTHS_PER_YEAR * frac_year
+            electricity_process_annual_year = (total_energy_cost_el + koszt_energii_proces_month) * MONTHS_PER_YEAR * frac_year
+            electricity_facility_annual_year = fixed_monthly_opex * MONTHS_PER_YEAR  # stałe, nie skaluje się z rozruchem
+            energy_kpi_rows.append({
+                "Rok": f"Rok {i + 1}",
+                "Ogrzewanie [waluta/rok]": round(heating_annual_year, 0),
+                "Elektryczność - proces (w tym chłodzenie) [waluta/rok]": round(electricity_process_annual_year, 0),
+                "Elektryczność - pozaprodukcyjne (stałe) [waluta/rok]": round(electricity_facility_annual_year, 0),
+                "Energia razem [waluta/rok]": round(heating_annual_year + electricity_process_annual_year + electricity_facility_annual_year, 0),
+            })
 
             profit_before = cumulative_profit
             cumulative_profit += annual_profit_year
@@ -3566,6 +3830,12 @@ with tab4:
             })
 
         st.dataframe(pd.DataFrame(roi_rows), hide_index=True, use_container_width=True)
+
+        st.markdown("###### ⚡ Energia — rozbicie per rok (ogrzewanie / elektryczność procesowa / elektryczność stała)")
+        st.caption(f"Waluta: {waluta}. 'Proces' obejmuje mieszanie, pompowanie i chłodzenie (przez COP) — te skalują "
+                   "się z krzywą rozruchu; 'pozaprodukcyjne' (serwery/HVAC/oświetlenie/sprężarkownia) liczone jako stałe.")
+        st.dataframe(pd.DataFrame(energy_kpi_rows), hide_index=True, use_container_width=True)
+        st.session_state["energy_kpi_rows_report"] = energy_kpi_rows  # do raportu PDF
 
         chart_cum = pd.DataFrame({
             "Rok": [r["Rok"] for r in roi_rows],
@@ -3593,6 +3863,37 @@ with tab4:
 
         if total_capex <= 0:
             st.info("ℹ️ ROI wymaga policzonego CAPEX — uzupełnij cennik instalacji w Kroku 3 powyżej.")
+
+        st.markdown("---")
+        st.markdown("### 📄 Krok 5: Raport 5-letni (PDF)")
+        st.caption("Zbiera w jeden dokument (po angielsku) to, co już policzone w aplikacji: skalę produkcji per "
+                   "rok, produkty, produkcja własna vs import, flotę (mieszalniki), wykorzystanie magazynu i KPI "
+                   "energetyczne. Odwiedź Zakładkę 4 (wykres stanu magazynowego), żeby dane magazynowe w raporcie "
+                   "były aktualne — inaczej te pola pokażą 'n/a'.")
+        if st.button("📄 Wygeneruj raport PDF", key="btn_generate_pdf_report"):
+            report_data = compute_pdf_report_year_data()
+            if report_data is None:
+                st.error("❌ Brak zatwierdzonej floty (Zakładka 2) — nie ma czego raportować.")
+            else:
+                try:
+                    pdf_bytes = generate_pdf_report_bytes(report_data, waluta)
+                    st.session_state["pdf_report_bytes"] = pdf_bytes
+                    st.success("✅ Raport wygenerowany — pobierz poniżej.")
+                except ImportError as exc:
+                    st.error(f"❌ Brakująca biblioteka do generowania PDF: {exc}. Dopisz do `requirements.txt` na "
+                             f"Streamlit Cloud: `reportlab` oraz `matplotlib` (jeśli jeszcze nie ma), zapisz plik i "
+                             f"poczekaj na automatyczne ponowne wdrożenie aplikacji, potem spróbuj ponownie.")
+                except Exception as exc:
+                    st.error(f"❌ Nie udało się wygenerować raportu: {exc}")
+
+        if st.session_state.get("pdf_report_bytes"):
+            st.download_button(
+                label="⬇️ Pobierz raport PDF (5-Year Production Scale-Up Report)",
+                data=st.session_state["pdf_report_bytes"],
+                file_name="5_Year_Production_Scaleup_Report.pdf",
+                mime="application/pdf",
+                key="btn_download_pdf_report"
+            )
 
 # ==========================================
 # ZAKŁADKA 5: PARK ZBIORNIKÓW (TANK FARM) (tab5)
