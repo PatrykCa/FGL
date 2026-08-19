@@ -1961,18 +1961,21 @@ with tab1:
 
             # --- Przeliczenie: tonaż roczny i średnia utylizacja floty per rok symulacji ---
             target_annual_t = sum(m["annual_volume"] for m in st.session_state.confirmed_mixers) / 1000.0
+            target_batches_month_total = sum(m["batches_count"] for m in st.session_state.confirmed_mixers)
             rampup_summary_rows = []
             rampup_tonnage_chart = {"Rok": [], "Tonaż [t/rok]": [], "Cel [t/rok]": []}
             for i in range(RAMPUP_YEARS):
                 year_tonnage_t = 0.0
                 util_weighted, util_weight_sum = 0.0, 0.0
                 util_ciagla_weighted = 0.0
+                total_batches_month_yi = 0
                 for m in st.session_state.confirmed_mixers:
                     frac = get_rampup_fraction(m["product_family"], i)
                     year_tonnage_t += (m["annual_volume"] / 1000.0) * frac
 
                     scaled_monthly_mass = (m["annual_volume"] / MONTHS_PER_YEAR) * frac
                     scaled_batches = math.ceil(scaled_monthly_mass / m["mass_per_batch"]) if m["mass_per_batch"] > 0 else 0
+                    total_batches_month_yi += scaled_batches
                     scaled_util_pct = (scaled_batches * m["cycle_h"]) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
                     util_weighted += scaled_util_pct * m["capacity_m3"]
                     util_weight_sum += m["capacity_m3"]
@@ -1989,6 +1992,8 @@ with tab1:
                 rampup_summary_rows.append({
                     "Rok": year_labels[i], "Tonaż [t/rok]": round(year_tonnage_t, 0),
                     "% Celu": f"{(year_tonnage_t / target_annual_t * 100.0) if target_annual_t > 0 else 0:.0f}%",
+                    "Szarż / miesiąc (cała flota)": total_batches_month_yi,
+                    "Szarż / rok (cała flota)": total_batches_month_yi * MONTHS_PER_YEAR,
                     "Śr. Utylizacja Floty [%] (pełne szarże)": round(avg_util_pct, 1),
                     "Śr. Utylizacja Floty [%] (ciągła)": round(avg_util_ciagly_pct, 1),
                 })
@@ -2004,8 +2009,9 @@ with tab1:
                        "przekroczył jeszcze progu kolejnej pełnej szarży na wystarczającej liczbie mieszalników. "
                        "**Ciągła** — ta sama utylizacja bez zaokrąglania, czysto diagnostyczna: pokazuje płynny trend "
                        "rosnącego zapotrzebowania nawet między takimi progami.")
-            st.caption(f"🎯 Docelowa produkcja (100%, jak wymiarowana jest flota): **{target_annual_t:,.0f} t/rok**. "
-                       "Ta sama krzywa steruje wykorzystaniem magazynu w Zakładce 4 (wybór roku symulacji).")
+            st.caption(f"🎯 Docelowa produkcja (100%, jak wymiarowana jest flota): **{target_annual_t:,.0f} t/rok** "
+                       f"= **{target_batches_month_total} szarż/miesiąc** (**{target_batches_month_total * MONTHS_PER_YEAR} szarż/rok**) "
+                       "dla całej floty. Ta sama krzywa steruje wykorzystaniem magazynu w Zakładce 4 (wybór roku symulacji).")
 
 # ==========================================
 # ZAKŁADKA 2: KARTA MASZYN, HYDRAULIKA, MIESZANIE I BILANS CIEPLNY
@@ -3247,22 +3253,36 @@ with tab3:
                     stock_level = max(stock_level + production_pallets_month_yi - shipped_pallets_month_assumed, 0.0)
                     wartosc_zapasu = stock_level * avg_kg_per_pallet * avg_selling_value_per_kg
                     stock_rows.append({
-                        "Miesiąc": yi * 12 + mi, "Okres": f"Y{yi + 1}-{mi}", "Rok": f"Rok {yi + 1}",
+                        "Miesiąc": yi * 12 + mi, "Okres": f"Y{yi + 1}-{mi:02d}", "Rok": f"Rok {yi + 1}",
                         "Stan magazynowy [pal]": stock_level,
                         f"Wartość zapasu [{waluta_stock}]": wartosc_zapasu,
                     })
 
             df_stock = pd.DataFrame(stock_rows)
+            wartosc_col = f"Wartość zapasu [{waluta_stock}]"
 
-            st.markdown(f"**Wartość zapasu w magazynie [{waluta_stock}]** (stan magazynowy × wartość produktu z marżą)")
+            st.markdown("**Stan magazynowy (słupki, lewa oś) i Wartość zapasu (linia, prawa oś)**")
             st.caption(f"Wartość produktu z marżą użyta do wyceny: {avg_selling_value_per_kg:.2f} {waluta_stock}/kg "
                        f"(koszt produkcyjny × (1 + {marza_pct_stock:.0f}% marży), ważony miksem produkcji floty). "
                        "Rosnące słupki w kolejnych latach pokazują rosnące wykorzystanie magazynu wraz z rozruchem produkcji.")
             try:
-                st.bar_chart(df_stock, x="Okres", y=f"Wartość zapasu [{waluta_stock}]", color="Rok", use_container_width=True)
-            except TypeError:
-                # Starsza wersja Streamlit bez parametru color/x/y w bar_chart - fallback bez grupowania kolorem.
-                st.bar_chart(df_stock.set_index("Okres")[[f"Wartość zapasu [{waluta_stock}]"]])
+                import altair as alt
+                okres_order = df_stock["Okres"].tolist()  # chronologiczna kolejność (Miesiąc 1..60), nie alfabetyczna
+                base = alt.Chart(df_stock).encode(x=alt.X("Okres:N", sort=okres_order, title="Okres"))
+                bars_stock = base.mark_bar().encode(
+                    y=alt.Y("Stan magazynowy [pal]:Q", axis=alt.Axis(title="Stan magazynowy [palety]", titleColor="#1f77b4")),
+                    color=alt.Color("Rok:N", legend=alt.Legend(title="Rok"))
+                )
+                line_value = base.mark_line(color="#d62728", point=True, strokeWidth=2.5).encode(
+                    y=alt.Y(f"{wartosc_col}:Q", axis=alt.Axis(title=f"Wartość zapasu [{waluta_stock}]", titleColor="#d62728"))
+                )
+                combo_chart = alt.layer(bars_stock, line_value).resolve_scale(y="independent")
+                st.altair_chart(combo_chart, use_container_width=True)
+                st.caption("🔵 Słupki (lewa oś) = stan magazynowy w paletach · 🔴 linia (prawa oś) = wartość zapasu.")
+            except ImportError:
+                st.bar_chart(df_stock.set_index("Okres")[["Stan magazynowy [pal]"]])
+                st.line_chart(df_stock.set_index("Okres")[[wartosc_col]])
+                st.caption("ℹ️ Altair niedostępny — pokazano dwa osobne wykresy zamiast jednego z dwiema osiami.")
 
             v_c1, v_c2, v_c3 = st.columns(3)
             with v_c1:
