@@ -37,7 +37,7 @@ LMTD_MIN_K = 15.0                # dolna granica "zdrowego" LMTD
 LMTD_MAX_K = 60.0                # górna granica "zdrowego" LMTD
 STEAM_LATENT_HEAT_KJKG = 2200.0  # ciepło skraplania pary nasyconej (~2 bar) [kJ/kg], wartość orientacyjna
 G_ACCEL = 9.81
-RAMPUP_YEARS = 5                 # horyzont symulacji rozruchu (Zakładka 2 + Zakładka 4)
+RAMPUP_YEARS = 5                 # horyzont symulacji rozruchu (Zakładka 3 + Zakładka 5)
 
 # --- 1. BAZA DANYCH PROCESOWYCH I FIZYKOCHEMICZNYCH FUCHS ---
 # (Dawny zestaw FUCHS_PORTFOLIO z liniami marek - np. "Hydraulic Oils (RENOLIN)" - został
@@ -72,7 +72,7 @@ MEDIA_PROCESOWE = {
 # wielkość cząstek, tribologia, czystość ISO 4406) są pominięte - nie leżą na ścieżce
 # krytycznej standardowego zwolnienia partii produkcyjnej.
 # Czasy trwania [min] to orientacyjne wartości domyślne oparte na typowej praktyce
-# laboratoryjnej - EDYTOWALNE bezpośrednio w Zakładce 7 (VSM), bo rzeczywisty czas zależy
+# laboratoryjnej - EDYTOWALNE bezpośrednio w Zakładce 8 (VSM), bo rzeczywisty czas zależy
 # od obciążenia laboratorium i wprawy technika.
 QC_TEST_CATALOG = {
     "Lepkość kinematyczna @40°C": {"duration_min": 20, "equipment": "Łaźnia wiskozymetryczna (Lauda / Koehler / Cannon)"},
@@ -96,7 +96,7 @@ QC_TEST_CATALOG = {
 }
 
 
-# Lista surowców receptury produktowej (Zakładka 1 / Receptury) - dozowanie w kg na tonę
+# Lista surowców receptury produktowej (Zakładka 2 / Receptury) - dozowanie w kg na tonę
 # produktu gotowego [kg/t], kolejność zgodna z szablonem Excel wgrywanym przez użytkownika.
 RECIPE_RAW_MATERIALS = [
     "Base Oil Group I [kg/t]", "Base Oil Group II [kg/t]", "Base Oil Group III [kg/t]",
@@ -120,7 +120,7 @@ RECIPE_PRODUCT_GROUPS = ["Cleaners", "Engine Oils", "Glycols", "Greases", "Hydra
                           "Preservative Oils", "Coolants", "Cutting Oils"]
 
 # Domyślne właściwości fizykochemiczne i procesowe per grupa produktowa - używane do
-# automatycznego zasilenia floty (Zakładka 2) danymi z wgranej receptury (Zakładka 1),
+# automatycznego zasilenia floty (Zakładka 3) danymi z wgranej receptury (Zakładka 2),
 # tam gdzie receptura sama nie precyzuje danej wartości (np. materiał zbiornika, cp).
 # Gęstość NIE jest tu potrzebna - ta zawsze pochodzi z konkretnego wiersza receptury.
 GROUP_PHYSICAL_DEFAULTS = {
@@ -169,7 +169,7 @@ RECIPE_NOTES_COL = "Uwagi Technologiczne / Status QA"
 # Sposób pozyskania produktu: na starcie część produktów bywa IMPOROWANA (z innego zakładu/od
 # dostawcy) zamiast produkowana lokalnie, a dopiero po jakimś czasie zaczyna się produkcja
 # własna. Przejście modelowane jest jako NAGŁE, w jednym pełnym roku symulacji rozruchu
-# (Zakładka 2/4) - przed rokiem przejścia produkt w 100% importowany, od tego roku w 100%
+# (Zakładka 3/5) - przed rokiem przejścia produkt w 100% importowany, od tego roku w 100%
 # produkowany lokalnie. "Nigdy" = produkt na stałe pozostaje importowany (nigdy nie trafia do
 # floty mieszalników - typowy przypadek dla niszowego SKU, którego produkcja lokalna się nie
 # opłaca nawet w dojrzałości).
@@ -189,7 +189,7 @@ RECIPE_SHARED_UTIL_COL = "Suma Wykorzystania Zbiornika Współdzielonego [%]"
 
 # Wymiarowanie mieszalnika i szacowane wykorzystanie zdolności produkcyjnej - wpisywane
 # bezpośrednio w Excelu, żeby dać natychmiastową (choć uproszczoną) informację zwrotną, zanim
-# w ogóle dojdzie do konfiguracji floty w Zakładce 1/2 (tam wykorzystanie liczone jest w pełni,
+# w ogóle dojdzie do konfiguracji floty w Zakładce 3/4 (tam wykorzystanie liczone jest w pełni,
 # z rzeczywistą hydrauliką/bilansem cieplnym - to tutaj to szybki szacunek wstępny).
 RECIPE_MIXER_VOL_COL = "Pojemność Mieszalnika [m³]"
 RECIPE_CYCLE_COL = "Szacowany Cykl Szarży [h]"
@@ -197,7 +197,7 @@ RECIPE_AVAIL_HOURS_COL = "Dostępne Godziny Pracy / Rok [h]"
 RECIPE_BATCH_MASS_COL = "Masa Szarży [kg]"
 RECIPE_BATCHES_YEAR_COL = "Szarż / Rok"
 RECIPE_UTILIZATION_COL = "Wykorzystanie Mieszalnika [%]"
-RECIPE_UTILIZATION_WARN_PCT = 85.0  # spójne z MAX_TANK_UTILIZATION_PCT w Zakładce 1
+RECIPE_UTILIZATION_WARN_PCT = 85.0  # spójne z MAX_TANK_UTILIZATION_PCT w Zakładce 3
 
 # Rozbicie procentowe na typy opakowań - kolumny generowane dynamicznie z aktualnej listy
 # opakowań (domyślne PACK_CONFIGS lub to, co użytkownik ma w arkuszu 'Opakowania').
@@ -274,7 +274,7 @@ RAW_MATERIAL_STORAGE_INFO = {
 }
 
 # Typy pojemników dla surowców NIE magazynowanych luzem (beczki/IBC/worki) - do przeliczenia
-# rocznego zużycia [t/rok] na liczbę pojemników/palet/miejsc magazynowych w Zakładce 5, żeby
+# rocznego zużycia [t/rok] na liczbę pojemników/palet/miejsc magazynowych w Zakładce 6, żeby
 # te surowce trafiły do tego samego bilansu powierzchni magazynowej co wyroby gotowe (Zakładka
 # 4) - w końcu wszystko, co nie trafia do zbiornika, musi stanąć w magazynie. Pojemność podana
 # w kg (nie L), bo dla surowców pracujemy na masie, nie na objętości/gęstości.
@@ -382,7 +382,7 @@ def generate_recipe_template_bytes():
         f"3. '{RECIPE_ANNUAL_COL}' - roczny wolumen produkcji GOTOWEGO produktu (bez strat procesowych).",
         f"4. '{RECIPE_MIXER_VOL_COL}', '{RECIPE_CYCLE_COL}', '{RECIPE_AVAIL_HOURS_COL}' - wstępny dobór mieszalnika; "
         f"'{RECIPE_UTILIZATION_COL}' liczy się sama (formuła) i podświetla na czerwono powyżej {RECIPE_UTILIZATION_WARN_PCT:.0f}% "
-        "(przeciążenie) - to szybki szacunek, w Zakładce 2/3 aplikacji policzysz to dokładnie z rzeczywistą hydrauliką.",
+        "(przeciążenie) - to szybki szacunek, w Zakładce 3/4 aplikacji policzysz to dokładnie z rzeczywistą hydrauliką.",
         "5. Kolumny surowcowe [kg/t] - ile kg danego surowca zużywa się na 1 tonę GOTOWEGO produktu.",
         f"6. '{RECIPE_SUM_COL}' liczy się sama (formuła) - powinna wynosić ok. 1000 kg (tolerancja +/-{RECIPE_SUM_TOLERANCE_KG:.0f} kg).",
         f"7. '{RECIPE_DENSITY_COL}' i '{RECIPE_LOSS_COL}' wpisz ręcznie dla każdego produktu.",
@@ -405,11 +405,11 @@ def generate_recipe_template_bytes():
         f"czerwono powyżej {RECIPE_UTILIZATION_WARN_PCT:.0f}%.",
         f"15. '{RECIPE_SOURCING_COL}' - 'Produkcja własna' (domyślne) albo 'Import'. Produkty importowane NIE trafiają "
         f"do floty mieszalników, dopóki nie nadejdzie ich '{RECIPE_IMPORT_TRANSITION_COL}' (Rok 1-5, zgodnie z 5-letnią "
-        "symulacją rozruchu w Zakładce 2) - przejście jest NAGŁE, w jednym pełnym roku. Wybierz 'Nigdy (stały import)', "
+        "symulacją rozruchu w Zakładce 3) - przejście jest NAGŁE, w jednym pełnym roku. Wybierz 'Nigdy (stały import)', "
         "jeśli produkt ma zawsze pozostać importowany (nigdy nie dostanie własnego mieszalnika, nawet w widoku "
         f"docelowym). '{RECIPE_IMPORT_FREQ_COL}', '{RECIPE_IMPORT_LOT_COL}' i '{RECIPE_IMPORT_SAFETY_DAYS_COL}' "
-        "opisują rytm dostaw - używane w Zakładce 4 do wyliczenia miejsc magazynowych na produkt importowany "
-        "(analogicznie do bufora surowców w Zakładce 5, ale liczone z rytmu dostaw, nie z cyklu produkcji).",
+        "opisują rytm dostaw - używane w Zakładce 5 do wyliczenia miejsc magazynowych na produkt importowany "
+        "(analogicznie do bufora surowców w Zakładce 6, ale liczone z rytmu dostaw, nie z cyklu produkcji).",
     ]
     for i, line in enumerate(info_lines, start=1):
         c = ws_info.cell(row=i, column=1, value=line)
@@ -743,7 +743,7 @@ def parse_recipe_excel(uploaded_file):
     if not import_no_lot.empty:
         bad = import_no_lot[RECIPE_PRODUCT_COL].tolist()
         errors.append(f"Produkty importowane bez podanej '{RECIPE_IMPORT_LOT_COL}' (>0): {', '.join(map(str, bad))} - "
-                       f"bufor magazynowy importu w Zakładce 4 dla nich nie policzy się poprawnie, dopóki nie uzupełnisz tej wartości.")
+                       f"bufor magazynowy importu w Zakładce 5 dla nich nie policzy się poprawnie, dopóki nie uzupełnisz tej wartości.")
 
     for mat in RECIPE_RAW_MATERIALS:
         df[mat] = pd.to_numeric(df[mat], errors="coerce").fillna(0.0)
@@ -854,7 +854,7 @@ def parse_packaging_excel(uploaded_file):
     Wczytuje opcjonalny arkusz 'Opakowania' z tego samego pliku Excel co receptury.
     Zwraca (dict_opakowan, lista_bledow). dict_opakowan ma strukturę zgodną z PACK_CONFIGS
     (size_l, per_pallet, rate_szt_h) rozszerzoną o domyślne nozzles/speed_kg_min do
-    prekonfiguracji sekcji rozlewu w Zakładce 3. Jeśli arkusz nie istnieje w pliku, zwraca
+    prekonfiguracji sekcji rozlewu w Zakładce 5. Jeśli arkusz nie istnieje w pliku, zwraca
     (None, []) po cichu - to pole jest opcjonalne, nie każdy plik musi go zawierać.
     """
     try:
@@ -974,7 +974,7 @@ def generate_equipment_template_bytes():
         f"5. '{EQUIPMENT_LINE_TOTAL_COL}' liczy się sama (formuła) = ilość x cena jednostkowa.",
         f"6. Aktualizuj '{EQUIPMENT_UNIT_PRICE_COL}' wraz ze zmianami cen dostawców - to jest właśnie po to, żeby "
         "nie trzeba było grzebać w kodzie aplikacji przy każdej zmianie cennika.",
-        "7. W aplikacji (Zakładka 6) podajesz, ile takich instalacji planujesz dla danej grupy - CAPEX przelicza się automatycznie.",
+        "7. W aplikacji (Zakładka 7) podajesz, ile takich instalacji planujesz dla danej grupy - CAPEX przelicza się automatycznie.",
     ]
     for i, line in enumerate(info_lines, start=1):
         c = ws_info.cell(row=i, column=1, value=line)
@@ -1107,9 +1107,9 @@ def compute_pdf_report_year_data():
     Zbiera dane per rok symulacji rozruchu (1-5) potrzebne do raportu PDF: tonaż docelowy vs
     produkowany vs importowany, produkty, flota (kotły/mieszalniki), wykorzystanie magazynu i
     KPI energetyczne. Czyta WYŁĄCZNIE z session_state / już policzonych struktur (confirmed_mixers,
-    recipes_df, stock_simulation_df z Zakładki 4, energy_kpi_rows_report z Zakładki 6) - nie
+    recipes_df, stock_simulation_df z Zakładki 5, energy_kpi_rows_report z Zakładki 7) - nie
     przelicza niczego od nowa poza prostym rozbiciem produkcja/import per produkt, tą samą logiką
-    co Zakładka 4 (is_product_imported_in_year). Zwraca None, jeśli flota nie jest jeszcze
+    co Zakładka 5 (is_product_imported_in_year). Zwraca None, jeśli flota nie jest jeszcze
     zatwierdzona (nic do zaraportowania).
     """
     mixers = st.session_state.get("confirmed_mixers", [])
@@ -1182,7 +1182,7 @@ def generate_pdf_report_bytes(report_data, waluta_report):
     podsumowujący 5-letnią symulację rozruchu: skala produkcji per rok, produkty, produkcja
     własna vs import, flota (mieszalniki), wykorzystanie magazynu, KPI energetyczne.
     Zwraca bajty PDF. Zgłasza ImportError, jeśli reportlab/matplotlib nie są zainstalowane -
-    obsługiwane w UI (Zakładka 6) komunikatem z instrukcją dopisania do requirements.txt.
+    obsługiwane w UI (Zakładka 7) komunikatem z instrukcją dopisania do requirements.txt.
     """
     import os
     import matplotlib
@@ -1714,7 +1714,7 @@ def compute_vent_line_scenario(mass_flow_kgs, rho_steam, pipe_length_m, pipe_dia
 # --- 2. INICJALIZACJA STRUKTUR W SESJI ---
 if "active_portfolio" not in st.session_state:
     # Startowo = 7 generycznych grup produktowych (GENERIC_PORTFOLIO); wgrana receptura
-    # (Zakładka 1) odświeża gęstość/cykl/materiał danej grupy jej własnymi wartościami.
+    # (Zakładka 2) odświeża gęstość/cykl/materiał danej grupy jej własnymi wartościami.
     st.session_state.active_portfolio = {k: dict(v) for k, v in GENERIC_PORTFOLIO.items()}
 
 if "prod_dict" not in st.session_state:
@@ -1742,11 +1742,11 @@ if "recipe_raw_material_consumption" not in st.session_state:
 
 if "pack_configs" not in st.session_state:
     # Startowo = wbudowane wartości domyślne (PACK_CONFIGS); po wgraniu arkusza 'Opakowania'
-    # w Zakładce 1 są nadpisywane/uzupełniane, a dalej pozostają w pełni edytowalne w apce.
+    # w Zakładce 2 są nadpisywane/uzupełniane, a dalej pozostają w pełni edytowalne w apce.
     st.session_state.pack_configs = {k: dict(v) for k, v in PACK_CONFIGS.items()}
 
 if "equipment_df" not in st.session_state:
-    st.session_state.equipment_df = None  # DataFrame cennika standardowej instalacji (Zakładka 6)
+    st.session_state.equipment_df = None  # DataFrame cennika standardowej instalacji (Zakładka 7)
 
 if "equipment_install_counts" not in st.session_state:
     st.session_state.equipment_install_counts = {}  # dict: Grupa Produktowa -> liczba planowanych instalacji
@@ -1778,8 +1778,8 @@ if "rampup_per_line_pct" not in st.session_state:
 def get_rampup_fraction(product_family, year_idx):
     """
     Ułamek (0-1) docelowej produkcji osiąganej w danym roku symulacji rozruchu, dla danej
-    linii produktowej. Jedno źródło prawdy używane zarówno w Zakładce 2 (utylizacja floty)
-    jak i Zakładce 4 (wykorzystanie magazynu FG+RM) - patrz sync_recipes_into_fleet_defaults
+    linii produktowej. Jedno źródło prawdy używane zarówno w Zakładce 3 (utylizacja floty)
+    jak i Zakładce 5 (wykorzystanie magazynu FG+RM) - patrz sync_recipes_into_fleet_defaults
     dla analogicznego wzorca "jedno miejsce prawdy, wiele zakładek czyta".
     """
     if st.session_state.get("rampup_differentiate") and product_family in st.session_state.get("rampup_per_line_pct", {}):
@@ -1793,7 +1793,7 @@ def get_rampup_fraction(product_family, year_idx):
 
 def sync_recipes_into_fleet_defaults():
     """
-    Spina Zakładkę 1 (Receptury) z Zakładką 2 (Flota) NA POZIOMIE GRUPY PRODUKTOWEJ - tak jak
+    Spina Zakładkę 2 (Receptury) z Zakładką 3 (Flota) NA POZIOMIE GRUPY PRODUKTOWEJ - tak jak
     w pliku Excel (Cleaners/Engine Oils/Glycols/Greases/Hydraulic Oils/Watermiscibles/Waxes),
     a nie per pojedynczy produkt czy stara szczegółowa linia FUCHS_PORTFOLIO. Każda grupa
     obecna w recepturze staje się JEDNĄ pozycją do wyboru w panelu bocznym.
@@ -1804,11 +1804,11 @@ def sync_recipes_into_fleet_defaults():
       mieszalnik (produkcja kampanijna). Pojemność takiego zbiornika = max spośród zadanych
       (musi pomieścić największą recepturę), a wykorzystanie czasowe liczone jest jako SUMA
       (szarże_i x cykl_i) po wszystkich produktach tego zbiornika - patrz tank_members,
-      zużywane w Zakładce 2 do właściwego (nie uproszczonego) przeliczenia utylizacji.
+      zużywane w Zakładce 3 do właściwego (nie uproszczonego) przeliczenia utylizacji.
 
-    active_portfolio odświeża się przy każdym uruchomieniu (bezpieczne - nic w Zakładce 2 tego
+    active_portfolio odświeża się przy każdym uruchomieniu (bezpieczne - nic w Zakładce 3 tego
     ręcznie nie edytuje). prod_dict dla danej grupy ustawiany jest z receptury TYLKO przy jej
-    pierwszym pojawieniu się - późniejsze ręczne poprawki w Zakładce 2 nie są nadpisywane przy
+    pierwszym pojawieniu się - późniejsze ręczne poprawki w Zakładce 3 nie są nadpisywane przy
     kolejnych edycjach receptury. Wybór w panelu bocznym jest resetowany do dokładnie grup z
     receptury TYLKO gdy zmieni się sam ZESTAW grup w recepturze (nowa/usunięta grupa) - między
     takimi zmianami można swobodnie dopisać ręcznie inne linie bez ich utraty.
@@ -1905,9 +1905,9 @@ def sync_recipes_into_fleet_defaults():
             # grupy w recepturze (nazwa, sposób pozyskania, rok przejścia, ID zbiornika) zmienił
             # się od ostatniej synchronizacji. Bez tego sprawdzenia zmiana np. "Sposób
             # Pozyskania" produktu z "Produkcja własna" na "Import" po ponownym wgraniu
-            # receptury NIGDY by się nie przebiła do floty (Zakładka 2/4), bo ta gałąź kodu
+            # receptury NIGDY by się nie przebiła do floty (Zakładka 3), bo ta gałąź kodu
             # istnieje właśnie po to, żeby NIE nadpisywać ręcznych edycji użytkownika w
-            # Zakładce 2 przy każdym przebiegu - ale musi się jednak odświeżyć, gdy dane
+            # Zakładce 3 przy każdym przebiegu - ale musi się jednak odświeżyć, gdy dane
             # źródłowe faktycznie się zmieniły, a nie tylko przy pierwszym pojawieniu się grupy.
             current_signature = tuple(sorted(
                 (str(r[RECIPE_PRODUCT_COL]), str(r.get(RECIPE_SOURCING_COL, "") or ""),
@@ -1934,18 +1934,18 @@ def sync_recipes_into_fleet_defaults():
 sync_recipes_into_fleet_defaults()
 
 if st.session_state.recipes_df is None:
-    st.info("👋 **Zacznij od Zakładki 1 (Receptury Produktów)** — pobierz szablon, wgraj recepturę produktów "
+    st.info("👋 **Zacznij od Zakładki 2 (Receptury Produktów)** — pobierz szablon, wgraj recepturę produktów "
             "(z wolumenem produkcji, opcjonalnie wielkością mieszalnika i rozbiciem na opakowania) i wróć tu, "
             "żeby dalej skonfigurować flotę i instalację. Możesz też pominąć ten krok i pracować w pełni ręcznie "
             "w kolejnych zakładkach.")
 else:
-    st.success("✅ Receptura wgrana — grupy produktowe pojawiły się automatycznie w Zakładce 2 (panel boczny, "
+    st.success("✅ Receptura wgrana — grupy produktowe pojawiły się automatycznie w Zakładce 3 (panel boczny, "
                "Krok 1: Wybór Rodzin), każda z liczbą zbiorników = liczbie produktów tej grupy w recepturze. "
                "Możesz je tam dalej edytować.")
     st.caption("⚠️ **Jeśli to ponowne wgranie już wcześniej używanej receptury** (np. zmieniłeś '{}' albo dane "
                "importu dla produktu): zmiana na poziomie produktu (kto importuje, kto produkuje, kiedy) trafi do "
-               "Zakładki 2, ale **flota widoczna w Zakładce 4/6 aktualizuje się dopiero po ponownym kliknięciu "
-               "'📥 Zatwierdź i wyślij konfigurację do kolejnych kroków' w Zakładce 2** — to jest jawny krok "
+               "Zakładki 3, ale **flota widoczna w Zakładce 5/7 aktualizuje się dopiero po ponownym kliknięciu "
+               "'📥 Zatwierdź i wyślij konfigurację do kolejnych kroków' w Zakładce 3** — to jest jawny krok "
                "zatwierdzenia, nie dzieje się automatycznie.".format(RECIPE_SOURCING_COL))
 
 # ==========================================
@@ -1973,18 +1973,19 @@ AVAILABLE_HOURS_MONTH = (WORKING_DAYS_YEAR * godziny_dziennie) / MONTHS_PER_YEAR
 st.sidebar.markdown("---")
 
 # --- STRUKTURA INTERFEJSU ---
-tab7, tab1, tab2, tab3, tab5, tab4, tab6 = st.tabs([
-    "📋 1. Receptury Produktów (Start)",
-    "📊 2. Główne Zestawienie i Utylizacja",
-    "📐 3. Karta Maszyn, Kocioł i Zasilanie",
-    "📦 4. Logistyka i Czas Rozlewu",
-    "🛢️ 5. Surowce i Park Zbiorników",
-    "💰 6. Analiza Finansowa, CAPEX i ROI",
-    "🧵 7. Mapa Strumienia Wartości (VSM)"
+tab8, tab7, tab1, tab2, tab3, tab5, tab4, tab6 = st.tabs([
+    "🏠 1. Dashboard",
+    "📋 2. Receptury Produktów (Start)",
+    "📊 3. Główne Zestawienie i Utylizacja",
+    "📐 4. Karta Maszyn, Kocioł i Zasilanie",
+    "📦 5. Logistyka i Czas Rozlewu",
+    "🛢️ 6. Surowce i Park Zbiorników",
+    "💰 7. Analiza Finansowa, CAPEX i ROI",
+    "🧵 8. Mapa Strumienia Wartości (VSM)"
 ])
 
 # ==========================================
-# ZAKŁADKA 1: FLOTA MIESZALNIKÓW
+# ZAKŁADKA 3: FLOTA MIESZALNIKÓW (tab1)
 # ==========================================
 with tab1:
     st.header(f"Zintegrowane Zestawienie Parametrów Procesowych")
@@ -2012,7 +2013,7 @@ with tab1:
             st.session_state.prod_dict[selected_family_to_edit]["cycle_h_base"] = st.number_input(
                 "Cykl Procesowy (bazowy, szacunkowy) [h]:", min_value=0.5, value=float(st.session_state.prod_dict[selected_family_to_edit]["cycle_h_base"]), step=0.5,
                 help="Szacunkowy czas cyklu jednej szarży (dozowanie + grzanie + homogenizacja + chłodzenie + rozlew), do wstępnego wymiarowania floty — "
-                     "różne receptury/wielkości szarży realnie różnią się czasem cyklu. Po skonfigurowaniu inżynierii w Zakładce 3/8 zobaczysz obok "
+                     "różne receptury/wielkości szarży realnie różnią się czasem cyklu. Po skonfigurowaniu inżynierii w Zakładce 4/8 zobaczysz obok "
                      "rzeczywisty, policzony czas cyklu do porównania.",
                 key=f"cykl_baza_{selected_family_to_edit}"
             )
@@ -2190,7 +2191,7 @@ with tab1:
                     status_txt = "❌ Poniżej min. fabryki (<5 m³)"
 
                 # Rzeczywisty, policzony czas cyklu (dozowanie+grzanie+homog.+pompowanie+chłodzenie) z
-                # Zakładki 2/6 — pokazywany OSOBNO poniżej (nie w tej samej edytowalnej tabeli!), bo ta
+                # Zakładki 4/8 — pokazywany OSOBNO poniżej (nie w tej samej edytowalnej tabeli!), bo ta
                 # wartość zmienia się za każdym razem, gdy cokolwiek zostanie skonfigurowane na INNEJ
                 # zakładce. Trzymanie jej w tej samej tabeli co edytowalna flota powodowało, że
                 # st.data_editor dostawał na każdym przebiegu inną zawartość i potrafił zresetować
@@ -2235,7 +2236,7 @@ with tab1:
                     "**Pojemność, Masa Szarży, Cykl, Szarże i Utylizacja są tylko do odczytu** w tej tabeli - to są wyliczone wartości; żeby je zmienić, edytuj pola "
                     "'Pojemność Mieszalnika (bazowa)' / 'Zbiornik #N — Pojemność/Cykl' powyżej. Jeśli chcesz rozdzielić produkty ze **wspólnego zbiornika** "
                     "(receptura ze wspólnym ID Zbiornika) na osobne fizyczne mieszalniki, zrób to w pliku Excel (usuń/zmień ID Zbiornika dla jednego z produktów) "
-                    "i wgraj recepturę ponownie w Zakładce 1 - samo zwiększenie liczby zbiorników tutaj dodaje pusty zbiornik, ale nie wie, który produkt ma do niego przenieść.")
+                    "i wgraj recepturę ponownie w Zakładce 2 - samo zwiększenie liczby zbiorników tutaj dodaje pusty zbiornik, ale nie wie, który produkt ma do niego przenieść.")
 
         df_fleet = pd.DataFrame(final_fleet_rows)
 
@@ -2264,9 +2265,9 @@ with tab1:
         )
 
         if real_cycle_reference_rows:
-            with st.expander("📊 Rzeczywisty czas cyklu (referencja z Zakładki 2/6 — informacyjnie, nieedytowalne)", expanded=False):
-                st.caption("Ta tabela aktualizuje się automatycznie w miarę konfigurowania hydrauliki/bilansu cieplnego (Zakładka 3) "
-                           "i dozowania/homogenizacji (Zakładka 7) — nie wpływa na flotę powyżej i nie da się jej edytować.")
+            with st.expander("📊 Rzeczywisty czas cyklu (referencja z Zakładki 4/8 — informacyjnie, nieedytowalne)", expanded=False):
+                st.caption("Ta tabela aktualizuje się automatycznie w miarę konfigurowania hydrauliki/bilansu cieplnego (Zakładka 4) "
+                           "i dozowania/homogenizacji (Zakładka 8) — nie wpływa na flotę powyżej i nie da się jej edytować.")
                 st.dataframe(pd.DataFrame(real_cycle_reference_rows), hide_index=True, use_container_width=True)
 
         if not edited_df.empty:
@@ -2325,13 +2326,13 @@ with tab1:
 
     # ==========================================
     # SYMULACJA ROZRUCHU (RAMPUP) — flota budowana od razu pod cel, ale wykorzystanie
-    # rośnie w czasie. Ta sama krzywa % jest reużywana w Zakładce 4 (magazyn FG+RM), żeby
+    # rośnie w czasie. Ta sama krzywa % jest reużywana w Zakładce 5 (magazyn FG+RM), żeby
     # historia "startujemy nisko, dochodzimy do celu" była spójna w całej aplikacji.
     # ==========================================
     if st.session_state.confirmed_mixers:
         st.markdown("---")
         with st.expander("📈 Symulacja Rozruchu (Rampup) — 5 lat", expanded=False):
-            st.caption("Flota i magazyn (Zakładka 4) są wymiarowane od razu pod docelową produkcję wpisaną powyżej — "
+            st.caption("Flota i magazyn (Zakładka 5) są wymiarowane od razu pod docelową produkcję wpisaną powyżej — "
                        "to buduje się raz. Poniższa krzywa pokazuje/symuluje, jak realnie rośnie WYKORZYSTANIE tej "
                        "floty i magazynu w pierwszych 5 latach, zanim produkcja dojdzie do 100% celu.")
 
@@ -2418,16 +2419,16 @@ with tab1:
                        "rosnącego zapotrzebowania nawet między takimi progami.")
             st.caption(f"🎯 Docelowa produkcja (100%, jak wymiarowana jest flota): **{target_annual_t:,.0f} t/rok** "
                        f"= **{target_batches_month_total} szarż/miesiąc** (**{target_batches_month_total * MONTHS_PER_YEAR} szarż/rok**) "
-                       "dla całej floty. Ta sama krzywa steruje wykorzystaniem magazynu w Zakładce 4 (wybór roku symulacji).")
+                       "dla całej floty. Ta sama krzywa steruje wykorzystaniem magazynu w Zakładce 5 (wybór roku symulacji).")
 
 # ==========================================
-# ZAKŁADKA 2: KARTA MASZYN, HYDRAULIKA, MIESZANIE I BILANS CIEPLNY
+# ZAKŁADKA 4: KARTA MASZYN, HYDRAULIKA, MIESZANIE I BILANS CIEPLNY (tab2)
 # ==========================================
 with tab2:
     st.header("Karta Maszyn: Zaawansowane Projektowanie Procesowe")
 
     if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Brak danych o flocie. Skonfiguruj i zatwierdź flotę w Zakładce 2, aby odblokować ten krok.")
+        st.warning("⚠️ Brak danych o flocie. Skonfiguruj i zatwierdź flotę w Zakładce 3, aby odblokować ten krok.")
     else:
         summary_combined_rows = []
 
@@ -2559,7 +2560,7 @@ with tab2:
                                "teraz również wyliczane, nie zgadywane.")
                 with c5:
                     st.markdown("**🔧 Niezawodność (MTBF/MTTR)**")
-                    st.caption("Zasila automatycznie 'Dostępność [%]' w Zakładce 7 (VSM/OEE) — patrz przycisk "
+                    st.caption("Zasila automatycznie 'Dostępność [%]' w Zakładce 8 (VSM/OEE) — patrz przycisk "
                                "'Zastosuj wyliczoną Dostępność' w tamtej zakładce.")
                     p["reactor_mtbf_h"] = st.number_input(
                         "MTBF reaktora/mieszadła [h]:", min_value=1.0, value=float(p["reactor_mtbf_h"]), key=f"reactor_mtbf_{m_id}",
@@ -2708,7 +2709,7 @@ with tab2:
                     p["t_utility_cool_in"], p["k_coeff"], p["exchange_area_m2"],
                     p["utility_type_cool"], p["delta_t_medium_chlodzace"])
 
-                # --- 5. Zapis wyników z powrotem do stanu sesji, aby Zakładka 4 mogła z nich realnie korzystać ---
+                # --- 5. Zapis wyników z powrotem do stanu sesji, aby Zakładka 5 mogła z nich realnie korzystać ---
                 # Czas pompowania: objętość szarży / wydajność pompy.
                 pumping_time_h = (mass_product / p["density_kg_m3"]) / effective_pump_flow_m3h if effective_pump_flow_m3h > 0 else 0.0
 
@@ -3019,7 +3020,7 @@ with tab2:
 
         st.caption(f"Szacowany miesięczny koszt paliwa grzewczego: **{koszt_paliwa_grzewczego_month:,.2f}** "
                    f"({'gaz' if typ_kotla=='Gazowy' else 'energia elektryczna'}) — pozycja ta trafia teraz do "
-                   f"Zakładki 4 (Analiza Finansowa) jako osobny koszt.")
+                   f"Zakładki 5 (Analiza Finansowa) jako osobny koszt.")
 
         st.markdown("---")
 
@@ -3187,12 +3188,12 @@ with tab2:
             )
 
 # ==========================================
-# ZAKŁADKA 3: LOGISTYKA I OPALETOWANIE
+# ZAKŁADKA 5: LOGISTYKA I OPALETOWANIE (tab3)
 # ==========================================
 with tab3:
     st.header("📦 Analiza Logistyczna, Czas Rozlewu i Gospodarka Paletowa")
     if not st.session_state.confirmed_mixers:
-        st.info("💡 Najpierw zatwierdź konfigurację floty w Zakładce 2.")
+        st.info("💡 Najpierw zatwierdź konfigurację floty w Zakładce 3.")
     else:
         mixers_fleet = st.session_state.confirmed_mixers
 
@@ -3200,7 +3201,7 @@ with tab3:
         selected_rampup_year_label = st.selectbox(
             "📈 Rok symulacji rozruchu:", rampup_year_options, index=0, key="tab3_rampup_year_select",
             help="Magazyn i flota są budowane od razu pod docelową (100%) produkcję — ten wybór tylko pokazuje, "
-                 "jaki wolumen FG i RM realnie przepłynie przez fabrykę w danym roku rozruchu (krzywa z Zakładki 2), "
+                 "jaki wolumen FG i RM realnie przepłynie przez fabrykę w danym roku rozruchu (krzywa z Zakładki 3), "
                  "i ile z gotowej powierzchni magazynowej to zajmie."
         )
         selected_rampup_year_idx = None if selected_rampup_year_label.startswith("Docelowa") else int(selected_rampup_year_label.split(" ")[1]) - 1
@@ -3209,7 +3210,7 @@ with tab3:
 
         st.markdown("##### 📦 Konfiguracja Opakowań i Głowic Rozlewniczych")
         st.caption("Jedna tabela na typ opakowania: pojemność i sztuk/paletę (domyślnie wbudowane, nadpisywane przez "
-                   "opcjonalny arkusz 'Opakowania' z Zakładki 1) razem z parametrami głowic nalewaka tego opakowania. "
+                   "opcjonalny arkusz 'Opakowania' z Zakładki 2) razem z parametrami głowic nalewaka tego opakowania. "
                    "Dodaj/usuń wiersz, aby dodać/usunąć typ opakowania.")
 
         if "filling_lines_config" not in st.session_state:
@@ -3250,7 +3251,7 @@ with tab3:
         aktywne_opakowania = set(st.session_state.pack_configs.keys())
 
         with st.expander("🧴 Rozbicie na Opakowania (ręczne, per linia) — używane, gdy receptura go nie określa", expanded=False):
-            st.caption("Jeśli produkt ma w recepturze (Zakładka 1) wypełnione % opakowań, apka użyje ich wprost. "
+            st.caption("Jeśli produkt ma w recepturze (Zakładka 2) wypełnione % opakowań, apka użyje ich wprost. "
                        "Dla pozostałych produktów obowiązuje rozbicie z tej tabeli, per linia produktowa.")
 
             opakowania_podzial = st.session_state.setdefault("opakowania_podzial", {})
@@ -3321,7 +3322,7 @@ with tab3:
             rho_linii = st.session_state.active_portfolio[kat]["density"]
 
             # Priorytet 1: rozbicie na opakowania WPROST z receptury tego konkretnego produktu
-            # (Zakładka 1), jeśli podano i sumuje się w przybliżeniu do 100%.
+            # (Zakładka 2), jeśli podano i sumuje się w przybliżeniu do 100%.
             recipe_split = None
             if recipe_product and pack_cols_in_recipe:
                 match = recipes_df_lookup[recipes_df_lookup[RECIPE_PRODUCT_COL] == recipe_product]
@@ -3350,7 +3351,7 @@ with tab3:
                 cfg_fill = st.session_state.filling_lines_config.get(p, {"nozzles": 1, "speed_kg_min": 30.0})
                 sekcja_nalewania_m3_h = (cfg_fill["nozzles"] * cfg_fill["speed_kg_min"] * 60.0) / (rho_linii * 1000.0)
 
-                # Rzeczywisty przepływ pompy TEGO KONKRETNEGO mieszalnika z Zakładki 3 (nie
+                # Rzeczywisty przepływ pompy TEGO KONKRETNEGO mieszalnika z Zakładki 4 (nie
                 # reprezentanta całej grupy jak poprzednio - każdy mieszalnik ma teraz własny wiersz).
                 tech_details = st.session_state.get("mixer_tech_advanced_details", {}).get(m["tag"], {})
                 q_pump_m3h = tech_details.get("pump_flow_m3h", 15.0)
@@ -3435,9 +3436,9 @@ with tab3:
             st.markdown("##### 🔀 Wyniki Symulacji Logistyczno-Magazynowej (Wyroby Gotowe, FG)")
             if real_split_rows:
                 st.caption("Kolumna **Źródło %** pokazuje, czy rozbicie na opakowania tego wiersza pochodzi z receptury "
-                           "(Zakładka 1, per produkt) czy z ręcznego podziału w panelu bocznym (per grupa, gdy receptura "
+                           "(Zakładka 2, per produkt) czy z ręcznego podziału w panelu bocznym (per grupa, gdy receptura "
                            "nie precyzuje opakowań dla tego produktu). Kolumna **Wąskie gardło** pokazuje, czy czas rozlewu "
-                           "jest dziś limitowany przez wydajność pompy TEGO reaktora (Zakładka 3), czy przez sekcję głowic nalewczych.")
+                           "jest dziś limitowany przez wydajność pompy TEGO reaktora (Zakładka 4), czy przez sekcję głowic nalewczych.")
                 st.dataframe(pd.DataFrame(real_split_rows), hide_index=True, use_container_width=True)
             else:
                 st.info("ℹ️ W wybranym roku/widoku wszystkie produkty tej floty są jeszcze importowane (patrz sekcja "
@@ -3464,19 +3465,19 @@ with tab3:
                 st.metric("📦 Miejsca magazynowe — Import (ten rok)", f"{total_import_positions} szt.")
             else:
                 st.info("ℹ️ Brak produktów importowanych w wybranym roku/widoku (albo brak wgranych receptur z "
-                        "'Sposób Pozyskania' = 'Import' w Zakładce 1).")
+                        "'Sposób Pozyskania' = 'Import' w Zakładce 2).")
 
             # ============================================================
-            # SUROWCE (RM) W BECZKACH/IBC/WORKACH — z Zakładki 6, jeśli policzone
+            # SUROWCE (RM) W BECZKACH/IBC/WORKACH — z Zakładki 7, jeśli policzone
             # ============================================================
             if rm_warehouse_rows:
-                with st.expander("🧴 Surowce w Beczkach/IBC/Workach (RM) — z Zakładki 6", expanded=False):
-                    st.caption("Surowce nietrafiające do zbiorników (Zakładka 5) — te też stoją w tym samym "
+                with st.expander("🧴 Surowce w Beczkach/IBC/Workach (RM) — z Zakładki 7", expanded=False):
+                    st.caption("Surowce nietrafiające do zbiorników (Zakładka 6) — te też stoją w tym samym "
                                "magazynie co wyroby gotowe i wliczają się do łącznej powierzchni poniżej.")
                     st.dataframe(pd.DataFrame(rm_warehouse_rows), hide_index=True, use_container_width=True)
             else:
-                st.info("ℹ️ Brak policzonych surowców w beczkach/IBC/workach — wgraj receptury (Zakładka 1) i "
-                        "odwiedź Zakładkę 6, aby doliczyć ich miejsca magazynowe do bilansu poniżej.")
+                st.info("ℹ️ Brak policzonych surowców w beczkach/IBC/workach — wgraj receptury (Zakładka 2) i "
+                        "odwiedź Zakładkę 7, aby doliczyć ich miejsca magazynowe do bilansu poniżej.")
 
             # ============================================================
             # PODSUMOWANIE POWIERZCHNI MAGAZYNOWEJ — FG + RM RAZEM (suma miejsc paletowych -> m²)
@@ -3525,7 +3526,7 @@ with tab3:
             total_miejsca_magazynowe = total_fg_positions + total_rm_positions + total_import_positions
 
             # Budynek stawiany RAZ, pod docelową (100%) produkcję — niezależnie od wybranego roku
-            # symulacji. RM w rm_warehouse_rows jest już liczone przy 100% (Zakładka 5 nie skaluje
+            # symulacji. RM w rm_warehouse_rows jest już liczone przy 100% (Zakładka 6 nie skaluje
             # rampupem), więc target = suma bez przeliczenia; FG target liczony osobno w pętli wyżej;
             # Import target = TYLKO produkty na stałe importowane ("Nigdy") - te potrzebują miejsca
             # w magazynie nawet w pełnej dojrzałości.
@@ -3548,7 +3549,7 @@ with tab3:
 
             st.caption("💡 Powierzchnia = ⌈(docelowe miejsca paletowe FG + RM + stały Import) / liczba poziomów⌉ × "
                        "powierzchnia/miejsce (1 poziom) — budynek stawiany RAZ, pod pełną (100%) zdolność. "
-                       "Bufor **surowców w zbiornikach** (silosy) jest liczony i wymiarowany osobno w Zakładce 5. "
+                       "Bufor **surowców w zbiornikach** (silosy) jest liczony i wymiarowany osobno w Zakładce 6. "
                        f"Powierzchnia budynku pozostaje wymiarowana pod 100% celu niezależnie od wybranego roku — "
                        f"zmienia się tylko pokazane wykorzystanie ({selected_rampup_year_label}).")
 
@@ -3619,7 +3620,7 @@ with tab3:
             # powyżej) i pokazujemy tylko wynikowy stan magazynowy, razem z jego wartością.
             # ============================================================
             st.markdown("###### 📈 Symulacja Stanu Magazynowego — 5 lat")
-            st.caption("Zgodnie z planowaną produkcją (krzywa rozruchu z Zakładki 2) i wysyłkami ustawionymi "
+            st.caption("Zgodnie z planowaną produkcją (krzywa rozruchu z Zakładki 3) i wysyłkami ustawionymi "
                        "powyżej: jak zmienia się stan magazynowy WG w palet oraz jego wartość, na tle projektowej "
                        "pojemności budynku.")
 
@@ -3634,10 +3635,10 @@ with tab3:
             shipment_ratio = (actual_pallets_per_day / suggested_pallets_per_day) if suggested_pallets_per_day > 0 else 1.0
             fg_capacity_pallets = total_fg_positions_target
 
-            # Przelicznik palety -> kg -> wartość SPRZEDAŻNA (koszt + marża z Zakładki 6, Krok 4 -
+            # Przelicznik palety -> kg -> wartość SPRZEDAŻNA (koszt + marża z Zakładki 7, Krok 4 -
             # to jest realna wartość towaru leżącego w magazynie, nie tylko koszt wytworzenia).
-            # Koszt/kg pochodzi z Zakładki 6 (per grupa produktowa), ważony rzeczywistym miksem
-            # produkcji tej floty; jeśli Zakładka 6 nie była jeszcze skonfigurowana, używane są
+            # Koszt/kg pochodzi z Zakładki 7 (per grupa produktowa), ważony rzeczywistym miksem
+            # produkcji tej floty; jeśli Zakładka 7 nie była jeszcze skonfigurowana, używane są
             # wartości domyślne.
             target_monthly_mass_kg_total = sum(m["batches_count"] * m["mass_per_batch"] for m in mixers_fleet)
             avg_kg_per_pallet = (target_monthly_mass_kg_total / total_palety_month_fg_target) if total_palety_month_fg_target > 0 else 0.0
@@ -3650,9 +3651,9 @@ with tab3:
 
             waluta_stock = st.selectbox("Waluta wyceny zapasu:", ["PLN", "EUR", "USD"], key="waluta_stock_value")
             if not manuf_cost_per_group_stock:
-                st.caption(f"ℹ️ Koszt produkcyjny per grupa nie był jeszcze ustawiany w Zakładce 6 — użyto wartości "
+                st.caption(f"ℹ️ Koszt produkcyjny per grupa nie był jeszcze ustawiany w Zakładce 7 — użyto wartości "
                            f"domyślnej ({avg_manuf_cost_per_kg:.2f} {waluta_stock}/kg + {marza_pct_stock:.0f}% marży). "
-                           f"Ustaw go w Zakładce 6, aby wycena była dokładniejsza.")
+                           f"Ustaw go w Zakładce 7, aby wycena była dokładniejsza.")
 
             stock_rows = []
             stock_level = 0.0
@@ -3674,7 +3675,7 @@ with tab3:
 
             df_stock = pd.DataFrame(stock_rows)
             wartosc_col = f"Wartość zapasu [{waluta_stock}]"
-            st.session_state["stock_simulation_df"] = df_stock  # do raportu PDF (Zakładka 6)
+            st.session_state["stock_simulation_df"] = df_stock  # do raportu PDF (Zakładka 7)
             st.session_state["fg_capacity_pallets_report"] = fg_capacity_pallets
 
             st.caption(f"Wartość produktu z marżą użyta do wyceny: {avg_selling_value_per_kg:.2f} {waluta_stock}/kg "
@@ -3728,15 +3729,15 @@ with tab3:
                            f"się w projektowej pojemności FG ({fg_capacity_pallets:,.0f} palet).")
         else:
             st.info("Brak skonfigurowanego podziału opakowań o niezerowym udziale — uzupełnij procenty w panelu bocznym, "
-                    "albo (dla produktów importowanych) uzupełnij dane importu w Zakładce 1.")
+                    "albo (dla produktów importowanych) uzupełnij dane importu w Zakładce 2.")
 
 # ==========================================
-# ZAKŁADKA 6: ANALIZA FINANSOWA, CAPEX I ROI (tab4)
+# ZAKŁADKA 7: ANALIZA FINANSOWA, CAPEX I ROI (tab4)
 # ==========================================
 with tab4:
     st.header("💰 Analiza Finansowa, CAPEX i ROI")
     if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Najpierw zatwierdź flotę w Zakładce 2.")
+        st.warning("⚠️ Najpierw zatwierdź flotę w Zakładce 3.")
     else:
         waluta = st.selectbox("Wybierz walutę operacyjną:", ["PLN", "EUR", "USD"])
 
@@ -3762,10 +3763,10 @@ with tab4:
         st.session_state["cena_mwh_tab4"] = cena_mwh
 
         if not st.session_state.calculated_times:
-            st.info("ℹ️ Skonfiguruj urządzenia w Zakładce 3, aby koszty energii odzwierciedlały rzeczywistą hydraulikę i bilans cieplny "
+            st.info("ℹ️ Skonfiguruj urządzenia w Zakładce 4, aby koszty energii odzwierciedlały rzeczywistą hydraulikę i bilans cieplny "
                     "(w przeciwnym razie poniżej używane są bezpieczne wartości domyślne).")
 
-        # Cena i sprawność "paliwa grzewczego" (gaz lub prąd, zależnie od wyboru kotła w Zakładce 2)
+        # Cena i sprawność "paliwa grzewczego" (gaz lub prąd, zależnie od wyboru kotła w Zakładce 3)
         # — używana zarówno do kosztu ogrzewania, jak i do wyceny odzysku ciepła (fizycznie
         # spójniej niż stosowanie ogólnej ceny elektrycznej do oszczędności cieplnej).
         heating_fuel_price = st.session_state.get("cena_mwh_tab4", cena_mwh)
@@ -3789,10 +3790,10 @@ with tab4:
             batches_per_month = mixer["batches_count"]
             manuf_cost_per_kg_kat = st.session_state.manuf_cost_per_group.get(kat, 2.12)
 
-            # POPRAWKA: te dane teraz faktycznie pochodzą z Zakładki 2 (patrz zapis do
-            # st.session_state.calculated_times w pętli obliczeniowej Zakładki 2).
+            # POPRAWKA: te dane teraz faktycznie pochodzą z Zakładki 3 (patrz zapis do
+            # st.session_state.calculated_times w pętli obliczeniowej Zakładki 3).
             # Wartości domyślne poniżej są używane wyłącznie, jeśli użytkownik jeszcze
-            # nie odwiedził Zakładki 2 dla danego urządzenia.
+            # nie odwiedził Zakładki 3 dla danego urządzenia.
             m_data = calculated_times.get(tag, {"power_mix_kw": 5.5, "power_pump_kw": 1.5, "heating": 1.5, "pumping": 0.75, "t_max_mix": 60.0, "t_rozlew": 30.0})
 
             mixing_energy = m_data["power_mix_kw"] * mixer.get("cycle_h", prod_info["cycle_h"]) * batches_per_month
@@ -3813,7 +3814,7 @@ with tab4:
                 "Koszt Prod. [kg]": manuf_cost_per_kg_kat,
                 "Energia Mieszania [kWh]": round(mixing_energy, 1), "Energia Pompowania [kWh]": round(pumping_energy, 1),
                 "Koszt prądu": f"{cost_el:.2f} {waluta}", "Odzysk ciepła": f"- {oszczednosc_cieplna:.2f} {waluta}",
-                "Źródło danych": "Zakładka 3" if tag in calculated_times else "Wartości domyślne"
+                "Źródło danych": "Zakładka 4" if tag in calculated_times else "Wartości domyślne"
             })
 
         st.dataframe(pd.DataFrame(financial_summary), hide_index=True, use_container_width=True)
@@ -3821,15 +3822,15 @@ with tab4:
         koszt_paliwa_grzewczego = st.session_state.get("koszt_paliwa_grzewczego_month", 0.0)
         if koszt_paliwa_grzewczego > 0:
             typ_kotla_disp = st.session_state.get("typ_kotla", "—")
-            st.metric(label=f"🔥 Koszt paliwa grzewczego ({typ_kotla_disp}, z Zakładki 2)",
+            st.metric(label=f"🔥 Koszt paliwa grzewczego ({typ_kotla_disp}, z Zakładki 3)",
                       value=f"{koszt_paliwa_grzewczego:,.2f} {waluta}")
         else:
-            st.info("ℹ️ Skonfiguruj kocioł i typ paliwa w Zakładce 3 (sekcja 'Dobór Kotła Grzewczego'), aby doliczyć "
+            st.info("ℹ️ Skonfiguruj kocioł i typ paliwa w Zakładce 4 (sekcja 'Dobór Kotła Grzewczego'), aby doliczyć "
                     "koszt ogrzewania do kosztu wytworzenia.")
 
         # Koszt energii elektrycznej PROCESU (silniki, kocioł elektryczny, chłodzenie przez COP)
         # i odbiorów POZAPRODUKCYJNYCH (serwery, HVAC, oświetlenie, sprężarkownia) - z sekcji ⚡
-        # Zakładki 3, dotąd NIEUWZGLĘDNIANE tutaj (liczono tylko mieszanie/pompowanie powyżej).
+        # Zakładki 4, dotąd NIEUWZGLĘDNIANE tutaj (liczono tylko mieszanie/pompowanie powyżej).
         # Rozbite na dwa koszty CELOWO: proces skaluje się z wolumenem produkcji (krok 4, ROI
         # z rozruchem), odbiory pozaprodukcyjne są w przybliżeniu STAŁE niezależnie od tego,
         # ile realnie produkujesz w danym roku (światło/HVAC/serwery działają tak samo).
@@ -3843,9 +3844,9 @@ with tab4:
             with c_en3:
                 st.metric("⚙️ Energia — proces (skaluje się z rozruchem)", f"{koszt_energii_proces_month:,.2f} {waluta}/mies.")
             with c_en4:
-                st.metric("🏢 Energia — pozaprodukcyjne (stałe, z Zakładki 3)", f"{koszt_energii_facility_month:,.2f} {waluta}/mies.")
+                st.metric("🏢 Energia — pozaprodukcyjne (stałe, z Zakładki 4)", f"{koszt_energii_facility_month:,.2f} {waluta}/mies.")
         else:
-            st.info("ℹ️ Skonfiguruj sekcję ⚡ 'Zapotrzebowanie na Moc Elektryczną' w Zakładce 3, aby doliczyć pełny "
+            st.info("ℹ️ Skonfiguruj sekcję ⚡ 'Zapotrzebowanie na Moc Elektryczną' w Zakładce 4, aby doliczyć pełny "
                     "koszt energii procesowej i pozaprodukcyjnej (dziś liczone tylko mieszanie/pompowanie powyżej).")
 
         # Część kosztu, która skaluje się z wolumenem produkcji (a więc z krzywą rozruchu w Kroku 4)
@@ -3858,7 +3859,7 @@ with tab4:
         st.metric(label="🚀 CAŁKOWITY KOSZT WYTWORZENIA (Miesięcznie, przy 100% celu)", value=f"{final_cost:,.2f} {waluta}")
 
         st.info("💡 Pełna analiza czasu cyklu szarży (dozowanie, grzanie, homogenizacja, QC, pompowanie, chłodzenie, "
-                "rozlew) oraz rekomendacja liczby zmian znajdują się w **Zakładce 7 (Mapa Strumienia Wartości)**, "
+                "rozlew) oraz rekomendacja liczby zmian znajdują się w **Zakładce 8 (Mapa Strumienia Wartości)**, "
                 "razem z resztą analizy czasu procesu.")
 
         st.markdown("---")
@@ -3929,7 +3930,7 @@ with tab4:
                 groups_in_price_list = sorted(edited_eq_df[EQUIPMENT_GROUP_COL].dropna().unique().tolist())
 
                 # Domyślna liczba instalacji = liczba MIESZALNIKÓW tej grupy faktycznie
-                # zatwierdzonych we flocie (Zakładka 2) - to jest realna liczba fizycznych
+                # zatwierdzonych we flocie (Zakładka 3) - to jest realna liczba fizycznych
                 # instalacji, którą CAPEX powinien odzwierciedlać (1 mieszalnik = 1 standardowa
                 # instalacja tej grupy). Jeśli flota nie jest jeszcze zatwierdzona, spadamy do
                 # liczby unikalnych produktów w recepturze jako przybliżenia, a przy jej braku - 1.
@@ -3945,15 +3946,15 @@ with tab4:
                 with c_sync1:
                     if fleet_counts_by_group:
                         st.caption("💡 Domyślna liczba instalacji = liczba mieszalników tej grupy zatwierdzonych "
-                                   "we Zakładce 2 (1 mieszalnik = 1 instalacja). Możesz nadpisać ręcznie poniżej.")
+                                   "we Zakładce 3 (1 mieszalnik = 1 instalacja). Możesz nadpisać ręcznie poniżej.")
                     else:
-                        st.caption("ℹ️ Flota nie jest jeszcze zatwierdzona (Zakładka 2) — domyślna liczba instalacji "
+                        st.caption("ℹ️ Flota nie jest jeszcze zatwierdzona (Zakładka 3) — domyślna liczba instalacji "
                                    "pochodzi z liczby produktów w recepturze (przybliżenie), nie z realnej floty.")
                 with c_sync2:
                     if st.button("🔄 Zsynchronizuj z flotą", key="btn_sync_capex_with_fleet",
                                   disabled=not fleet_counts_by_group, use_container_width=True,
                                   help="Nadpisuje liczbę instalacji dla wszystkich grup wartościami z aktualnie "
-                                       "zatwierdzonej floty (Zakładka 2) - przydatne, gdy flota zmieniła się po "
+                                       "zatwierdzonej floty (Zakładka 3) - przydatne, gdy flota zmieniła się po "
                                        "pierwszym ustawieniu tych liczb."):
                         for grp in groups_in_price_list:
                             st.session_state.equipment_install_counts[grp] = fleet_counts_by_group.get(grp, 0)
@@ -4015,15 +4016,15 @@ with tab4:
         st.markdown("---")
         st.markdown("### 📈 Krok 4: ROI (z uwzględnieniem krzywej rozruchu)")
         st.caption("Przychód liczony jako koszt wytworzenia powiększony o zadaną marżę — 'koszt plus'. "
-                   "**OPEX skaluje się z tą samą 5-letnią krzywą rozruchu co w Zakładce 2**: część kosztu, która "
+                   "**OPEX skaluje się z tą samą 5-letnią krzywą rozruchu co w Zakładce 3**: część kosztu, która "
                    "rośnie z wolumenem (surowce/robocizna, energia procesowa, paliwo grzewcze), jest mnożona przez "
                    "% celu danego roku; odbiory pozaprodukcyjne (serwery/HVAC/oświetlenie/sprężarkownia) liczone są "
                    "jako w przybliżeniu stałe, bo działają niezależnie od tempa produkcji.")
         marza_pct = st.number_input("Marża narzucona na koszt wytworzenia [%]:", min_value=0.0, value=20.0, step=1.0, key="roi_marza_pct")
 
-        # Ta sama ważona (wolumenem) krzywa rozruchu co w Zakładce 2 - liczona tu od nowa na
+        # Ta sama ważona (wolumenem) krzywa rozruchu co w Zakładce 3 - liczona tu od nowa na
         # bazie confirmed_mixers, żeby ROI nie zależało od tego, czy użytkownik odwiedził
-        # Zakładkę 2 w tej samej sesji przeglądarki.
+        # Zakładkę 3 w tej samej sesji przeglądarki.
         target_annual_t_fin = sum(m["annual_volume"] for m in st.session_state.confirmed_mixers) / 1000.0
         roi_rows = []
         energy_kpi_rows = []  # do raportu PDF i wglądu tutaj: rozbicie energii per rok
@@ -4042,7 +4043,7 @@ with tab4:
 
             # Rozbicie energii per rok - każdy składnik OPEX-u zmiennego skaluje się tym samym
             # frac_year (bo wszystkie razem tworzą variable_monthly_opex_target), więc dekompozycja
-            # jest bezpośrednia. Chłodzenie jest wliczone w "Elektryczność - proces" (COP, Zakładka 3),
+            # jest bezpośrednia. Chłodzenie jest wliczone w "Elektryczność - proces" (COP, Zakładka 4),
             # bo nie jest tam liczone jako osobna pozycja kosztowa.
             heating_annual_year = koszt_paliwa_grzewczego * MONTHS_PER_YEAR * frac_year
             electricity_process_annual_year = (total_energy_cost_el + koszt_energii_proces_month) * MONTHS_PER_YEAR * frac_year
@@ -4105,13 +4106,19 @@ with tab4:
         if total_capex <= 0:
             st.info("ℹ️ ROI wymaga policzonego CAPEX — uzupełnij cennik instalacji w Kroku 3 powyżej.")
 
+        # Zapis do session_state, żeby nowa Zakładka Dashboard mogła pokazać te liczby na "pierwszy rzut oka".
+        st.session_state["total_capex_report"] = total_capex
+        st.session_state["payback_year_fraction_report"] = payback_year_fraction
+        st.session_state["roi_year5_report"] = roi_rows[-1]["ROI (ten rok) [%]"] if roi_rows else None
+        st.session_state["waluta_report"] = waluta
+
         st.markdown("---")
         st.markdown("### 📄 Krok 5: Raport 5-letni (PDF / Excel)")
         st.caption("Zbiera w jeden dokument to, co już policzone w aplikacji: skalę produkcji per rok, produkty, "
                    "produkcja własna vs import, flotę (mieszalniki), wykorzystanie magazynu i KPI energetyczne. "
                    "**PDF** — czytelny, sformatowany dokument (po angielsku) do pokazania/udostępnienia. **Excel** "
                    "— te same dane w formie tabel + natywne, edytowalne wykresy, do dalszej pracy (przestawianie, "
-                   "własne zestawienia). Odwiedź Zakładkę 4 (wykres stanu magazynowego), żeby dane magazynowe w "
+                   "własne zestawienia). Odwiedź Zakładkę 5 (wykres stanu magazynowego), żeby dane magazynowe w "
                    "raporcie były aktualne — inaczej te pola pokażą 'n/a'.")
 
         c_rep1, c_rep2 = st.columns(2)
@@ -4119,7 +4126,7 @@ with tab4:
             if st.button("📄 Wygeneruj raport PDF", key="btn_generate_pdf_report", use_container_width=True):
                 report_data = compute_pdf_report_year_data()
                 if report_data is None:
-                    st.error("❌ Brak zatwierdzonej floty (Zakładka 2) — nie ma czego raportować.")
+                    st.error("❌ Brak zatwierdzonej floty (Zakładka 3) — nie ma czego raportować.")
                 else:
                     try:
                         pdf_bytes = generate_pdf_report_bytes(report_data, waluta)
@@ -4146,7 +4153,7 @@ with tab4:
             if st.button("📊 Wygeneruj raport Excel", key="btn_generate_excel_report", use_container_width=True):
                 report_data = compute_pdf_report_year_data()
                 if report_data is None:
-                    st.error("❌ Brak zatwierdzonej floty (Zakładka 2) — nie ma czego raportować.")
+                    st.error("❌ Brak zatwierdzonej floty (Zakładka 3) — nie ma czego raportować.")
                 else:
                     try:
                         roi_rows_for_report = st.session_state.get("roi_rows_report", [])
@@ -4167,12 +4174,12 @@ with tab4:
                 )
 
 # ==========================================
-# ZAKŁADKA 5: PARK ZBIORNIKÓW (TANK FARM) (tab5)
+# ZAKŁADKA 6: PARK ZBIORNIKÓW (TANK FARM) (tab5)
 # ==========================================
 with tab5:
     st.header("🛢️ Logistyka Surowcowa i Grupy Magazynowe (Tank Farm)")
     if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Brak danych technicznych. Uruchom konfigurację w Zakładce 2.")
+        st.warning("⚠️ Brak danych technicznych. Uruchom konfigurację w Zakładce 3.")
     else:
         days_of_stock = st.number_input("Wymagany zapas bezpieczeństwa surowca [dni]:", min_value=5, value=14)
         st.session_state["days_of_stock_tab5"] = days_of_stock
@@ -4215,7 +4222,7 @@ with tab5:
 
         if has_recipe_consumption:
             st.caption("Liczone **per pojedynczy surowiec** (np. osobno Base Oil II i Base Oil III) na podstawie "
-                       "receptur wgranych w **Zakładce 1**. Dla każdego surowca sprawdzane jest też (a) czy fizycznie/"
+                       "receptur wgranych w **Zakładce 2**. Dla każdego surowca sprawdzane jest też (a) czy fizycznie/"
                        "praktycznie nadaje się do magazynowania luzem w zbiorniku, oraz (b) czy roczne zużycie "
                        "przekracza próg opłacalności dedykowanego zbiornika — jeśli oba warunki są spełnione, "
                        "proponowany jest zbiornik o określonej pojemności; w przeciwnym razie beczki/IBC/worki.")
@@ -4279,7 +4286,7 @@ with tab5:
             st.markdown("### 📦 Magazynowanie Surowców w Beczkach/IBC/Workach")
             st.caption("Surowce, które nie trafiają do zbiornika (powyżej), i tak muszą stanąć w magazynie — "
                        "przypisz każdemu typ pojemnika, a aplikacja przeliczy liczbę pojemników/palet/miejsc "
-                       "magazynowych. Wynik doliczy się do **łącznej powierzchni magazynowej w Zakładce 4** "
+                       "magazynowych. Wynik doliczy się do **łącznej powierzchni magazynowej w Zakładce 5** "
                        "razem z wyrobami gotowymi (FG) — to jeden, wspólny magazyn.")
 
             if drummed_materials:
@@ -4325,7 +4332,7 @@ with tab5:
                 st.info("Wszystkie surowce z receptur trafiają do zbiorników — brak surowców do magazynowania w beczkach/IBC/workach.")
                 st.session_state["raw_material_warehouse_rows"] = []
         else:
-            st.info("💡 Wgraj receptury produktów w **Zakładce 1**, aby uzyskać dokładniejsze wymiarowanie per "
+            st.info("💡 Wgraj receptury produktów w **Zakładce 2**, aby uzyskać dokładniejsze wymiarowanie per "
                     "pojedynczy surowiec. Poniżej uproszczony szacunek grupowy (wg typu bazy z floty).")
 
             silos_rows = []
@@ -4344,15 +4351,15 @@ with tab5:
             st.metric("🧱 Całkowita wymagana liczba silosów surowcowych (szacunek grupowy)", f"{total_tanks} szt.")
 
 # ==========================================
-# ZAKŁADKA 7: MAPA STRUMIENIA WARTOŚCI (VSM) (tab6)
+# ZAKŁADKA 8: MAPA STRUMIENIA WARTOŚCI (VSM) (tab6)
 # ==========================================
 with tab6:
     st.header("🧵 Mapa Strumienia Wartości (Value Stream Mapping)")
-    st.caption("Ta zakładka **nie liczy niczego od nowa** — składa w jeden łańcuch czasy już policzone w Zakładkach 2-5 "
+    st.caption("Ta zakładka **nie liczy niczego od nowa** — składa w jeden łańcuch czasy już policzone w Zakładkach 4-5 "
                "(hydraulika/bilans cieplny, rozlew, bufory magazynowe), więc automatycznie aktualizuje się razem z nimi.")
 
     if not st.session_state.confirmed_mixers:
-        st.warning("⚠️ Najpierw zatwierdź flotę w Zakładce 2.")
+        st.warning("⚠️ Najpierw zatwierdź flotę w Zakładce 3.")
     else:
         rodziny_w_flocie = sorted(set(m["product_family"] for m in st.session_state.confirmed_mixers))
         selected_vsm_family = st.selectbox("Wybierz linię produktową do mapowania:", rodziny_w_flocie, key="vsm_family_select")
@@ -4418,13 +4425,13 @@ with tab6:
 
         st.markdown("---")
 
-        # --- CZASY PROCESOWE DLA WYBRANEJ RODZINY (średnia z floty tej linii, z Zakładki 2) ---
+        # --- CZASY PROCESOWE DLA WYBRANEJ RODZINY (średnia z floty tej linii, z Zakładki 3) ---
         mixers_in_family = [m for m in st.session_state.confirmed_mixers if m["product_family"] == selected_vsm_family]
         calc_times_family = [st.session_state.calculated_times.get(m["tag"]) for m in mixers_in_family]
         calc_times_family = [c for c in calc_times_family if c is not None]
 
         if not calc_times_family:
-            st.info("ℹ️ Skonfiguruj hydraulikę i bilans cieplny dla tej linii w Zakładce 3, aby uzyskać rzeczywiste czasy "
+            st.info("ℹ️ Skonfiguruj hydraulikę i bilans cieplny dla tej linii w Zakładce 4, aby uzyskać rzeczywiste czasy "
                     "grzania/pompowania/chłodzenia (poniżej użyto bezpiecznych wartości domyślnych).")
             heating_h, pumping_h, cooling_h = 1.5, 0.75, 0.5
         else:
@@ -4432,8 +4439,8 @@ with tab6:
             pumping_h = sum(c["pumping"] for c in calc_times_family) / len(calc_times_family)
             cooling_h = sum(c.get("cooling_h", 0.0) for c in calc_times_family) / len(calc_times_family)
 
-        # --- DOZOWANIE / HOMOGENIZACJA: konfiguracja per urządzenie, przeniesiona tu z Zakładki 4 ---
-        # (dawniej wpisywana w Zakładce 4 i odczytywana przez klucz widgetu — jeśli nikt nie odwiedził
+        # --- DOZOWANIE / HOMOGENIZACJA: konfiguracja per urządzenie, przeniesiona tu z Zakładki 5 ---
+        # (dawniej wpisywana w Zakładce 5 i odczytywana przez klucz widgetu — jeśli nikt nie odwiedził
         # tamtej zakładki dla danej rodziny, VSM cicho używał wartości domyślnych; teraz to jest
         # jedyne miejsce konfiguracji tych czasów).
         st.markdown("##### ⏱️ Dozowanie i Homogenizacja (per urządzenie)")
@@ -4451,13 +4458,13 @@ with tab6:
         t_dosing = sum(dosing_vals) / len(dosing_vals)
         t_homog = sum(homog_vals) / len(homog_vals)
 
-        # Czas rozlewu — suma po opakowaniach dla tej rodziny, z Zakładki 3.
+        # Czas rozlewu — suma po opakowaniach dla tej rodziny, z Zakładki 4.
         logistics_rows = st.session_state.get("logistics_results", [])
         filling_h = sum(r["Czas rozlewu strumienia [h] ⏱️"] for r in logistics_rows if r["Linia 🔒"] == selected_vsm_family)
         if filling_h == 0.0:
-            st.info("ℹ️ Skonfiguruj podział opakowań w panelu bocznym i odwiedź Zakładkę 3, aby uzyskać rzeczywisty czas rozlewu dla tej rodziny.")
+            st.info("ℹ️ Skonfiguruj podział opakowań w panelu bocznym i odwiedź Zakładkę 4, aby uzyskać rzeczywisty czas rozlewu dla tej rodziny.")
 
-        # Bufory magazynowe — założenia globalne z Zakładek 3 i 5 (te wejścia nie są dziś różnicowane per rodzina).
+        # Bufory magazynowe — założenia globalne z Zakładek 4 i 5 (te wejścia nie są dziś różnicowane per rodzina).
         raw_material_buffer_days = st.session_state.get("days_of_stock_tab5", 14)
         fg_storage_days = st.session_state.get("czas_skladowania_tab3", 14)
 
@@ -4491,7 +4498,7 @@ with tab6:
         for s in process_steps:
             oee_cfg.setdefault(s["name"], {"co_h": 0.0, "uptime_pct": 100.0, "availability_pct": 100.0, "pass_pct": 100.0})
 
-        # Dostępność wyliczona z MTBF/MTTR (Zakładka 3, karta maszyn) — średnia dla mieszalników
+        # Dostępność wyliczona z MTBF/MTTR (Zakładka 4, karta maszyn) — średnia dla mieszalników
         # tej rodziny, ważona liczbą szarż/miesiąc (urządzenia bardziej obciążone mają większy
         # wpływ na realną dostępność linii). Dotyczy etapów, w których fizycznie bierze udział
         # reaktor i/lub pompa (Dozowanie/Grzanie/Homogenizacja/Pompowanie/Chłodzenie) — Zwolnienie
@@ -4509,10 +4516,10 @@ with tab6:
         c_avail1, c_avail2 = st.columns([3, 1])
         with c_avail1:
             if mtbf_derived_availability_pct is not None:
-                st.caption(f"📟 Dostępność wyliczona z MTBF/MTTR (Zakładka 3, ważona liczbą szarż) dla tej rodziny: "
+                st.caption(f"📟 Dostępność wyliczona z MTBF/MTTR (Zakładka 4, ważona liczbą szarż) dla tej rodziny: "
                            f"**{mtbf_derived_availability_pct:.1f}%**. Dotyczy etapów: {', '.join(reactor_pump_steps)}.")
             else:
-                st.caption("ℹ️ Skonfiguruj MTBF/MTTR w Zakładce 3 (karta maszyn, sekcja 🔧 Niezawodność), aby móc "
+                st.caption("ℹ️ Skonfiguruj MTBF/MTTR w Zakładce 4 (karta maszyn, sekcja 🔧 Niezawodność), aby móc "
                            "podstawić tu wyliczoną dostępność zamiast wpisywać ją ręcznie.")
         with c_avail2:
             if st.button("🔄 Zastosuj wyliczoną Dostępność", key=f"apply_mtbf_avail_{selected_vsm_family}",
@@ -4691,13 +4698,13 @@ with tab6:
 
 # ==========================================
 # ==========================================
-# ZAKŁADKA 7: RECEPTURY PRODUKTÓW (import z Excela)
+# ZAKŁADKA 2: RECEPTURY PRODUKTÓW (import z Excela) (tab7)
 # ==========================================
 with tab7:
     st.header("📋 Receptury Produktów: Import z Excela")
     st.caption("Wgraj plik Excel z listą produktów (przypisanych do grupy produktowej), rocznym zapotrzebowaniem "
                "i dozowaniem surowców [kg/t] (bazy olejowe, dodatki, pakiety, zagęszczacze, smary stałe, woda DEMI, "
-               "biocyd). Dane z tej zakładki zasilają dodatkowo wymiarowanie silosów **per surowiec** w Zakładce 5 "
+               "biocyd). Dane z tej zakładki zasilają dodatkowo wymiarowanie silosów **per surowiec** w Zakładce 6 "
                "oraz podpowiedź, dla których surowców opłaca się dedykowany zbiornik, a które lepiej zostawić "
                "w beczkach/IBC/workach.")
 
@@ -4739,7 +4746,7 @@ with tab7:
             st.error("❌ Nie udało się wczytać żadnych poprawnych receptur z tego pliku — popraw błędy powyżej i wgraj ponownie.")
 
         # Opcjonalny arkusz 'Opakowania' w tym samym pliku - jeśli obecny, nadpisuje/uzupełnia
-        # domyślne typy opakowań i ich pojemności (Zakładki 1 i 3), z zachowaniem edycji w apce.
+        # domyślne typy opakowań i ich pojemności (Zakładki 2 i 3), z zachowaniem edycji w apce.
         uploaded_recipe_file.seek(0)
         packaging_result, packaging_errors = parse_packaging_excel(uploaded_recipe_file)
         for err in packaging_errors:
@@ -4841,7 +4848,94 @@ with tab7:
 
         st.info("💡 Przejdź do **Zakładki 6 (Surowce i Park Zbiorników)**, aby zobaczyć wymiarowanie silosów "
                 "per pojedynczy surowiec oraz rekomendację zbiornik-vs-beczki na podstawie tego zużycia. "
-                "Typy opakowań i ich rozbicie procentowe skonfigurujesz w **Zakładce 4 (Logistyka i Czas Rozlewu)**.")
+                "Typy opakowań i ich rozbicie procentowe skonfigurujesz w **Zakładce 5 (Logistyka i Czas Rozlewu)**.")
 
     else:
         st.info("💡 Wgraj plik z recepturami powyżej, aby zobaczyć tu zagregowane zużycie surowców.")
+
+# ==========================================
+# ZAKŁADKA 1: DASHBOARD (tab8) — podsumowanie na pierwszy rzut oka
+# ==========================================
+with tab8:
+    st.header("🏠 Dashboard — Podsumowanie Projektu")
+    st.caption("Zbiera w jednym miejscu najważniejsze liczby z całej aplikacji. Pola pokazujące '—' oznaczają, że "
+               "dana zakładka nie została jeszcze skonfigurowana/odwiedzona w tej sesji — apka nie liczy niczego "
+               "od nowa tutaj, tylko czyta to, co już policzone gdzie indziej.")
+
+    if not st.session_state.confirmed_mixers:
+        st.warning("⚠️ Flota nie jest jeszcze zatwierdzona. Zacznij od **Zakładki 2 (Receptury)** lub od razu skonfiguruj "
+                   "flotę w **Zakładce 3 (Główne Zestawienie i Utylizacja)**.")
+    else:
+        target_annual_t_dash = sum(m["annual_volume"] for m in st.session_state.confirmed_mixers) / 1000.0
+        n_mixers = len(st.session_state.confirmed_mixers)
+        groups_active = sorted(set(m["product_family"] for m in st.session_state.confirmed_mixers))
+
+        st.markdown("### 🏭 Produkcja i Flota")
+        d1, d2, d3 = st.columns(3)
+        with d1:
+            st.metric("🎯 Docelowa produkcja (100%, Rok 5+)", f"{target_annual_t_dash:,.0f} t/rok")
+        with d2:
+            st.metric("⚙️ Mieszalniki we flocie", f"{n_mixers} szt.")
+        with d3:
+            st.metric("📦 Aktywne grupy produktowe", f"{len(groups_active)}", help=", ".join(groups_active))
+
+        st.markdown("---")
+        st.markdown("### 💰 CAPEX i ROI")
+        total_capex_dash = st.session_state.get("total_capex_report")
+        payback_dash = st.session_state.get("payback_year_fraction_report")
+        roi_year5_dash = st.session_state.get("roi_year5_report")
+        waluta_dash = st.session_state.get("waluta_report", "PLN")
+
+        e1, e2, e3 = st.columns(3)
+        with e1:
+            st.metric("💰 CAPEX (z rezerwą)", f"{total_capex_dash:,.0f} {waluta_dash}" if total_capex_dash else "—",
+                      help=None if total_capex_dash else "Skonfiguruj CAPEX w Zakładce 7, Krok 3.")
+        with e2:
+            if payback_dash is not None:
+                st.metric("⏳ Okres zwrotu", f"{payback_dash:.1f} lat")
+            elif total_capex_dash:
+                st.metric("⏳ Okres zwrotu", f"> {RAMPUP_YEARS} lat")
+            else:
+                st.metric("⏳ Okres zwrotu", "—", help="Skonfiguruj CAPEX i ROI w Zakładce 7.")
+        with e3:
+            st.metric("🎯 ROI w Roku 5", f"{roi_year5_dash:.1f}%" if roi_year5_dash is not None else "—",
+                      help=None if roi_year5_dash is not None else "Odwiedź Krok 4 (ROI) w Zakładce 7.")
+
+        st.markdown("---")
+        st.markdown("### 🏢 Magazyn")
+        fg_capacity_dash = st.session_state.get("fg_capacity_pallets_report")
+        stock_df_dash = st.session_state.get("stock_simulation_df")
+
+        f1, f2, f3 = st.columns(3)
+        with f1:
+            st.metric("📐 Pojemność magazynu FG", f"{fg_capacity_dash:,.0f} palet" if fg_capacity_dash else "—",
+                      help=None if fg_capacity_dash else "Odwiedź Zakładkę 5 (Logistyka), sekcję symulacji stanu magazynowego.")
+        if stock_df_dash is not None and not stock_df_dash.empty:
+            stock_year5_pal = stock_df_dash.iloc[-1]["Stan magazynowy [pal]"]
+            wartosc_cols = [c for c in stock_df_dash.columns if c.startswith("Wartość zapasu")]
+            stock_year5_val = stock_df_dash.iloc[-1][wartosc_cols[0]] if wartosc_cols else None
+            util_pct_dash = (stock_year5_pal / fg_capacity_dash * 100.0) if fg_capacity_dash else None
+            with f2:
+                st.metric("📊 Wykorzystanie magazynu (Rok 5)", f"{util_pct_dash:.0f}%" if util_pct_dash is not None else "—")
+            with f3:
+                st.metric("💵 Wartość zapasu (Rok 5)", f"{stock_year5_val:,.0f} {waluta_dash}" if stock_year5_val is not None else "—")
+        else:
+            with f2:
+                st.metric("📊 Wykorzystanie magazynu (Rok 5)", "—", help="Odwiedź Zakładkę 5 (Logistyka).")
+            with f3:
+                st.metric("💵 Wartość zapasu (Rok 5)", "—", help="Odwiedź Zakładkę 5 (Logistyka).")
+
+        st.markdown("---")
+        st.markdown("### ⚡ Energia (Rok 1 vs. Rok 5)")
+        energy_rows_dash = st.session_state.get("energy_kpi_rows_report", [])
+        if energy_rows_dash:
+            g1, g2 = st.columns(2)
+            with g1:
+                st.metric("Rok 1 — Energia razem", f"{energy_rows_dash[0].get('Energia razem [waluta/rok]', 0):,.0f} {waluta_dash}/rok")
+            with g2:
+                st.metric("Rok 5 — Energia razem", f"{energy_rows_dash[-1].get('Energia razem [waluta/rok]', 0):,.0f} {waluta_dash}/rok")
+        else:
+            st.info("ℹ️ Odwiedź Zakładkę 7 (Analiza Finansowa, CAPEX i ROI), Krok 4, aby policzyć KPI energetyczne per rok.")
+
+        st.markdown("---")
+        st.caption("📄 Pełny raport (PDF/Excel) ze wszystkimi tymi liczbami znajdziesz w Zakładce 7, Krok 5.")
