@@ -3928,16 +3928,42 @@ with tab4:
 
                 groups_in_price_list = sorted(edited_eq_df[EQUIPMENT_GROUP_COL].dropna().unique().tolist())
 
-                # Domyślna liczba instalacji = liczba unikalnych produktów danej grupy w recepturach
-                # wgranych w Zakładce 1, jeśli są dostępne - w przeciwnym razie 1.
+                # Domyślna liczba instalacji = liczba MIESZALNIKÓW tej grupy faktycznie
+                # zatwierdzonych we flocie (Zakładka 2) - to jest realna liczba fizycznych
+                # instalacji, którą CAPEX powinien odzwierciedlać (1 mieszalnik = 1 standardowa
+                # instalacja tej grupy). Jeśli flota nie jest jeszcze zatwierdzona, spadamy do
+                # liczby unikalnych produktów w recepturze jako przybliżenia, a przy jej braku - 1.
+                fleet_counts_by_group = {}
+                if st.session_state.confirmed_mixers:
+                    for m in st.session_state.confirmed_mixers:
+                        fleet_counts_by_group[m["product_family"]] = fleet_counts_by_group.get(m["product_family"], 0) + 1
                 default_counts_from_recipes = {}
                 if st.session_state.recipes_df is not None and not st.session_state.recipes_df.empty:
                     default_counts_from_recipes = st.session_state.recipes_df.groupby(RECIPE_GROUP_COL)[RECIPE_PRODUCT_COL].nunique().to_dict()
 
+                c_sync1, c_sync2 = st.columns([3, 1])
+                with c_sync1:
+                    if fleet_counts_by_group:
+                        st.caption("💡 Domyślna liczba instalacji = liczba mieszalników tej grupy zatwierdzonych "
+                                   "we Zakładce 2 (1 mieszalnik = 1 instalacja). Możesz nadpisać ręcznie poniżej.")
+                    else:
+                        st.caption("ℹ️ Flota nie jest jeszcze zatwierdzona (Zakładka 2) — domyślna liczba instalacji "
+                                   "pochodzi z liczby produktów w recepturze (przybliżenie), nie z realnej floty.")
+                with c_sync2:
+                    if st.button("🔄 Zsynchronizuj z flotą", key="btn_sync_capex_with_fleet",
+                                  disabled=not fleet_counts_by_group, use_container_width=True,
+                                  help="Nadpisuje liczbę instalacji dla wszystkich grup wartościami z aktualnie "
+                                       "zatwierdzonej floty (Zakładka 2) - przydatne, gdy flota zmieniła się po "
+                                       "pierwszym ustawieniu tych liczb."):
+                        for grp in groups_in_price_list:
+                            st.session_state.equipment_install_counts[grp] = fleet_counts_by_group.get(grp, 0)
+                        st.rerun()
+
                 cols_counts = st.columns(min(len(groups_in_price_list), 4)) if groups_in_price_list else []
                 for i, grp in enumerate(groups_in_price_list):
                     with cols_counts[i % len(cols_counts)]:
-                        default_val = int(st.session_state.equipment_install_counts.get(grp, default_counts_from_recipes.get(grp, 1)))
+                        default_val = int(st.session_state.equipment_install_counts.get(
+                            grp, fleet_counts_by_group.get(grp, default_counts_from_recipes.get(grp, 1))))
                         st.session_state.equipment_install_counts[grp] = st.number_input(
                             f"{grp} — instalacji:", min_value=0, value=default_val, step=1, key=f"eq_count_{grp}"
                         )
@@ -3967,6 +3993,24 @@ with tab4:
                                      hide_index=True, use_container_width=True)
             else:
                 st.info("💡 Wgraj cennik powyżej, aby zobaczyć tu podsumowanie CAPEX per grupa produktowa.")
+
+        if total_capex > 0:
+            st.markdown("---")
+            contingency_pct = st.slider(
+                "Rezerwa na nieprzewidziane [%]:", min_value=0, max_value=30, value=15, step=1,
+                key="capex_contingency_pct",
+                help="Standardowa praktyka przy szacowaniu CAPEX na wczesnym etapie projektu — bufor na "
+                     "nieprzewidziane koszty (zwykle 10-20%)."
+            )
+            capex_before_contingency = total_capex
+            total_capex = capex_before_contingency * (1.0 + contingency_pct / 100.0)
+            cc1, cc2, cc3 = st.columns(3)
+            with cc1:
+                st.metric("CAPEX bazowy", f"{capex_before_contingency:,.0f} {waluta}")
+            with cc2:
+                st.metric(f"+ Rezerwa ({contingency_pct}%)", f"{capex_before_contingency * contingency_pct / 100.0:,.0f} {waluta}")
+            with cc3:
+                st.metric("💰 CAPEX razem (z rezerwą)", f"{total_capex:,.0f} {waluta}")
 
         st.markdown("---")
         st.markdown("### 📈 Krok 4: ROI (z uwzględnieniem krzywej rozruchu)")
