@@ -3215,19 +3215,25 @@ with tab3:
             shipped_pallets_month_assumed = actual_pallets_per_day * dni_robocze_miesiac
             fg_capacity_pallets = total_fg_positions_target
 
-            # Przelicznik palety -> kg -> koszt, do wyceny zapasu. Koszt/kg pochodzi z Zakładki 6
-            # (per grupa produktowa), ważony rzeczywistym miksem produkcji tej floty; jeśli
-            # Zakładka 6 nie była jeszcze skonfigurowana w tej sesji, używana jest wartość domyślna.
+            # Przelicznik palety -> kg -> wartość SPRZEDAŻNA (koszt + marża z Zakładki 6, Krok 4 -
+            # to jest realna wartość towaru leżącego w magazynie, nie tylko koszt wytworzenia).
+            # Koszt/kg pochodzi z Zakładki 6 (per grupa produktowa), ważony rzeczywistym miksem
+            # produkcji tej floty; jeśli Zakładka 6 nie była jeszcze skonfigurowana, używane są
+            # wartości domyślne.
             target_monthly_mass_kg_total = sum(m["batches_count"] * m["mass_per_batch"] for m in mixers_fleet)
             avg_kg_per_pallet = (target_monthly_mass_kg_total / total_palety_month_fg_target) if total_palety_month_fg_target > 0 else 0.0
             manuf_cost_per_group_stock = st.session_state.get("manuf_cost_per_group", {})
             total_annual_volume_kg = sum(m["annual_volume"] for m in mixers_fleet)
             avg_manuf_cost_per_kg = (sum(m["annual_volume"] * manuf_cost_per_group_stock.get(m["product_family"], 2.12) for m in mixers_fleet)
                                       / total_annual_volume_kg) if total_annual_volume_kg > 0 else 2.12
+            marza_pct_stock = st.session_state.get("roi_marza_pct", 20.0)
+            avg_selling_value_per_kg = avg_manuf_cost_per_kg * (1.0 + marza_pct_stock / 100.0)
+
             waluta_stock = st.selectbox("Waluta wyceny zapasu:", ["PLN", "EUR", "USD"], key="waluta_stock_value")
             if not manuf_cost_per_group_stock:
                 st.caption(f"ℹ️ Koszt produkcyjny per grupa nie był jeszcze ustawiany w Zakładce 6 — użyto wartości "
-                           f"domyślnej ({avg_manuf_cost_per_kg:.2f} {waluta_stock}/kg). Ustaw go w Zakładce 6, aby wycena była dokładniejsza.")
+                           f"domyślnej ({avg_manuf_cost_per_kg:.2f} {waluta_stock}/kg + {marza_pct_stock:.0f}% marży). "
+                           f"Ustaw go w Zakładce 6, aby wycena była dokładniejsza.")
 
             stock_rows = []
             stock_level = 0.0
@@ -3238,36 +3244,25 @@ with tab3:
                 production_pallets_month_yi = total_palety_month_fg_target * frac_yi
 
                 for mi in range(1, 13):
-                    zmiana_zapasu = production_pallets_month_yi - shipped_pallets_month_assumed
-                    stock_level = max(stock_level + zmiana_zapasu, 0.0)
-                    wartosc_zapasu = stock_level * avg_kg_per_pallet * avg_manuf_cost_per_kg
+                    stock_level = max(stock_level + production_pallets_month_yi - shipped_pallets_month_assumed, 0.0)
+                    wartosc_zapasu = stock_level * avg_kg_per_pallet * avg_selling_value_per_kg
                     stock_rows.append({
-                        "Miesiąc": yi * 12 + mi, "Okres": f"Rok {yi + 1}, mies. {mi}", "Rok": f"Rok {yi + 1}",
-                        "Zmiana zapasu [pal/mies]": zmiana_zapasu,
+                        "Miesiąc": yi * 12 + mi, "Okres": f"Y{yi + 1}-{mi}", "Rok": f"Rok {yi + 1}",
                         "Stan magazynowy [pal]": stock_level,
-                        "Pojemność FG [pal]": fg_capacity_pallets,
                         f"Wartość zapasu [{waluta_stock}]": wartosc_zapasu,
                     })
 
             df_stock = pd.DataFrame(stock_rows)
 
-            st.markdown("**Zmiana stanu magazynowego [palety/mies.]** (produkcja − wysyłki, per miesiąc, per rok)")
-            st.caption("Słupek dodatni = zapas rośnie w tym miesiącu (produkcja > wysyłki), słupek ujemny = zapas "
-                       "maleje (wysyłki > produkcja). Każdy rok to osobny przedział — słupki nie sumują się między "
-                       "latami, to nie jest wykres narastający.")
+            st.markdown(f"**Wartość zapasu w magazynie [{waluta_stock}]** (stan magazynowy × wartość produktu z marżą)")
+            st.caption(f"Wartość produktu z marżą użyta do wyceny: {avg_selling_value_per_kg:.2f} {waluta_stock}/kg "
+                       f"(koszt produkcyjny × (1 + {marza_pct_stock:.0f}% marży), ważony miksem produkcji floty). "
+                       "Rosnące słupki w kolejnych latach pokazują rosnące wykorzystanie magazynu wraz z rozruchem produkcji.")
             try:
-                st.bar_chart(df_stock, x="Okres", y="Zmiana zapasu [pal/mies]", color="Rok", use_container_width=True)
+                st.bar_chart(df_stock, x="Okres", y=f"Wartość zapasu [{waluta_stock}]", color="Rok", use_container_width=True)
             except TypeError:
                 # Starsza wersja Streamlit bez parametru color/x/y w bar_chart - fallback bez grupowania kolorem.
-                st.bar_chart(df_stock.set_index("Okres")[["Zmiana zapasu [pal/mies]"]])
-
-            with st.expander("📈 Wynikowy stan magazynowy (skumulowany, na tle pojemności FG)", expanded=False):
-                st.caption(f"Pomocniczo: jak wygląda RZECZYWISTY (skumulowany) stan magazynowy wynikający z powyższych "
-                           f"miesięcznych zmian, na tle projektowej pojemności FG = {fg_capacity_pallets:,.0f} palet.")
-                st.line_chart(df_stock.set_index("Miesiąc")[["Stan magazynowy [pal]", "Pojemność FG [pal]"]])
-
-            st.markdown(f"**Wartość zapasu [{waluta_stock}]** (koszt produkcyjny × ilość magazynowana)")
-            st.line_chart(df_stock.set_index("Miesiąc")[[f"Wartość zapasu [{waluta_stock}]"]])
+                st.bar_chart(df_stock.set_index("Okres")[[f"Wartość zapasu [{waluta_stock}]"]])
 
             v_c1, v_c2, v_c3 = st.columns(3)
             with v_c1:
