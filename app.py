@@ -1343,6 +1343,143 @@ def generate_pdf_report_bytes(report_data, waluta_report):
     return doc_buf.getvalue()
 
 
+def generate_excel_report_bytes(report_data, roi_rows, waluta_report):
+    """
+    Buduje skoroszyt Excel (openpyxl - już zależność tej apki, zero nowego ryzyka wdrożeniowego)
+    z tym samym zestawem danych co raport PDF, ale w formie do dalszej pracy: arkusz Summary
+    (5 lat: tonaż/produkcja/import/magazyn/energia/OPEX/ROI w jednej tabeli), Fleet (flota),
+    Products (produkty per rok), oraz Charts z natywnymi, edytowalnymi wykresami Excela.
+    """
+    from openpyxl import Workbook
+    from openpyxl.styles import Font, PatternFill, Alignment
+    from openpyxl.chart import BarChart, LineChart, Reference
+    from openpyxl.utils import get_column_letter
+
+    years = report_data["years"]
+    target_annual_t = report_data["target_annual_t"]
+    fleet = report_data["fleet"]
+
+    header_font = Font(bold=True, color="FFFFFF")
+    header_fill = PatternFill("solid", fgColor="1F4E78")
+    wrap_center = Alignment(horizontal="center", vertical="center", wrap_text=True)
+
+    wb = Workbook()
+
+    # --- Arkusz Summary ---
+    ws = wb.active
+    ws.title = "Summary"
+    summary_headers = [
+        "Year", "% of Target", "Total Volume [t]", "Produced [t]", "Imported [t]",
+        "Warehouse Utilization [%]", "Warehouse Stock Value", "Heating", "Electricity - Process (incl. cooling)",
+        "Electricity - Facility (fixed)", "Total Energy", "OPEX", "Revenue", "Profit",
+        "Cumulative Profit", "ROI (this year) [%]",
+    ]
+    for col_idx, h in enumerate(summary_headers, start=1):
+        c = ws.cell(row=1, column=col_idx, value=h)
+        c.font = header_font
+        c.fill = header_fill
+        c.alignment = wrap_center
+    ws.row_dimensions[1].height = 30
+
+    for i, y in enumerate(years):
+        roi_row = roi_rows[i] if i < len(roi_rows) else {}
+        energy = y.get("energy", {})
+        row_vals = [
+            y["year"], round(y["target_pct"], 1), round(y["total_t"], 1), round(y["produced_t"], 1), round(y["imported_t"], 1),
+            round(y["wh_util_pct"], 1) if y["wh_util_pct"] is not None else None,
+            round(y["wh_value"], 0) if y["wh_value"] is not None else None,
+            energy.get("Ogrzewanie [waluta/rok]"), energy.get("Elektryczność - proces (w tym chłodzenie) [waluta/rok]"),
+            energy.get("Elektryczność - pozaprodukcyjne (stałe) [waluta/rok]"), energy.get("Energia razem [waluta/rok]"),
+            roi_row.get("OPEX roczny"), roi_row.get("Przychód roczny"), roi_row.get("Zysk roczny"),
+            roi_row.get("Zysk skumulowany"), roi_row.get("ROI (ten rok) [%]"),
+        ]
+        for col_idx, v in enumerate(row_vals, start=1):
+            ws.cell(row=2 + i, column=col_idx, value=v)
+
+    for col_idx in range(1, len(summary_headers) + 1):
+        ws.column_dimensions[get_column_letter(col_idx)].width = 16
+    ws.freeze_panes = "A2"
+    ws.cell(row=len(years) + 3, column=1, value=f"Target annual capacity (100%, Year 5+): {target_annual_t:,.0f} t/year")
+    ws.cell(row=len(years) + 4, column=1, value=f"Currency: {waluta_report}")
+
+    # --- Arkusz Fleet ---
+    ws_fleet = wb.create_sheet("Fleet")
+    fleet_headers = ["Tag", "Product Family", "Capacity [m3]", "Batch Mass [kg]", "Cycle [h]", "Batches/month (target)"]
+    for col_idx, h in enumerate(fleet_headers, start=1):
+        c = ws_fleet.cell(row=1, column=col_idx, value=h)
+        c.font = header_font
+        c.fill = header_fill
+    for i, m in enumerate(fleet, start=2):
+        ws_fleet.cell(row=i, column=1, value=m["tag"])
+        ws_fleet.cell(row=i, column=2, value=m["product_family"])
+        ws_fleet.cell(row=i, column=3, value=round(m["capacity_m3"], 1))
+        ws_fleet.cell(row=i, column=4, value=round(m["mass_per_batch"], 0))
+        ws_fleet.cell(row=i, column=5, value=round(m["cycle_h"], 2))
+        ws_fleet.cell(row=i, column=6, value=m["batches_count"])
+    for col_idx in range(1, len(fleet_headers) + 1):
+        ws_fleet.column_dimensions[get_column_letter(col_idx)].width = 18
+
+    # --- Arkusz Products ---
+    ws_prod = wb.create_sheet("Products")
+    prod_headers = ["Year", "Product", "Group", "Mode", "Volume [kg]"]
+    for col_idx, h in enumerate(prod_headers, start=1):
+        c = ws_prod.cell(row=1, column=col_idx, value=h)
+        c.font = header_font
+        c.fill = header_fill
+    row_ptr = 2
+    for y in years:
+        for p in y["products"]:
+            ws_prod.cell(row=row_ptr, column=1, value=y["year"])
+            ws_prod.cell(row=row_ptr, column=2, value=p["product"])
+            ws_prod.cell(row=row_ptr, column=3, value=p["group"])
+            ws_prod.cell(row=row_ptr, column=4, value=p["mode"])
+            ws_prod.cell(row=row_ptr, column=5, value=round(p["kg"], 0))
+            row_ptr += 1
+    for col_idx, w in zip(range(1, 6), [8, 26, 18, 12, 14]):
+        ws_prod.column_dimensions[get_column_letter(col_idx)].width = w
+
+    # --- Arkusz Charts: natywne, edytowalne wykresy Excela zbudowane z danych w Summary ---
+    ws_charts = wb.create_sheet("Charts")
+    n_years = len(years)
+
+    bar1 = BarChart()
+    bar1.type = "col"
+    bar1.grouping = "stacked"
+    bar1.title = "Production Volume: Own Production vs. Import"
+    bar1.y_axis.title = "Tonnage [t/year]"
+    bar1.x_axis.title = "Year"
+    data1 = Reference(ws, min_col=4, max_col=5, min_row=1, max_row=1 + n_years)  # Produced, Imported
+    cats1 = Reference(ws, min_col=1, min_row=2, max_row=1 + n_years)
+    bar1.add_data(data1, titles_from_data=True)
+    bar1.set_categories(cats1)
+    ws_charts.add_chart(bar1, "A1")
+
+    bar2 = BarChart()
+    bar2.type = "col"
+    bar2.grouping = "stacked"
+    bar2.title = "Energy Cost Breakdown by Year"
+    bar2.y_axis.title = f"Cost [{waluta_report}/year]"
+    bar2.x_axis.title = "Year"
+    data2 = Reference(ws, min_col=8, max_col=10, min_row=1, max_row=1 + n_years)  # Heating, Elec-process, Elec-facility
+    bar2.add_data(data2, titles_from_data=True)
+    bar2.set_categories(cats1)
+    ws_charts.add_chart(bar2, "A20")
+
+    line1 = LineChart()
+    line1.title = "Cumulative Profit vs. CAPEX Payback"
+    line1.y_axis.title = f"[{waluta_report}]"
+    line1.x_axis.title = "Year"
+    data3 = Reference(ws, min_col=15, min_row=1, max_row=1 + n_years)  # Cumulative Profit
+    line1.add_data(data3, titles_from_data=True)
+    line1.set_categories(cats1)
+    ws_charts.add_chart(line1, "A39")
+
+    bio = io.BytesIO()
+    wb.save(bio)
+    bio.seek(0)
+    return bio.getvalue()
+
+
 
 # ==========================================
 # FUNKCJE POMOCNICZE (wydzielone z pętli UI, aby dało się je testować niezależnie)
@@ -3693,84 +3830,111 @@ with tab4:
                 "razem z resztą analizy czasu procesu.")
 
         st.markdown("---")
-        st.markdown("### 🧰 Krok 3: CAPEX — Cennik i Standardowa Instalacja")
-        st.caption("Zdefiniuj listę komponentów standardowej instalacji per grupa produktowa (pompy, czujniki, "
-                   "zawory, elektrozawory itd.) wraz z cenami jednostkowymi — treść zwykle przepisana z Twojego "
-                   "istniejącego P&ID danej instalacji standardowej. Podaj, ile takich instalacji planujesz, "
-                   "a aplikacja przeliczy szacunkowy CAPEX. Cennik wgrywasz ponownie, gdy ceny się zmienią.")
+        st.markdown("### 🧰 Krok 3: CAPEX — Nakłady Inwestycyjne")
+        st.caption("Wybierz sposób określenia CAPEX zależnie od zaawansowania prac projektowych: kwota całkowita "
+                   "jako szybki szacunek na wczesnym etapie, albo szczegółowy cennik instalacji z Excela, gdy masz "
+                   "już rozpisany projekt (P&ID, dobrane urządzenia, ceny jednostkowe).")
 
-        equipment_template_bytes = generate_equipment_template_bytes()
-        st.download_button(
-            label="⬇️ Pobierz szablon Excel (Cennik_Instalacji_Szablon.xlsx)",
-            data=equipment_template_bytes,
-            file_name="Cennik_Instalacji_Szablon.xlsx",
-            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-            key="btn_download_equipment_template"
+        capex_mode = st.radio(
+            "Sposób określenia CAPEX:",
+            ["Kwota całkowita (szacunek wstępny)", "Szczegółowy cennik z Excela (zaawansowany projekt)"],
+            key="capex_mode", horizontal=True
         )
 
-        uploaded_equipment_file = st.file_uploader("Wybierz plik .xlsx z cennikiem instalacji:", type=["xlsx"], key="equipment_uploader")
-
-        if uploaded_equipment_file is not None:
-            parsed_eq_df, eq_errors = parse_equipment_excel(uploaded_equipment_file)
-            for err in eq_errors:
-                st.warning(f"⚠️ {err}")
-            if parsed_eq_df is not None and not parsed_eq_df.empty:
-                st.session_state.equipment_df = parsed_eq_df
-                st.success(f"✅ Wczytano {len(parsed_eq_df)} pozycji cennika.")
-            elif parsed_eq_df is None:
-                st.error("❌ Nie udało się wczytać żadnych poprawnych pozycji z tego pliku — popraw błędy powyżej i wgraj ponownie.")
-
         total_capex = 0.0
-        if st.session_state.equipment_df is not None and not st.session_state.equipment_df.empty:
-            edited_eq_df = st.data_editor(
-                st.session_state.equipment_df, hide_index=True, use_container_width=True,
-                num_rows="dynamic", key="equipment_data_editor",
-                column_config={EQUIPMENT_GROUP_COL: st.column_config.SelectboxColumn(options=RECIPE_PRODUCT_GROUPS)}
+
+        if capex_mode == "Kwota całkowita (szacunek wstępny)":
+            capex_lump_sum = st.number_input(
+                f"Całkowity CAPEX [{waluta}]:", min_value=0.0,
+                value=float(st.session_state.get("capex_lump_sum", 0.0)), step=50_000.0, format="%.0f",
+                key="capex_lump_sum_input",
+                help="Jedna zbiorcza kwota — instalacje, budynek, infrastruktura itd. razem. Użyj tego trybu, "
+                     "dopóki nie masz jeszcze szczegółowego rozbicia kosztów."
             )
-            edited_eq_df[EQUIPMENT_LINE_TOTAL_COL] = edited_eq_df[EQUIPMENT_QTY_COL] * edited_eq_df[EQUIPMENT_UNIT_PRICE_COL]
-            st.session_state.equipment_df = edited_eq_df
+            st.session_state["capex_lump_sum"] = capex_lump_sum
+            total_capex = capex_lump_sum
+            if total_capex > 0:
+                st.metric("💰 Całkowity CAPEX", f"{total_capex:,.0f} {waluta}")
+            else:
+                st.info("ℹ️ Wpisz szacunkową kwotę CAPEX powyżej, aby policzyć ROI w Kroku 4.")
 
-            groups_in_price_list = sorted(edited_eq_df[EQUIPMENT_GROUP_COL].dropna().unique().tolist())
-
-            # Domyślna liczba instalacji = liczba unikalnych produktów danej grupy w recepturach
-            # wgranych w Zakładce 1, jeśli są dostępne - w przeciwnym razie 1.
-            default_counts_from_recipes = {}
-            if st.session_state.recipes_df is not None and not st.session_state.recipes_df.empty:
-                default_counts_from_recipes = st.session_state.recipes_df.groupby(RECIPE_GROUP_COL)[RECIPE_PRODUCT_COL].nunique().to_dict()
-
-            cols_counts = st.columns(min(len(groups_in_price_list), 4)) if groups_in_price_list else []
-            for i, grp in enumerate(groups_in_price_list):
-                with cols_counts[i % len(cols_counts)]:
-                    default_val = int(st.session_state.equipment_install_counts.get(grp, default_counts_from_recipes.get(grp, 1)))
-                    st.session_state.equipment_install_counts[grp] = st.number_input(
-                        f"{grp} — instalacji:", min_value=0, value=default_val, step=1, key=f"eq_count_{grp}"
-                    )
-
-            capex_rows = []
-            for grp in groups_in_price_list:
-                n_install = st.session_state.equipment_install_counts.get(grp, 0)
-                grp_df = edited_eq_df[edited_eq_df[EQUIPMENT_GROUP_COL] == grp]
-                per_install_cost = grp_df[EQUIPMENT_LINE_TOTAL_COL].sum()
-                group_total = per_install_cost * n_install
-                total_capex += group_total
-                currencies = grp_df[EQUIPMENT_CURRENCY_COL].dropna().unique().tolist()
-                currency_label = currencies[0] if len(currencies) == 1 else "/".join(currencies) if currencies else "—"
-                capex_rows.append({
-                    "Grupa Produktowa": grp, "Komponentów w cenniku": len(grp_df),
-                    "Koszt 1 instalacji": round(per_install_cost, 2), "Liczba instalacji": n_install,
-                    "CAPEX grupy": round(group_total, 2), "Waluta": currency_label,
-                })
-
-            st.dataframe(pd.DataFrame(capex_rows), hide_index=True, use_container_width=True)
-            st.metric("💰 Łączny szacowany CAPEX (wszystkie grupy)", f"{total_capex:,.0f}")
-
-            with st.expander("📋 Szczegółowa lista komponentów per grupa", expanded=False):
-                for grp in groups_in_price_list:
-                    st.markdown(f"**{grp}**")
-                    st.dataframe(edited_eq_df[edited_eq_df[EQUIPMENT_GROUP_COL] == grp].drop(columns=[EQUIPMENT_GROUP_COL]),
-                                 hide_index=True, use_container_width=True)
         else:
-            st.info("💡 Wgraj cennik powyżej, aby zobaczyć tu podsumowanie CAPEX per grupa produktowa.")
+            st.caption("Zdefiniuj listę komponentów standardowej instalacji per grupa produktowa (pompy, czujniki, "
+                       "zawory, elektrozawory itd.) wraz z cenami jednostkowymi — treść zwykle przepisana z Twojego "
+                       "istniejącego P&ID danej instalacji standardowej. Podaj, ile takich instalacji planujesz, "
+                       "a aplikacja przeliczy szacunkowy CAPEX. Cennik wgrywasz ponownie, gdy ceny się zmienią.")
+
+            equipment_template_bytes = generate_equipment_template_bytes()
+            st.download_button(
+                label="⬇️ Pobierz szablon Excel (Cennik_Instalacji_Szablon.xlsx)",
+                data=equipment_template_bytes,
+                file_name="Cennik_Instalacji_Szablon.xlsx",
+                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                key="btn_download_equipment_template"
+            )
+
+            uploaded_equipment_file = st.file_uploader("Wybierz plik .xlsx z cennikiem instalacji:", type=["xlsx"], key="equipment_uploader")
+
+            if uploaded_equipment_file is not None:
+                parsed_eq_df, eq_errors = parse_equipment_excel(uploaded_equipment_file)
+                for err in eq_errors:
+                    st.warning(f"⚠️ {err}")
+                if parsed_eq_df is not None and not parsed_eq_df.empty:
+                    st.session_state.equipment_df = parsed_eq_df
+                    st.success(f"✅ Wczytano {len(parsed_eq_df)} pozycji cennika.")
+                elif parsed_eq_df is None:
+                    st.error("❌ Nie udało się wczytać żadnych poprawnych pozycji z tego pliku — popraw błędy powyżej i wgraj ponownie.")
+
+            if st.session_state.equipment_df is not None and not st.session_state.equipment_df.empty:
+                edited_eq_df = st.data_editor(
+                    st.session_state.equipment_df, hide_index=True, use_container_width=True,
+                    num_rows="dynamic", key="equipment_data_editor",
+                    column_config={EQUIPMENT_GROUP_COL: st.column_config.SelectboxColumn(options=RECIPE_PRODUCT_GROUPS)}
+                )
+                edited_eq_df[EQUIPMENT_LINE_TOTAL_COL] = edited_eq_df[EQUIPMENT_QTY_COL] * edited_eq_df[EQUIPMENT_UNIT_PRICE_COL]
+                st.session_state.equipment_df = edited_eq_df
+
+                groups_in_price_list = sorted(edited_eq_df[EQUIPMENT_GROUP_COL].dropna().unique().tolist())
+
+                # Domyślna liczba instalacji = liczba unikalnych produktów danej grupy w recepturach
+                # wgranych w Zakładce 1, jeśli są dostępne - w przeciwnym razie 1.
+                default_counts_from_recipes = {}
+                if st.session_state.recipes_df is not None and not st.session_state.recipes_df.empty:
+                    default_counts_from_recipes = st.session_state.recipes_df.groupby(RECIPE_GROUP_COL)[RECIPE_PRODUCT_COL].nunique().to_dict()
+
+                cols_counts = st.columns(min(len(groups_in_price_list), 4)) if groups_in_price_list else []
+                for i, grp in enumerate(groups_in_price_list):
+                    with cols_counts[i % len(cols_counts)]:
+                        default_val = int(st.session_state.equipment_install_counts.get(grp, default_counts_from_recipes.get(grp, 1)))
+                        st.session_state.equipment_install_counts[grp] = st.number_input(
+                            f"{grp} — instalacji:", min_value=0, value=default_val, step=1, key=f"eq_count_{grp}"
+                        )
+
+                capex_rows = []
+                for grp in groups_in_price_list:
+                    n_install = st.session_state.equipment_install_counts.get(grp, 0)
+                    grp_df = edited_eq_df[edited_eq_df[EQUIPMENT_GROUP_COL] == grp]
+                    per_install_cost = grp_df[EQUIPMENT_LINE_TOTAL_COL].sum()
+                    group_total = per_install_cost * n_install
+                    total_capex += group_total
+                    currencies = grp_df[EQUIPMENT_CURRENCY_COL].dropna().unique().tolist()
+                    currency_label = currencies[0] if len(currencies) == 1 else "/".join(currencies) if currencies else "—"
+                    capex_rows.append({
+                        "Grupa Produktowa": grp, "Komponentów w cenniku": len(grp_df),
+                        "Koszt 1 instalacji": round(per_install_cost, 2), "Liczba instalacji": n_install,
+                        "CAPEX grupy": round(group_total, 2), "Waluta": currency_label,
+                    })
+
+                st.dataframe(pd.DataFrame(capex_rows), hide_index=True, use_container_width=True)
+                st.metric("💰 Łączny szacowany CAPEX (wszystkie grupy)", f"{total_capex:,.0f}")
+
+                with st.expander("📋 Szczegółowa lista komponentów per grupa", expanded=False):
+                    for grp in groups_in_price_list:
+                        st.markdown(f"**{grp}**")
+                        st.dataframe(edited_eq_df[edited_eq_df[EQUIPMENT_GROUP_COL] == grp].drop(columns=[EQUIPMENT_GROUP_COL]),
+                                     hide_index=True, use_container_width=True)
+            else:
+                st.info("💡 Wgraj cennik powyżej, aby zobaczyć tu podsumowanie CAPEX per grupa produktowa.")
 
         st.markdown("---")
         st.markdown("### 📈 Krok 4: ROI (z uwzględnieniem krzywej rozruchu)")
@@ -3830,6 +3994,7 @@ with tab4:
             })
 
         st.dataframe(pd.DataFrame(roi_rows), hide_index=True, use_container_width=True)
+        st.session_state["roi_rows_report"] = roi_rows  # do raportu Excel/PDF
 
         st.markdown("###### ⚡ Energia — rozbicie per rok (ogrzewanie / elektryczność procesowa / elektryczność stała)")
         st.caption(f"Waluta: {waluta}. 'Proces' obejmuje mieszanie, pompowanie i chłodzenie (przez COP) — te skalują "
@@ -3865,35 +4030,65 @@ with tab4:
             st.info("ℹ️ ROI wymaga policzonego CAPEX — uzupełnij cennik instalacji w Kroku 3 powyżej.")
 
         st.markdown("---")
-        st.markdown("### 📄 Krok 5: Raport 5-letni (PDF)")
-        st.caption("Zbiera w jeden dokument (po angielsku) to, co już policzone w aplikacji: skalę produkcji per "
-                   "rok, produkty, produkcja własna vs import, flotę (mieszalniki), wykorzystanie magazynu i KPI "
-                   "energetyczne. Odwiedź Zakładkę 4 (wykres stanu magazynowego), żeby dane magazynowe w raporcie "
-                   "były aktualne — inaczej te pola pokażą 'n/a'.")
-        if st.button("📄 Wygeneruj raport PDF", key="btn_generate_pdf_report"):
-            report_data = compute_pdf_report_year_data()
-            if report_data is None:
-                st.error("❌ Brak zatwierdzonej floty (Zakładka 2) — nie ma czego raportować.")
-            else:
-                try:
-                    pdf_bytes = generate_pdf_report_bytes(report_data, waluta)
-                    st.session_state["pdf_report_bytes"] = pdf_bytes
-                    st.success("✅ Raport wygenerowany — pobierz poniżej.")
-                except ImportError as exc:
-                    st.error(f"❌ Brakująca biblioteka do generowania PDF: {exc}. Dopisz do `requirements.txt` na "
-                             f"Streamlit Cloud: `reportlab` oraz `matplotlib` (jeśli jeszcze nie ma), zapisz plik i "
-                             f"poczekaj na automatyczne ponowne wdrożenie aplikacji, potem spróbuj ponownie.")
-                except Exception as exc:
-                    st.error(f"❌ Nie udało się wygenerować raportu: {exc}")
+        st.markdown("### 📄 Krok 5: Raport 5-letni (PDF / Excel)")
+        st.caption("Zbiera w jeden dokument to, co już policzone w aplikacji: skalę produkcji per rok, produkty, "
+                   "produkcja własna vs import, flotę (mieszalniki), wykorzystanie magazynu i KPI energetyczne. "
+                   "**PDF** — czytelny, sformatowany dokument (po angielsku) do pokazania/udostępnienia. **Excel** "
+                   "— te same dane w formie tabel + natywne, edytowalne wykresy, do dalszej pracy (przestawianie, "
+                   "własne zestawienia). Odwiedź Zakładkę 4 (wykres stanu magazynowego), żeby dane magazynowe w "
+                   "raporcie były aktualne — inaczej te pola pokażą 'n/a'.")
 
-        if st.session_state.get("pdf_report_bytes"):
-            st.download_button(
-                label="⬇️ Pobierz raport PDF (5-Year Production Scale-Up Report)",
-                data=st.session_state["pdf_report_bytes"],
-                file_name="5_Year_Production_Scaleup_Report.pdf",
-                mime="application/pdf",
-                key="btn_download_pdf_report"
-            )
+        c_rep1, c_rep2 = st.columns(2)
+        with c_rep1:
+            if st.button("📄 Wygeneruj raport PDF", key="btn_generate_pdf_report", use_container_width=True):
+                report_data = compute_pdf_report_year_data()
+                if report_data is None:
+                    st.error("❌ Brak zatwierdzonej floty (Zakładka 2) — nie ma czego raportować.")
+                else:
+                    try:
+                        pdf_bytes = generate_pdf_report_bytes(report_data, waluta)
+                        st.session_state["pdf_report_bytes"] = pdf_bytes
+                        st.success("✅ Raport PDF wygenerowany — pobierz poniżej.")
+                    except ImportError as exc:
+                        st.error(f"❌ Brakująca biblioteka do generowania PDF: {exc}. Dopisz do `requirements.txt` na "
+                                 f"Streamlit Cloud: `reportlab` oraz `matplotlib` (jeśli jeszcze nie ma), zapisz plik i "
+                                 f"poczekaj na automatyczne ponowne wdrożenie aplikacji, potem spróbuj ponownie.")
+                    except Exception as exc:
+                        st.error(f"❌ Nie udało się wygenerować raportu PDF: {exc}")
+
+            if st.session_state.get("pdf_report_bytes"):
+                st.download_button(
+                    label="⬇️ Pobierz raport PDF",
+                    data=st.session_state["pdf_report_bytes"],
+                    file_name="5_Year_Production_Scaleup_Report.pdf",
+                    mime="application/pdf",
+                    key="btn_download_pdf_report",
+                    use_container_width=True
+                )
+
+        with c_rep2:
+            if st.button("📊 Wygeneruj raport Excel", key="btn_generate_excel_report", use_container_width=True):
+                report_data = compute_pdf_report_year_data()
+                if report_data is None:
+                    st.error("❌ Brak zatwierdzonej floty (Zakładka 2) — nie ma czego raportować.")
+                else:
+                    try:
+                        roi_rows_for_report = st.session_state.get("roi_rows_report", [])
+                        xlsx_bytes = generate_excel_report_bytes(report_data, roi_rows_for_report, waluta)
+                        st.session_state["excel_report_bytes"] = xlsx_bytes
+                        st.success("✅ Raport Excel wygenerowany — pobierz poniżej.")
+                    except Exception as exc:
+                        st.error(f"❌ Nie udało się wygenerować raportu Excel: {exc}")
+
+            if st.session_state.get("excel_report_bytes"):
+                st.download_button(
+                    label="⬇️ Pobierz raport Excel",
+                    data=st.session_state["excel_report_bytes"],
+                    file_name="5_Year_Production_Scaleup_Report.xlsx",
+                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+                    key="btn_download_excel_report",
+                    use_container_width=True
+                )
 
 # ==========================================
 # ZAKŁADKA 5: PARK ZBIORNIKÓW (TANK FARM) (tab5)
