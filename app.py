@@ -3260,29 +3260,17 @@ with tab3:
 
             df_stock = pd.DataFrame(stock_rows)
             wartosc_col = f"Wartość zapasu [{waluta_stock}]"
+            df_stock_indexed = df_stock.set_index("Okres")
 
-            st.markdown("**Stan magazynowy (słupki, lewa oś) i Wartość zapasu (linia, prawa oś)**")
             st.caption(f"Wartość produktu z marżą użyta do wyceny: {avg_selling_value_per_kg:.2f} {waluta_stock}/kg "
                        f"(koszt produkcyjny × (1 + {marza_pct_stock:.0f}% marży), ważony miksem produkcji floty). "
-                       "Rosnące słupki w kolejnych latach pokazują rosnące wykorzystanie magazynu wraz z rozruchem produkcji.")
-            try:
-                import altair as alt
-                okres_order = df_stock["Okres"].tolist()  # chronologiczna kolejność (Miesiąc 1..60), nie alfabetyczna
-                base = alt.Chart(df_stock).encode(x=alt.X("Okres:N", sort=okres_order, title="Okres"))
-                bars_stock = base.mark_bar().encode(
-                    y=alt.Y("Stan magazynowy [pal]:Q", axis=alt.Axis(title="Stan magazynowy [palety]", titleColor="#1f77b4")),
-                    color=alt.Color("Rok:N", legend=alt.Legend(title="Rok"))
-                )
-                line_value = base.mark_line(color="#d62728", point=True, strokeWidth=2.5).encode(
-                    y=alt.Y(f"{wartosc_col}:Q", axis=alt.Axis(title=f"Wartość zapasu [{waluta_stock}]", titleColor="#d62728"))
-                )
-                combo_chart = alt.layer(bars_stock, line_value).resolve_scale(y="independent")
-                st.altair_chart(combo_chart, use_container_width=True)
-                st.caption("🔵 Słupki (lewa oś) = stan magazynowy w paletach · 🔴 linia (prawa oś) = wartość zapasu.")
-            except ImportError:
-                st.bar_chart(df_stock.set_index("Okres")[["Stan magazynowy [pal]"]])
-                st.line_chart(df_stock.set_index("Okres")[[wartosc_col]])
-                st.caption("ℹ️ Altair niedostępny — pokazano dwa osobne wykresy zamiast jednego z dwiema osiami.")
+                       "Rosnące słupki/linia w kolejnych latach pokazują rosnące wykorzystanie magazynu wraz z rozruchem produkcji.")
+
+            st.markdown("**Stan magazynowy [palety]**")
+            st.bar_chart(df_stock_indexed[["Stan magazynowy [pal]"]])
+
+            st.markdown(f"**Wartość zapasu [{waluta_stock}]**")
+            st.line_chart(df_stock_indexed[[wartosc_col]])
 
             v_c1, v_c2, v_c3 = st.columns(3)
             with v_c1:
