@@ -3136,6 +3136,65 @@ with tab3:
                        "Bufor **surowców w zbiornikach** (silosy) jest liczony i wymiarowany osobno w Zakładce 5. "
                        f"Powierzchnia budynku pozostaje wymiarowana pod 100% celu niezależnie od wybranego roku — "
                        f"zmienia się tylko pokazane wykorzystanie ({selected_rampup_year_label}).")
+
+            # ============================================================
+            # WYSYŁKI — ile trzeba wysyłać dziennie, żeby magazyn WG nie rósł ponad projektową
+            # rotację, i co się dzieje, jeśli realne wysyłki są mniejsze od sugerowanych.
+            # ============================================================
+            st.markdown("---")
+            st.markdown("##### 🚚 Wysyłki — Utrzymanie Optymalnego Poziomu Magazynu")
+            st.caption("Magazyn jest zaprojektowany pod rotację **{:.0f} dni** (pole 'Czas składowania palety' powyżej) "
+                       "— żeby jej dotrzymać, tyle samo palet WG musi dziennie WYJEŻDŻAĆ, ile średnio dziennie "
+                       "PRZYBYWA z produkcji. Poniżej: sugerowane tempo wysyłek w tym roku/widoku, oraz co się "
+                       "dzieje, jeśli realne wysyłki są od niego mniejsze.".format(czas_skladowania_dni))
+
+            total_palety_month_fg = sum(r["Palet [/mies] 🧱"] for r in real_split_rows)
+            suggested_pallets_per_day = (total_palety_month_fg / dni_robocze_miesiac) if dni_robocze_miesiac > 0 else 0.0
+
+            c_ship1, c_ship2 = st.columns(2)
+            with c_ship1:
+                pallets_per_truck = st.number_input(
+                    "Palet na 1 wysyłkę (naczepa/kontener) [szt]:", min_value=1, value=33, step=1, key="pallets_per_truck",
+                    help="Typowa naczepa standardowa mieści ~33 palety EUR — dostosuj do realnego taboru."
+                )
+            with c_ship2:
+                suggested_trucks_per_day = suggested_pallets_per_day / pallets_per_truck if pallets_per_truck > 0 else 0.0
+                st.metric("📦 Sugerowane wysyłki / dzień (ten rok)", f"{suggested_trucks_per_day:.2f} wysyłki/dzień",
+                          help=f"= {suggested_pallets_per_day:.1f} palet/dzień ({total_palety_month_fg:.0f} palet/mies. ÷ "
+                               f"{dni_robocze_miesiac:.1f} dni roboczych/mies.)")
+
+            actual_trucks_per_day = st.number_input(
+                "Rzeczywiste/planowane wysyłki / dzień:", min_value=0.0,
+                value=round(suggested_trucks_per_day, 2), step=0.5, key="actual_trucks_per_day",
+                help="Domyślnie ustawione na wartość sugerowaną — zmień, żeby zobaczyć skutek wysyłania mniej (lub więcej) niż potrzeba."
+            )
+            actual_pallets_per_day = actual_trucks_per_day * pallets_per_truck
+            gap_pallets_per_day = suggested_pallets_per_day - actual_pallets_per_day
+
+            if actual_trucks_per_day <= 0:
+                st.warning("⚠️ Przy zerowych wysyłkach magazyn WG napełni się od zera do pełnej pojemności w "
+                           f"**{(total_fg_positions_target / suggested_pallets_per_day):.0f} dni roboczych** "
+                           "(przy tempie produkcji z wybranego roku) — i dalej rosnąć, bez odpływu.")
+            elif gap_pallets_per_day > 0.001:
+                effective_rotation_days = czas_skladowania_dni * (suggested_pallets_per_day / actual_pallets_per_day)
+                # Ile miejsc podłogowych zajmie magazyn WG, jeśli realnie rotacja wydłuża się do effective_rotation_days
+                # zamiast projektowych czas_skladowania_dni - proporcjonalnie do dziennego niedoboru wysyłek.
+                fg_positions_at_actual_rate = math.ceil(total_fg_positions_target * (effective_rotation_days / czas_skladowania_dni)) \
+                    if czas_skladowania_dni > 0 else total_fg_positions_target
+                extra_positions_needed = max(fg_positions_at_actual_rate - total_fg_positions_target, 0)
+                spare_capacity = max(total_miejsca_magazynowe_target - total_miejsca_magazynowe, 0)
+                days_to_overflow = (spare_capacity / gap_pallets_per_day) if gap_pallets_per_day > 0 else float("inf")
+
+                st.error(f"🔴 Wysyłasz **{gap_pallets_per_day:.1f} palety/dzień mniej** niż sugerowane — magazyn WG "
+                         f"rośnie ponad projekt. Efektywna rotacja wydłuża się z {czas_skladowania_dni:.0f} do "
+                         f"~**{effective_rotation_days:.0f} dni**, co odpowiada ok. **{extra_positions_needed:,} dodatkowym "
+                         f"miejscom paletowym** ponad dzisiejszy projekt budynku. Przy obecnym zapasie wolnej "
+                         f"powierzchni ({spare_capacity:,} miejsc w tym roku/widoku) magazyn **przepełni się za "
+                         f"~{days_to_overflow:.0f} dni roboczych**, jeśli nic się nie zmieni.")
+            else:
+                st.success(f"🟢 Planowane wysyłki ({actual_trucks_per_day:.2f}/dzień) pokrywają lub przewyższają "
+                           f"sugerowane tempo — magazyn WG powinien utrzymać projektową rotację "
+                           f"{czas_skladowania_dni:.0f} dni.")
         else:
             st.info("Brak skonfigurowanego podziału opakowań o niezerowym udziale — uzupełnij procenty w panelu bocznym, "
                     "albo (dla produktów importowanych) uzupełnij dane importu w Zakładce 1.")
