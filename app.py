@@ -3260,17 +3260,39 @@ with tab3:
 
             df_stock = pd.DataFrame(stock_rows)
             wartosc_col = f"Wartość zapasu [{waluta_stock}]"
-            df_stock_indexed = df_stock.set_index("Okres")
 
             st.caption(f"Wartość produktu z marżą użyta do wyceny: {avg_selling_value_per_kg:.2f} {waluta_stock}/kg "
                        f"(koszt produkcyjny × (1 + {marza_pct_stock:.0f}% marży), ważony miksem produkcji floty). "
-                       "Rosnące słupki/linia w kolejnych latach pokazują rosnące wykorzystanie magazynu wraz z rozruchem produkcji.")
+                       "Rosnące słupki w kolejnych latach pokazują rosnące wykorzystanie magazynu wraz z rozruchem produkcji.")
 
-            st.markdown("**Stan magazynowy [palety]**")
-            st.bar_chart(df_stock_indexed[["Stan magazynowy [pal]"]])
+            st.markdown("**Stan magazynowy [palety]** (wartość zapasu na koniec każdego roku podpisana nad słupkiem)")
+            try:
+                import altair as alt
+                # Jeden wykres, JEDNA oś (palety) - słupki + etykiety tekstowe, bez niezależnej
+                # drugiej skali (to właśnie ta konstrukcja psuła się dwukrotnie wcześniej).
+                # Etykieta z wartością pojawia się tylko na ostatnim miesiącu każdego roku, żeby
+                # nie zaśmiecić wykresu 60 nakładającymi się podpisami.
+                okres_order = df_stock["Okres"].tolist()
+                df_stock["Etykieta wartości"] = ""
+                year_end_idx = list(range(11, len(df_stock), 12))  # miesiące 12, 24, 36, 48, 60
+                for idx in year_end_idx:
+                    df_stock.loc[idx, "Etykieta wartości"] = f"{df_stock.loc[idx, wartosc_col]:,.0f} {waluta_stock}"
 
-            st.markdown(f"**Wartość zapasu [{waluta_stock}]**")
-            st.line_chart(df_stock_indexed[[wartosc_col]])
+                base = alt.Chart(df_stock).encode(x=alt.X("Okres:N", sort=okres_order, title="Okres"))
+                bars = base.mark_bar().encode(
+                    y=alt.Y("Stan magazynowy [pal]:Q", title="Stan magazynowy [palety]"),
+                    color=alt.Color("Rok:N", legend=alt.Legend(title="Rok"))
+                )
+                labels = base.mark_text(dy=-8, fontSize=11, fontWeight="bold", color="#333").encode(
+                    y=alt.Y("Stan magazynowy [pal]:Q"),
+                    text="Etykieta wartości:N"
+                )
+                st.altair_chart(bars + labels, use_container_width=True)
+            except Exception:
+                # Bezpieczny fallback, gdyby coś poszło nie tak - sam wykres słupkowy zawsze działa.
+                st.bar_chart(df_stock.set_index("Okres")[["Stan magazynowy [pal]"]])
+                st.caption("ℹ️ Nie udało się dodać etykiet z wartością na wykresie — pokazano sam stan magazynowy. "
+                           "Wartość zapasu znajdziesz w metrykach poniżej.")
 
             v_c1, v_c2, v_c3 = st.columns(3)
             with v_c1:
