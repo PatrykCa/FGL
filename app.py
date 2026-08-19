@@ -2870,6 +2870,7 @@ with tab3:
 
         real_split_rows = []
         fg_positions_target_list = []  # miejsca magazynowe FG liczone przy 100% celu (stały rozmiar budynku)
+        fg_pallets_target_list = []  # palet/mies. FG liczone przy 100% celu - do wykresu wysyłek na 5 lat
         recipes_df_lookup = st.session_state.get("recipes_df")
         pack_cols_in_recipe = []
         if recipes_df_lookup is not None and not recipes_df_lookup.empty:
@@ -2953,6 +2954,7 @@ with tab3:
                 liczba_palet_month_target = math.ceil(liczba_sztuk_month_target / st.session_state.pack_configs[p]["per_pallet"])
                 miejsca_paletowe_target = math.ceil((liczba_palet_month_target / dni_robocze_miesiac) * czas_skladowania_dni)
                 fg_positions_target_list.append(miejsca_paletowe_target)
+                fg_pallets_target_list.append(liczba_palet_month_target)
 
                 if not is_imported_this_view:
                     real_split_rows.append({
@@ -3195,6 +3197,71 @@ with tab3:
                 st.success(f"🟢 Planowane wysyłki ({actual_trucks_per_day:.2f}/dzień) pokrywają lub przewyższają "
                            f"sugerowane tempo — magazyn WG powinien utrzymać projektową rotację "
                            f"{czas_skladowania_dni:.0f} dni.")
+
+            # ============================================================
+            # SYMULACJA STANU MAGAZYNOWEGO W CZASIE (60 miesięcy = 5 lat rozruchu): jak zapas
+            # WG będzie się zmieniał w zależności od rosnącej produkcji (krzywa rozruchu) przy
+            # ZAŁOŻONYM TEMPIE WYSYŁEK (pole "Rzeczywiste/planowane wysyłki/dzień" powyżej) -
+            # to bezpośrednio pokazuje, czy i kiedy zapas rośnie ponad projektową pojemność.
+            # ============================================================
+            st.markdown("###### 📈 Symulacja Stanu Magazynowego — 5 lat")
+            st.caption("Miesiąc po miesiącu: ile palet WG przybywa z produkcji (wg krzywej rozruchu z Zakładki 2) "
+                       "kontra ile wyjeżdża (wg wysyłek ustawionych powyżej) — i jak w efekcie zmienia się stan "
+                       "magazynowy na tle projektowej pojemności budynku.")
+
+            total_palety_month_fg_target = sum(fg_pallets_target_list)
+            target_annual_t_ship = sum(m["annual_volume"] for m in mixers_fleet) / 1000.0
+            shipped_pallets_month_assumed = actual_pallets_per_day * dni_robocze_miesiac
+
+            stock_rows = []
+            stock_level = 0.0
+            for yi in range(RAMPUP_YEARS):
+                year_tonnage_t = sum((m["annual_volume"] / 1000.0) * get_rampup_fraction(m["product_family"], yi)
+                                      for m in mixers_fleet)
+                frac_yi = (year_tonnage_t / target_annual_t_ship) if target_annual_t_ship > 0 else 0.0
+                production_pallets_month_yi = total_palety_month_fg_target * frac_yi
+
+                for mi in range(1, 13):
+                    stock_level = max(stock_level + production_pallets_month_yi - shipped_pallets_month_assumed, 0.0)
+                    stock_rows.append({
+                        "Miesiąc": yi * 12 + mi, "Okres": f"Rok {yi + 1}, mies. {mi}",
+                        "Produkcja [pal/mies]": production_pallets_month_yi,
+                        "Wysyłki [pal/mies]": shipped_pallets_month_assumed,
+                        "Stan magazynowy [pal]": stock_level,
+                    })
+
+            df_stock = pd.DataFrame(stock_rows)
+            fg_capacity_pallets = total_fg_positions_target
+            try:
+                import altair as alt
+                base = alt.Chart(df_stock).encode(x=alt.X("Miesiąc:Q", title="Miesiąc symulacji (1-60, 12/rok)"))
+                area_stock = base.mark_area(opacity=0.25, color="#1f77b4").encode(
+                    y=alt.Y("Stan magazynowy [pal]:Q", axis=alt.Axis(title="Stan magazynowy [palety]", titleColor="#1f77b4"))
+                )
+                line_stock = base.mark_line(color="#1f77b4").encode(y="Stan magazynowy [pal]:Q")
+                capacity_df = pd.DataFrame({"y": [fg_capacity_pallets]})
+                line_capacity = alt.Chart(capacity_df).mark_rule(color="#d62728", strokeDash=[6, 4]).encode(y="y:Q")
+                line_production = base.mark_line(color="#2ca02c", strokeDash=[2, 2]).encode(
+                    y=alt.Y("Produkcja [pal/mies]:Q", axis=alt.Axis(title="Przepływ [palety/mies.]", titleColor="#2ca02c"))
+                )
+                line_shipments = base.mark_line(color="#ff7f0e", strokeDash=[2, 2]).encode(
+                    y=alt.Y("Wysyłki [pal/mies]:Q", axis=alt.Axis(title="Przepływ [palety/mies.]"))
+                )
+                combo_chart = alt.layer(area_stock, line_stock, line_capacity, line_production, line_shipments).resolve_scale(y="independent")
+                st.altair_chart(combo_chart, use_container_width=True)
+                st.caption("🔵 Stan magazynowy (lewa oś) · 🔴 przerywana = projektowa pojemność FG · "
+                           "🟢/🟠 przerywane = produkcja/wysyłki miesięczne (prawa oś).")
+            except ImportError:
+                st.line_chart(df_stock.set_index("Miesiąc")[["Stan magazynowy [pal]", "Produkcja [pal/mies]", "Wysyłki [pal/mies]"]])
+                st.caption(f"ℹ️ Altair niedostępny — pokazano wspólną oś Y. Projektowa pojemność FG: {fg_capacity_pallets:,.0f} palet.")
+
+            if stock_level > fg_capacity_pallets:
+                st.error(f"🔴 Przy tych założeniach stan magazynowy po 5 latach ({stock_level:,.0f} palet) "
+                         f"**przekracza** projektową pojemność FG ({fg_capacity_pallets:,.0f} palet) — wysyłki nie "
+                         f"nadążają za rozruchem produkcji.")
+            else:
+                st.success(f"🟢 Przy tych założeniach stan magazynowy po 5 latach ({stock_level:,.0f} palet) mieści "
+                           f"się w projektowej pojemności FG ({fg_capacity_pallets:,.0f} palet).")
         else:
             st.info("Brak skonfigurowanego podziału opakowań o niezerowym udziale — uzupełnij procenty w panelu bocznym, "
                     "albo (dla produktów importowanych) uzupełnij dane importu w Zakładce 1.")
