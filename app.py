@@ -116,7 +116,8 @@ RECIPE_RAW_MATERIALS = [
 ]
 
 # Grupy produktowe do wyboru (lista rozwijana w szablonie Excel + walidacja przy imporcie).
-RECIPE_PRODUCT_GROUPS = ["Cleaners", "Engine Oils", "Glycols", "Greases", "Hydraulic Oils", "Watermiscibles", "Waxes"]
+RECIPE_PRODUCT_GROUPS = ["Cleaners", "Engine Oils", "Glycols", "Greases", "Hydraulic Oils", "Watermiscibles", "Waxes",
+                          "Preservative Oils", "Coolants", "Cutting Oils"]
 
 # Domyślne właściwości fizykochemiczne i procesowe per grupa produktowa - używane do
 # automatycznego zasilenia floty (Zakładka 2) danymi z wgranej receptury (Zakładka 1),
@@ -130,6 +131,9 @@ GROUP_PHYSICAL_DEFAULTS = {
     "Hydraulic Oils": {"material": "Stal zwykła", "density": 0.88, "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 4},
     "Watermiscibles": {"material": "Stal nierdzewna", "density": 0.99, "cp": 3.8, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.65, "cycle_h": 6},
     "Waxes": {"material": "Stal zwykła", "density": 0.91, "cp": 2.2, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 5},
+    "Preservative Oils": {"material": "Stal zwykła", "density": 0.85, "cp": 1.95, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 4},
+    "Coolants": {"material": "Stal nierdzewna", "density": 1.02, "cp": 3.9, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.85, "cycle_h": 5},
+    "Cutting Oils": {"material": "Stal zwykła", "density": 0.89, "cp": 1.95, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 5},
 }
 
 # Zestaw startowy active_portfolio - JEDYNA taksonomia w apce, wspólna dla trybu ręcznego i
@@ -1489,6 +1493,29 @@ def sync_recipes_into_fleet_defaults():
             # Zgodność wsteczna: grupa zsynchronizowana starszą wersją tej funkcji.
             st.session_state.prod_dict[group_name]["tank_products"] = tank_products
             st.session_state.prod_dict[group_name]["tank_members"] = tank_members
+        else:
+            # Grupa była już wcześniej zsynchronizowana - sprawdź, czy ZESTAW produktów tej
+            # grupy w recepturze (nazwa, sposób pozyskania, rok przejścia, ID zbiornika) zmienił
+            # się od ostatniej synchronizacji. Bez tego sprawdzenia zmiana np. "Sposób
+            # Pozyskania" produktu z "Produkcja własna" na "Import" po ponownym wgraniu
+            # receptury NIGDY by się nie przebiła do floty (Zakładka 2/4), bo ta gałąź kodu
+            # istnieje właśnie po to, żeby NIE nadpisywać ręcznych edycji użytkownika w
+            # Zakładce 2 przy każdym przebiegu - ale musi się jednak odświeżyć, gdy dane
+            # źródłowe faktycznie się zmieniły, a nie tylko przy pierwszym pojawieniu się grupy.
+            current_signature = tuple(sorted(
+                (str(r[RECIPE_PRODUCT_COL]), str(r.get(RECIPE_SOURCING_COL, "") or ""),
+                 str(r.get(RECIPE_IMPORT_TRANSITION_COL, "") or ""), str(r.get(RECIPE_TANK_ID_COL, "") or ""))
+                for _, r in group_rows.iterrows()
+            ))
+            st.session_state.setdefault("recipe_group_product_signature", {})
+            stored_signature = st.session_state.recipe_group_product_signature.get(group_name)
+            if stored_signature != current_signature:
+                st.session_state.prod_dict[group_name] = {
+                    "roczna": total_annual_kg, "user_vol_m3": avg_vol, "skus": n_skus, "num_tanks": n_tanks,
+                    "tank_volumes": tank_volumes, "tank_cycles": tank_cycles, "cycle_h_base": avg_cycle,
+                    "tank_products": tank_products, "tank_members": tank_members,
+                }
+            st.session_state.recipe_group_product_signature[group_name] = current_signature
 
 
     group_signature = tuple(groups_in_recipe)
@@ -1508,6 +1535,11 @@ else:
     st.success("✅ Receptura wgrana — grupy produktowe pojawiły się automatycznie w Zakładce 2 (panel boczny, "
                "Krok 1: Wybór Rodzin), każda z liczbą zbiorników = liczbie produktów tej grupy w recepturze. "
                "Możesz je tam dalej edytować.")
+    st.caption("⚠️ **Jeśli to ponowne wgranie już wcześniej używanej receptury** (np. zmieniłeś '{}' albo dane "
+               "importu dla produktu): zmiana na poziomie produktu (kto importuje, kto produkuje, kiedy) trafi do "
+               "Zakładki 2, ale **flota widoczna w Zakładce 4/6 aktualizuje się dopiero po ponownym kliknięciu "
+               "'📥 Zatwierdź i wyślij konfigurację do kolejnych kroków' w Zakładce 2** — to jest jawny krok "
+               "zatwierdzenia, nie dzieje się automatycznie.".format(RECIPE_SOURCING_COL))
 
 # ==========================================
 # PANEL BOCZNY (Wybór Rodzin i Opakowań)
