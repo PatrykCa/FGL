@@ -3238,10 +3238,12 @@ with tab3:
                 production_pallets_month_yi = total_palety_month_fg_target * frac_yi
 
                 for mi in range(1, 13):
-                    stock_level = max(stock_level + production_pallets_month_yi - shipped_pallets_month_assumed, 0.0)
+                    zmiana_zapasu = production_pallets_month_yi - shipped_pallets_month_assumed
+                    stock_level = max(stock_level + zmiana_zapasu, 0.0)
                     wartosc_zapasu = stock_level * avg_kg_per_pallet * avg_manuf_cost_per_kg
                     stock_rows.append({
-                        "Miesiąc": yi * 12 + mi, "Okres": f"Rok {yi + 1}, mies. {mi}",
+                        "Miesiąc": yi * 12 + mi, "Okres": f"Rok {yi + 1}, mies. {mi}", "Rok": f"Rok {yi + 1}",
+                        "Zmiana zapasu [pal/mies]": zmiana_zapasu,
                         "Stan magazynowy [pal]": stock_level,
                         "Pojemność FG [pal]": fg_capacity_pallets,
                         f"Wartość zapasu [{waluta_stock}]": wartosc_zapasu,
@@ -3249,8 +3251,20 @@ with tab3:
 
             df_stock = pd.DataFrame(stock_rows)
 
-            st.markdown(f"**Stan magazynowy [palety]** (na tle projektowej pojemności FG = {fg_capacity_pallets:,.0f} palet)")
-            st.line_chart(df_stock.set_index("Miesiąc")[["Stan magazynowy [pal]", "Pojemność FG [pal]"]])
+            st.markdown("**Zmiana stanu magazynowego [palety/mies.]** (produkcja − wysyłki, per miesiąc, per rok)")
+            st.caption("Słupek dodatni = zapas rośnie w tym miesiącu (produkcja > wysyłki), słupek ujemny = zapas "
+                       "maleje (wysyłki > produkcja). Każdy rok to osobny przedział — słupki nie sumują się między "
+                       "latami, to nie jest wykres narastający.")
+            try:
+                st.bar_chart(df_stock, x="Okres", y="Zmiana zapasu [pal/mies]", color="Rok", use_container_width=True)
+            except TypeError:
+                # Starsza wersja Streamlit bez parametru color/x/y w bar_chart - fallback bez grupowania kolorem.
+                st.bar_chart(df_stock.set_index("Okres")[["Zmiana zapasu [pal/mies]"]])
+
+            with st.expander("📈 Wynikowy stan magazynowy (skumulowany, na tle pojemności FG)", expanded=False):
+                st.caption(f"Pomocniczo: jak wygląda RZECZYWISTY (skumulowany) stan magazynowy wynikający z powyższych "
+                           f"miesięcznych zmian, na tle projektowej pojemności FG = {fg_capacity_pallets:,.0f} palet.")
+                st.line_chart(df_stock.set_index("Miesiąc")[["Stan magazynowy [pal]", "Pojemność FG [pal]"]])
 
             st.markdown(f"**Wartość zapasu [{waluta_stock}]** (koszt produkcyjny × ilość magazynowana)")
             st.line_chart(df_stock.set_index("Miesiąc")[[f"Wartość zapasu [{waluta_stock}]"]])
