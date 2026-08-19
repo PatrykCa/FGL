@@ -1365,42 +1365,67 @@ def generate_excel_report_bytes(report_data, roi_rows, waluta_report):
 
     wb = Workbook()
 
-    # --- Arkusz Summary ---
+    # --- Arkusz Summary (lata jako KOLUMNY, metryki jako WIERSZE) ---
     ws = wb.active
     ws.title = "Summary"
-    summary_headers = [
-        "Year", "% of Target", "Total Volume [t]", "Produced [t]", "Imported [t]",
-        "Warehouse Utilization [%]", "Warehouse Stock Value", "Heating", "Electricity - Process (incl. cooling)",
-        "Electricity - Facility (fixed)", "Total Energy", "OPEX", "Revenue", "Profit",
-        "Cumulative Profit", "ROI (this year) [%]",
-    ]
-    for col_idx, h in enumerate(summary_headers, start=1):
-        c = ws.cell(row=1, column=col_idx, value=h)
-        c.font = header_font
-        c.fill = header_fill
-        c.alignment = wrap_center
-    ws.row_dimensions[1].height = 30
+    n_years = len(years)
+
+    # Kolejność = kolejność wierszy w arkuszu; stałe indeksy wierszy używane też przy budowie
+    # wykresów niżej, żeby nie odwoływać się do "magicznych" numerów.
+    ROW_YEAR, ROW_TARGET_PCT, ROW_TOTAL_VOL, ROW_PRODUCED, ROW_IMPORTED = 1, 2, 3, 4, 5
+    ROW_WH_UTIL, ROW_WH_VALUE = 6, 7
+    ROW_HEATING, ROW_ELEC_PROCESS, ROW_ELEC_FACILITY, ROW_TOTAL_ENERGY = 8, 9, 10, 11
+    ROW_OPEX, ROW_REVENUE, ROW_PROFIT, ROW_CUM_PROFIT, ROW_ROI = 12, 13, 14, 15, 16
+
+    row_labels = {
+        ROW_YEAR: "Metric", ROW_TARGET_PCT: "% of Target", ROW_TOTAL_VOL: "Total Volume [t]",
+        ROW_PRODUCED: "Produced [t]", ROW_IMPORTED: "Imported [t]", ROW_WH_UTIL: "Warehouse Utilization [%]",
+        ROW_WH_VALUE: f"Warehouse Stock Value [{waluta_report}]", ROW_HEATING: f"Heating [{waluta_report}/year]",
+        ROW_ELEC_PROCESS: f"Electricity - Process, incl. cooling [{waluta_report}/year]",
+        ROW_ELEC_FACILITY: f"Electricity - Facility, fixed [{waluta_report}/year]",
+        ROW_TOTAL_ENERGY: f"Total Energy [{waluta_report}/year]", ROW_OPEX: f"OPEX [{waluta_report}/year]",
+        ROW_REVENUE: f"Revenue [{waluta_report}/year]", ROW_PROFIT: f"Profit [{waluta_report}/year]",
+        ROW_CUM_PROFIT: f"Cumulative Profit [{waluta_report}]", ROW_ROI: "ROI (this year) [%]",
+    }
+    for row_idx, label in row_labels.items():
+        c = ws.cell(row=row_idx, column=1, value=label)
+        c.font = header_font if row_idx == ROW_YEAR else Font(bold=True)
+        if row_idx == ROW_YEAR:
+            c.fill = header_fill
 
     for i, y in enumerate(years):
+        col = 2 + i  # B, C, D, E, F = Year 1..5
         roi_row = roi_rows[i] if i < len(roi_rows) else {}
         energy = y.get("energy", {})
-        row_vals = [
-            y["year"], round(y["target_pct"], 1), round(y["total_t"], 1), round(y["produced_t"], 1), round(y["imported_t"], 1),
-            round(y["wh_util_pct"], 1) if y["wh_util_pct"] is not None else None,
-            round(y["wh_value"], 0) if y["wh_value"] is not None else None,
-            energy.get("Ogrzewanie [waluta/rok]"), energy.get("Elektryczność - proces (w tym chłodzenie) [waluta/rok]"),
-            energy.get("Elektryczność - pozaprodukcyjne (stałe) [waluta/rok]"), energy.get("Energia razem [waluta/rok]"),
-            roi_row.get("OPEX roczny"), roi_row.get("Przychód roczny"), roi_row.get("Zysk roczny"),
-            roi_row.get("Zysk skumulowany"), roi_row.get("ROI (ten rok) [%]"),
-        ]
-        for col_idx, v in enumerate(row_vals, start=1):
-            ws.cell(row=2 + i, column=col_idx, value=v)
+        col_letter = get_column_letter(col)
 
-    for col_idx in range(1, len(summary_headers) + 1):
-        ws.column_dimensions[get_column_letter(col_idx)].width = 16
-    ws.freeze_panes = "A2"
-    ws.cell(row=len(years) + 3, column=1, value=f"Target annual capacity (100%, Year 5+): {target_annual_t:,.0f} t/year")
-    ws.cell(row=len(years) + 4, column=1, value=f"Currency: {waluta_report}")
+        header_cell = ws.cell(row=ROW_YEAR, column=col, value=f"Year {y['year']}")
+        header_cell.font = header_font
+        header_cell.fill = header_fill
+        header_cell.alignment = wrap_center
+
+        ws.cell(row=ROW_TARGET_PCT, column=col, value=round(y["target_pct"], 1))
+        ws.cell(row=ROW_TOTAL_VOL, column=col, value=round(y["total_t"], 1))
+        ws.cell(row=ROW_PRODUCED, column=col, value=round(y["produced_t"], 1))
+        ws.cell(row=ROW_IMPORTED, column=col, value=round(y["imported_t"], 1))
+        ws.cell(row=ROW_WH_UTIL, column=col, value=round(y["wh_util_pct"], 1) if y["wh_util_pct"] is not None else None)
+        ws.cell(row=ROW_WH_VALUE, column=col, value=round(y["wh_value"], 0) if y["wh_value"] is not None else None)
+        ws.cell(row=ROW_HEATING, column=col, value=energy.get("Ogrzewanie [waluta/rok]"))
+        ws.cell(row=ROW_ELEC_PROCESS, column=col, value=energy.get("Elektryczność - proces (w tym chłodzenie) [waluta/rok]"))
+        ws.cell(row=ROW_ELEC_FACILITY, column=col, value=energy.get("Elektryczność - pozaprodukcyjne (stałe) [waluta/rok]"))
+        ws.cell(row=ROW_TOTAL_ENERGY, column=col, value=energy.get("Energia razem [waluta/rok]"))
+        ws.cell(row=ROW_OPEX, column=col, value=roi_row.get("OPEX roczny"))
+        ws.cell(row=ROW_REVENUE, column=col, value=roi_row.get("Przychód roczny"))
+        ws.cell(row=ROW_PROFIT, column=col, value=roi_row.get("Zysk roczny"))
+        ws.cell(row=ROW_CUM_PROFIT, column=col, value=roi_row.get("Zysk skumulowany"))
+        ws.cell(row=ROW_ROI, column=col, value=roi_row.get("ROI (ten rok) [%]"))
+
+    ws.column_dimensions["A"].width = 42
+    for i in range(n_years):
+        ws.column_dimensions[get_column_letter(2 + i)].width = 14
+    ws.freeze_panes = "B2"
+    ws.cell(row=ROW_ROI + 2, column=1, value=f"Target annual capacity (100%, Year 5+): {target_annual_t:,.0f} t/year")
+    ws.cell(row=ROW_ROI + 3, column=1, value=f"Currency: {waluta_report}")
 
     # --- Arkusz Fleet ---
     ws_fleet = wb.create_sheet("Fleet")
@@ -1440,7 +1465,8 @@ def generate_excel_report_bytes(report_data, roi_rows, waluta_report):
 
     # --- Arkusz Charts: natywne, edytowalne wykresy Excela zbudowane z danych w Summary ---
     ws_charts = wb.create_sheet("Charts")
-    n_years = len(years)
+    last_year_col = 1 + n_years  # kolumna F dla 5 lat (B..F)
+    cats_row = Reference(ws, min_col=2, max_col=last_year_col, min_row=ROW_YEAR, max_row=ROW_YEAR)
 
     bar1 = BarChart()
     bar1.type = "col"
@@ -1448,10 +1474,9 @@ def generate_excel_report_bytes(report_data, roi_rows, waluta_report):
     bar1.title = "Production Volume: Own Production vs. Import"
     bar1.y_axis.title = "Tonnage [t/year]"
     bar1.x_axis.title = "Year"
-    data1 = Reference(ws, min_col=4, max_col=5, min_row=1, max_row=1 + n_years)  # Produced, Imported
-    cats1 = Reference(ws, min_col=1, min_row=2, max_row=1 + n_years)
-    bar1.add_data(data1, titles_from_data=True)
-    bar1.set_categories(cats1)
+    data1 = Reference(ws, min_col=1, max_col=last_year_col, min_row=ROW_PRODUCED, max_row=ROW_IMPORTED)
+    bar1.add_data(data1, titles_from_data=True, from_rows=True)
+    bar1.set_categories(cats_row)
     ws_charts.add_chart(bar1, "A1")
 
     bar2 = BarChart()
@@ -1460,18 +1485,18 @@ def generate_excel_report_bytes(report_data, roi_rows, waluta_report):
     bar2.title = "Energy Cost Breakdown by Year"
     bar2.y_axis.title = f"Cost [{waluta_report}/year]"
     bar2.x_axis.title = "Year"
-    data2 = Reference(ws, min_col=8, max_col=10, min_row=1, max_row=1 + n_years)  # Heating, Elec-process, Elec-facility
-    bar2.add_data(data2, titles_from_data=True)
-    bar2.set_categories(cats1)
+    data2 = Reference(ws, min_col=1, max_col=last_year_col, min_row=ROW_HEATING, max_row=ROW_ELEC_FACILITY)
+    bar2.add_data(data2, titles_from_data=True, from_rows=True)
+    bar2.set_categories(cats_row)
     ws_charts.add_chart(bar2, "A20")
 
     line1 = LineChart()
     line1.title = "Cumulative Profit vs. CAPEX Payback"
     line1.y_axis.title = f"[{waluta_report}]"
     line1.x_axis.title = "Year"
-    data3 = Reference(ws, min_col=15, min_row=1, max_row=1 + n_years)  # Cumulative Profit
-    line1.add_data(data3, titles_from_data=True)
-    line1.set_categories(cats1)
+    data3 = Reference(ws, min_col=1, max_col=last_year_col, min_row=ROW_CUM_PROFIT, max_row=ROW_CUM_PROFIT)
+    line1.add_data(data3, titles_from_data=True, from_rows=True)
+    line1.set_categories(cats_row)
     ws_charts.add_chart(line1, "A39")
 
     bio = io.BytesIO()
@@ -3600,7 +3625,13 @@ with tab3:
 
             total_palety_month_fg_target = sum(fg_pallets_target_list)
             target_annual_t_ship = sum(m["annual_volume"] for m in mixers_fleet) / 1000.0
-            shipped_pallets_month_assumed = actual_pallets_per_day * dni_robocze_miesiac
+            # Stosunek rzeczywistych wysyłek do sugerowanych (dla WYBRANEGO powyżej roku/widoku) -
+            # ten sam stosunek stosujemy do KAŻDEGO roku symulacji, żeby wysyłki rosły razem z
+            # produkcją (a nie były jedną stałą liczbą przez wszystkie 5 lat - to dawało fałszywy
+            # obraz "0% wykorzystania w latach 1-2, potem gwałtowny skok", bo stała liczba wysyłek
+            # dobrana pod PÓŹNIEJSZY, wyższy rok automatycznie przewyższała niską produkcję z
+            # wczesnych lat i zerowała magazyn).
+            shipment_ratio = (actual_pallets_per_day / suggested_pallets_per_day) if suggested_pallets_per_day > 0 else 1.0
             fg_capacity_pallets = total_fg_positions_target
 
             # Przelicznik palety -> kg -> wartość SPRZEDAŻNA (koszt + marża z Zakładki 6, Krok 4 -
@@ -3630,9 +3661,10 @@ with tab3:
                                       for m in mixers_fleet)
                 frac_yi = (year_tonnage_t / target_annual_t_ship) if target_annual_t_ship > 0 else 0.0
                 production_pallets_month_yi = total_palety_month_fg_target * frac_yi
+                shipped_pallets_month_yi = production_pallets_month_yi * shipment_ratio
 
                 for mi in range(1, 13):
-                    stock_level = max(stock_level + production_pallets_month_yi - shipped_pallets_month_assumed, 0.0)
+                    stock_level = max(stock_level + production_pallets_month_yi - shipped_pallets_month_yi, 0.0)
                     wartosc_zapasu = stock_level * avg_kg_per_pallet * avg_selling_value_per_kg
                     stock_rows.append({
                         "Miesiąc": yi * 12 + mi, "Okres": f"Y{yi + 1}-{mi:02d}", "Rok": f"Rok {yi + 1}",
