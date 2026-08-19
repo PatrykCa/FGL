@@ -72,7 +72,7 @@ MEDIA_PROCESOWE = {
 # wielkość cząstek, tribologia, czystość ISO 4406) są pominięte - nie leżą na ścieżce
 # krytycznej standardowego zwolnienia partii produkcyjnej.
 # Czasy trwania [min] to orientacyjne wartości domyślne oparte na typowej praktyce
-# laboratoryjnej - EDYTOWALNE bezpośrednio w Zakładce 6 (VSM), bo rzeczywisty czas zależy
+# laboratoryjnej - EDYTOWALNE bezpośrednio w Zakładce 7 (VSM), bo rzeczywisty czas zależy
 # od obciążenia laboratorium i wprawy technika.
 QC_TEST_CATALOG = {
     "Lepkość kinematyczna @40°C": {"duration_min": 20, "equipment": "Łaźnia wiskozymetryczna (Lauda / Koehler / Cannon)"},
@@ -96,7 +96,7 @@ QC_TEST_CATALOG = {
 }
 
 
-# Lista surowców receptury produktowej (Zakładka 7 / Receptury) - dozowanie w kg na tonę
+# Lista surowców receptury produktowej (Zakładka 1 / Receptury) - dozowanie w kg na tonę
 # produktu gotowego [kg/t], kolejność zgodna z szablonem Excel wgrywanym przez użytkownika.
 RECIPE_RAW_MATERIALS = [
     "Base Oil Group I [kg/t]", "Base Oil Group II [kg/t]", "Base Oil Group III [kg/t]",
@@ -274,7 +274,7 @@ RAW_MATERIAL_STORAGE_INFO = {
 }
 
 # Typy pojemników dla surowców NIE magazynowanych luzem (beczki/IBC/worki) - do przeliczenia
-# rocznego zużycia [t/rok] na liczbę pojemników/palet/miejsc magazynowych w Zakładce 6, żeby
+# rocznego zużycia [t/rok] na liczbę pojemników/palet/miejsc magazynowych w Zakładce 5, żeby
 # te surowce trafiły do tego samego bilansu powierzchni magazynowej co wyroby gotowe (Zakładka
 # 4) - w końcu wszystko, co nie trafia do zbiornika, musi stanąć w magazynie. Pojemność podana
 # w kg (nie L), bo dla surowców pracujemy na masie, nie na objętości/gęstości.
@@ -409,7 +409,7 @@ def generate_recipe_template_bytes():
         "jeśli produkt ma zawsze pozostać importowany (nigdy nie dostanie własnego mieszalnika, nawet w widoku "
         f"docelowym). '{RECIPE_IMPORT_FREQ_COL}', '{RECIPE_IMPORT_LOT_COL}' i '{RECIPE_IMPORT_SAFETY_DAYS_COL}' "
         "opisują rytm dostaw - używane w Zakładce 4 do wyliczenia miejsc magazynowych na produkt importowany "
-        "(analogicznie do bufora surowców w Zakładce 6, ale liczone z rytmu dostaw, nie z cyklu produkcji).",
+        "(analogicznie do bufora surowców w Zakładce 5, ale liczone z rytmu dostaw, nie z cyklu produkcji).",
     ]
     for i, line in enumerate(info_lines, start=1):
         c = ws_info.cell(row=i, column=1, value=line)
@@ -974,7 +974,7 @@ def generate_equipment_template_bytes():
         f"5. '{EQUIPMENT_LINE_TOTAL_COL}' liczy się sama (formuła) = ilość x cena jednostkowa.",
         f"6. Aktualizuj '{EQUIPMENT_UNIT_PRICE_COL}' wraz ze zmianami cen dostawców - to jest właśnie po to, żeby "
         "nie trzeba było grzebać w kodzie aplikacji przy każdej zmianie cennika.",
-        "7. W aplikacji (Zakładka 7) podajesz, ile takich instalacji planujesz dla danej grupy - CAPEX przelicza się automatycznie.",
+        "7. W aplikacji (Zakładka 6) podajesz, ile takich instalacji planujesz dla danej grupy - CAPEX przelicza się automatycznie.",
     ]
     for i, line in enumerate(info_lines, start=1):
         c = ws_info.cell(row=i, column=1, value=line)
@@ -1339,7 +1339,7 @@ if "pack_configs" not in st.session_state:
     st.session_state.pack_configs = {k: dict(v) for k, v in PACK_CONFIGS.items()}
 
 if "equipment_df" not in st.session_state:
-    st.session_state.equipment_df = None  # DataFrame cennika standardowej instalacji (Zakładka 7)
+    st.session_state.equipment_df = None  # DataFrame cennika standardowej instalacji (Zakładka 6)
 
 if "equipment_install_counts" not in st.session_state:
     st.session_state.equipment_install_counts = {}  # dict: Grupa Produktowa -> liczba planowanych instalacji
@@ -1566,15 +1566,14 @@ AVAILABLE_HOURS_MONTH = (WORKING_DAYS_YEAR * godziny_dziennie) / MONTHS_PER_YEAR
 st.sidebar.markdown("---")
 
 # --- STRUKTURA INTERFEJSU ---
-tab7, tab1, tab2, tab3, tab4, tab5, tab9, tab6 = st.tabs([
+tab7, tab1, tab2, tab3, tab5, tab4, tab6 = st.tabs([
     "📋 1. Receptury Produktów (Start)",
     "📊 2. Główne Zestawienie i Utylizacja",
     "📐 3. Karta Maszyn, Kocioł i Zasilanie",
     "📦 4. Logistyka i Czas Rozlewu",
-    "💰 5. Analiza Finansowa i Koszty Produkcji",
-    "🛢️ 6. Surowce i Park Zbiorników",
-    "🧰 7. Cennik i Standardowa Instalacja (CAPEX)",
-    "🧵 8. Mapa Strumienia Wartości (VSM)"
+    "🛢️ 5. Surowce i Park Zbiorników",
+    "💰 6. Analiza Finansowa, CAPEX i ROI",
+    "🧵 7. Mapa Strumienia Wartości (VSM)"
 ])
 
 # ==========================================
@@ -1860,7 +1859,7 @@ with tab1:
         if real_cycle_reference_rows:
             with st.expander("📊 Rzeczywisty czas cyklu (referencja z Zakładki 2/6 — informacyjnie, nieedytowalne)", expanded=False):
                 st.caption("Ta tabela aktualizuje się automatycznie w miarę konfigurowania hydrauliki/bilansu cieplnego (Zakładka 3) "
-                           "i dozowania/homogenizacji (Zakładka 8) — nie wpływa na flotę powyżej i nie da się jej edytować.")
+                           "i dozowania/homogenizacji (Zakładka 7) — nie wpływa na flotę powyżej i nie da się jej edytować.")
                 st.dataframe(pd.DataFrame(real_cycle_reference_rows), hide_index=True, use_container_width=True)
 
         if not edited_df.empty:
@@ -2147,7 +2146,7 @@ with tab2:
                                "teraz również wyliczane, nie zgadywane.")
                 with c5:
                     st.markdown("**🔧 Niezawodność (MTBF/MTTR)**")
-                    st.caption("Zasila automatycznie 'Dostępność [%]' w Zakładce 8 (VSM/OEE) — patrz przycisk "
+                    st.caption("Zasila automatycznie 'Dostępność [%]' w Zakładce 7 (VSM/OEE) — patrz przycisk "
                                "'Zastosuj wyliczoną Dostępność' w tamtej zakładce.")
                     p["reactor_mtbf_h"] = st.number_input(
                         "MTBF reaktora/mieszadła [h]:", min_value=1.0, value=float(p["reactor_mtbf_h"]), key=f"reactor_mtbf_{m_id}",
@@ -2747,6 +2746,16 @@ with tab2:
         with m_e3: st.metric("Moc pozorna wymagana", f"{demand_kva:.1f} kVA")
         with m_e4: st.metric("🔌 Zalecany transformator", f"{recommended_transformer:.0f} kVA")
 
+        # Zapis do session_state, żeby połączona Zakładka Analiza Finansowa mogła doliczyć
+        # PEŁNY koszt energii elektrycznej (proces + odbiory pozaprodukcyjne), a nie tylko
+        # mieszanie/pompowanie, jak dotychczas. Proces i odbiory pozaprodukcyjne zapisywane
+        # OSOBNO, bo w symulacji rozruchu (ROI) tylko obciążenie procesowe skaluje się z
+        # wolumenem produkcji — serwery/HVAC/oświetlenie/sprężarkownia działają praktycznie
+        # niezależnie od tego, ile realnie produkujesz w danym roku.
+        st.session_state["demand_kw_total"] = demand_kw
+        st.session_state["process_demand_kw"] = process_demand_kw
+        st.session_state["facility_demand_kw"] = facility_demand_kw
+
         st.caption("Uwaga: sekcja rozlewu/pakowania nie ma dziś modelowanych mocy silników (tylko wydajność kg/min), "
                    "więc nie jest tu ujęta — jeśli chcesz uwzględnić linie napełniające w bilansie elektrycznym, "
                    "podaj ich orientacyjną moc zainstalowaną do doliczenia ręcznego.")
@@ -3047,7 +3056,7 @@ with tab3:
             # ============================================================
             if rm_warehouse_rows:
                 with st.expander("🧴 Surowce w Beczkach/IBC/Workach (RM) — z Zakładki 6", expanded=False):
-                    st.caption("Surowce nietrafiające do zbiorników (Zakładka 6) — te też stoją w tym samym "
+                    st.caption("Surowce nietrafiające do zbiorników (Zakładka 5) — te też stoją w tym samym "
                                "magazynie co wyroby gotowe i wliczają się do łącznej powierzchni poniżej.")
                     st.dataframe(pd.DataFrame(rm_warehouse_rows), hide_index=True, use_container_width=True)
             else:
@@ -3101,7 +3110,7 @@ with tab3:
             total_miejsca_magazynowe = total_fg_positions + total_rm_positions + total_import_positions
 
             # Budynek stawiany RAZ, pod docelową (100%) produkcję — niezależnie od wybranego roku
-            # symulacji. RM w rm_warehouse_rows jest już liczone przy 100% (Zakładka 6 nie skaluje
+            # symulacji. RM w rm_warehouse_rows jest już liczone przy 100% (Zakładka 5 nie skaluje
             # rampupem), więc target = suma bez przeliczenia; FG target liczony osobno w pętli wyżej;
             # Import target = TYLKO produkty na stałe importowane ("Nigdy") - te potrzebują miejsca
             # w magazynie nawet w pełnej dojrzałości.
@@ -3124,7 +3133,7 @@ with tab3:
 
             st.caption("💡 Powierzchnia = ⌈(docelowe miejsca paletowe FG + RM + stały Import) / liczba poziomów⌉ × "
                        "powierzchnia/miejsce (1 poziom) — budynek stawiany RAZ, pod pełną (100%) zdolność. "
-                       "Bufor **surowców w zbiornikach** (silosy) jest liczony i wymiarowany osobno w Zakładce 6. "
+                       "Bufor **surowców w zbiornikach** (silosy) jest liczony i wymiarowany osobno w Zakładce 5. "
                        f"Powierzchnia budynku pozostaje wymiarowana pod 100% celu niezależnie od wybranego roku — "
                        f"zmienia się tylko pokazane wykorzystanie ({selected_rampup_year_label}).")
         else:
@@ -3132,16 +3141,34 @@ with tab3:
                     "albo (dla produktów importowanych) uzupełnij dane importu w Zakładce 1.")
 
 # ==========================================
-# ZAKŁADKA 4: ANALIZA FINANSOWA
+# ZAKŁADKA 6: ANALIZA FINANSOWA, CAPEX I ROI (tab4)
 # ==========================================
 with tab4:
-    st.header("💰 Optymalizacja Kosztów Energii i Bilans Finansowy")
+    st.header("💰 Analiza Finansowa, CAPEX i ROI")
     if not st.session_state.confirmed_mixers:
         st.warning("⚠️ Najpierw zatwierdź flotę w Zakładce 2.")
     else:
         waluta = st.selectbox("Wybierz walutę operacyjną:", ["PLN", "EUR", "USD"])
-        manuf_cost_per_kg = st.number_input(f"Bazowy Manufacturing Cost [za kg] w {waluta}:", min_value=0.01, value=2.12, format="%.3f")
-        cena_mwh = st.number_input(f"Cena energii elektrycznej (mieszanie/pompowanie) [{waluta}/MWh]:", min_value=1.0, value=750.0)
+
+        st.markdown("### 💵 Krok 1: Koszt Produkcyjny per Grupa")
+        st.caption("Koszt produkcyjny (surowce + robocizna + narzut, bez energii - tę liczymy osobno niżej z realnej "
+                   "hydrauliki/bilansu cieplnego) różni się między grupami produktowymi — podaj go osobno dla "
+                   "każdej aktywnej linii.")
+        if "manuf_cost_per_group" not in st.session_state:
+            st.session_state.manuf_cost_per_group = {}
+        active_groups_fin = sorted(set(m["product_family"] for m in st.session_state.confirmed_mixers))
+        cost_cols = st.columns(min(len(active_groups_fin), 4)) if active_groups_fin else []
+        for i, grp in enumerate(active_groups_fin):
+            with cost_cols[i % len(cost_cols)]:
+                default_cost = st.session_state.manuf_cost_per_group.get(grp, 2.12)
+                st.session_state.manuf_cost_per_group[grp] = st.number_input(
+                    f"{grp} [{waluta}/kg]:", min_value=0.01, value=float(default_cost), step=0.05,
+                    format="%.3f", key=f"manuf_cost_{grp}"
+                )
+
+        st.markdown("---")
+        st.markdown("### ⚡ Krok 2: Koszty Energii i Bilans Miesięczny")
+        cena_mwh = st.number_input(f"Cena energii elektrycznej [{waluta}/MWh]:", min_value=1.0, value=750.0)
         st.session_state["cena_mwh_tab4"] = cena_mwh
 
         if not st.session_state.calculated_times:
@@ -3170,6 +3197,7 @@ with tab4:
             prod_info = st.session_state.active_portfolio[kat]
             m_monthly_kg = mixer["annual_volume"] / MONTHS_PER_YEAR
             batches_per_month = mixer["batches_count"]
+            manuf_cost_per_kg_kat = st.session_state.manuf_cost_per_group.get(kat, 2.12)
 
             # POPRAWKA: te dane teraz faktycznie pochodzą z Zakładki 2 (patrz zapis do
             # st.session_state.calculated_times w pętli obliczeniowej Zakładki 2).
@@ -3182,7 +3210,7 @@ with tab4:
             cost_el = ((mixing_energy + pumping_energy) / 1000.0) * cena_mwh
             total_energy_cost_el += cost_el
 
-            base_manuf_cost_monthly = m_monthly_kg * manuf_cost_per_kg
+            base_manuf_cost_monthly = m_monthly_kg * manuf_cost_per_kg_kat
             total_base_manuf_cost += base_manuf_cost_monthly
 
             oszczednosc_cieplna = 0.0
@@ -3191,7 +3219,8 @@ with tab4:
                 total_monthly_saving_thermal += oszczednosc_cieplna
 
             financial_summary.append({
-                "Reaktor": tag, "Miesięczny tonaż [kg]": int(m_monthly_kg),
+                "Reaktor": tag, "Linia": kat, "Miesięczny tonaż [kg]": int(m_monthly_kg),
+                "Koszt Prod. [kg]": manuf_cost_per_kg_kat,
                 "Energia Mieszania [kWh]": round(mixing_energy, 1), "Energia Pompowania [kWh]": round(pumping_energy, 1),
                 "Koszt prądu": f"{cost_el:.2f} {waluta}", "Odzysk ciepła": f"- {oszczednosc_cieplna:.2f} {waluta}",
                 "Źródło danych": "Zakładka 3" if tag in calculated_times else "Wartości domyślne"
@@ -3208,15 +3237,192 @@ with tab4:
             st.info("ℹ️ Skonfiguruj kocioł i typ paliwa w Zakładce 3 (sekcja 'Dobór Kotła Grzewczego'), aby doliczyć "
                     "koszt ogrzewania do kosztu wytworzenia.")
 
-        final_cost = total_base_manuf_cost + total_energy_cost_el + koszt_paliwa_grzewczego - total_monthly_saving_thermal
-        st.metric(label="🚀 ZOPTYMALIZOWANY REALNY KOSZT WYTWORZENIA (Miesięcznie)", value=f"{final_cost:,.2f} {waluta}")
+        # Koszt energii elektrycznej PROCESU (silniki, kocioł elektryczny, chłodzenie przez COP)
+        # i odbiorów POZAPRODUKCYJNYCH (serwery, HVAC, oświetlenie, sprężarkownia) - z sekcji ⚡
+        # Zakładki 3, dotąd NIEUWZGLĘDNIANE tutaj (liczono tylko mieszanie/pompowanie powyżej).
+        # Rozbite na dwa koszty CELOWO: proces skaluje się z wolumenem produkcji (krok 4, ROI
+        # z rozruchem), odbiory pozaprodukcyjne są w przybliżeniu STAŁE niezależnie od tego,
+        # ile realnie produkujesz w danym roku (światło/HVAC/serwery działają tak samo).
+        process_demand_kw = st.session_state.get("process_demand_kw", 0.0)
+        facility_demand_kw = st.session_state.get("facility_demand_kw", 0.0)
+        godziny_rocznie_zakladu = godziny_dziennie * WORKING_DAYS_YEAR
+        koszt_energii_proces_month = ((process_demand_kw * godziny_rocznie_zakladu) / 1000.0 / MONTHS_PER_YEAR) * cena_mwh
+        koszt_energii_facility_month = ((facility_demand_kw * godziny_rocznie_zakladu) / 1000.0 / MONTHS_PER_YEAR) * cena_mwh
+        if process_demand_kw > 0 or facility_demand_kw > 0:
+            c_en3, c_en4 = st.columns(2)
+            with c_en3:
+                st.metric("⚙️ Energia — proces (skaluje się z rozruchem)", f"{koszt_energii_proces_month:,.2f} {waluta}/mies.")
+            with c_en4:
+                st.metric("🏢 Energia — pozaprodukcyjne (stałe, z Zakładki 3)", f"{koszt_energii_facility_month:,.2f} {waluta}/mies.")
+        else:
+            st.info("ℹ️ Skonfiguruj sekcję ⚡ 'Zapotrzebowanie na Moc Elektryczną' w Zakładce 3, aby doliczyć pełny "
+                    "koszt energii procesowej i pozaprodukcyjnej (dziś liczone tylko mieszanie/pompowanie powyżej).")
+
+        # Część kosztu, która skaluje się z wolumenem produkcji (a więc z krzywą rozruchu w Kroku 4)
+        variable_monthly_opex_target = (total_base_manuf_cost + total_energy_cost_el + koszt_paliwa_grzewczego
+                                         + koszt_energii_proces_month - total_monthly_saving_thermal)
+        # Część kosztu w przybliżeniu STAŁA niezależnie od roku rozruchu (odbiory pozaprodukcyjne)
+        fixed_monthly_opex = koszt_energii_facility_month
+
+        final_cost = variable_monthly_opex_target + fixed_monthly_opex
+        st.metric(label="🚀 CAŁKOWITY KOSZT WYTWORZENIA (Miesięcznie, przy 100% celu)", value=f"{final_cost:,.2f} {waluta}")
 
         st.info("💡 Pełna analiza czasu cyklu szarży (dozowanie, grzanie, homogenizacja, QC, pompowanie, chłodzenie, "
-                "rozlew) oraz rekomendacja liczby zmian znajdują się teraz w **Zakładce 8 (Mapa Strumienia Wartości)**, "
+                "rozlew) oraz rekomendacja liczby zmian znajdują się w **Zakładce 7 (Mapa Strumienia Wartości)**, "
                 "razem z resztą analizy czasu procesu.")
 
+        st.markdown("---")
+        st.markdown("### 🧰 Krok 3: CAPEX — Cennik i Standardowa Instalacja")
+        st.caption("Zdefiniuj listę komponentów standardowej instalacji per grupa produktowa (pompy, czujniki, "
+                   "zawory, elektrozawory itd.) wraz z cenami jednostkowymi — treść zwykle przepisana z Twojego "
+                   "istniejącego P&ID danej instalacji standardowej. Podaj, ile takich instalacji planujesz, "
+                   "a aplikacja przeliczy szacunkowy CAPEX. Cennik wgrywasz ponownie, gdy ceny się zmienią.")
+
+        equipment_template_bytes = generate_equipment_template_bytes()
+        st.download_button(
+            label="⬇️ Pobierz szablon Excel (Cennik_Instalacji_Szablon.xlsx)",
+            data=equipment_template_bytes,
+            file_name="Cennik_Instalacji_Szablon.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="btn_download_equipment_template"
+        )
+
+        uploaded_equipment_file = st.file_uploader("Wybierz plik .xlsx z cennikiem instalacji:", type=["xlsx"], key="equipment_uploader")
+
+        if uploaded_equipment_file is not None:
+            parsed_eq_df, eq_errors = parse_equipment_excel(uploaded_equipment_file)
+            for err in eq_errors:
+                st.warning(f"⚠️ {err}")
+            if parsed_eq_df is not None and not parsed_eq_df.empty:
+                st.session_state.equipment_df = parsed_eq_df
+                st.success(f"✅ Wczytano {len(parsed_eq_df)} pozycji cennika.")
+            elif parsed_eq_df is None:
+                st.error("❌ Nie udało się wczytać żadnych poprawnych pozycji z tego pliku — popraw błędy powyżej i wgraj ponownie.")
+
+        total_capex = 0.0
+        if st.session_state.equipment_df is not None and not st.session_state.equipment_df.empty:
+            edited_eq_df = st.data_editor(
+                st.session_state.equipment_df, hide_index=True, use_container_width=True,
+                num_rows="dynamic", key="equipment_data_editor",
+                column_config={EQUIPMENT_GROUP_COL: st.column_config.SelectboxColumn(options=RECIPE_PRODUCT_GROUPS)}
+            )
+            edited_eq_df[EQUIPMENT_LINE_TOTAL_COL] = edited_eq_df[EQUIPMENT_QTY_COL] * edited_eq_df[EQUIPMENT_UNIT_PRICE_COL]
+            st.session_state.equipment_df = edited_eq_df
+
+            groups_in_price_list = sorted(edited_eq_df[EQUIPMENT_GROUP_COL].dropna().unique().tolist())
+
+            # Domyślna liczba instalacji = liczba unikalnych produktów danej grupy w recepturach
+            # wgranych w Zakładce 1, jeśli są dostępne - w przeciwnym razie 1.
+            default_counts_from_recipes = {}
+            if st.session_state.recipes_df is not None and not st.session_state.recipes_df.empty:
+                default_counts_from_recipes = st.session_state.recipes_df.groupby(RECIPE_GROUP_COL)[RECIPE_PRODUCT_COL].nunique().to_dict()
+
+            cols_counts = st.columns(min(len(groups_in_price_list), 4)) if groups_in_price_list else []
+            for i, grp in enumerate(groups_in_price_list):
+                with cols_counts[i % len(cols_counts)]:
+                    default_val = int(st.session_state.equipment_install_counts.get(grp, default_counts_from_recipes.get(grp, 1)))
+                    st.session_state.equipment_install_counts[grp] = st.number_input(
+                        f"{grp} — instalacji:", min_value=0, value=default_val, step=1, key=f"eq_count_{grp}"
+                    )
+
+            capex_rows = []
+            for grp in groups_in_price_list:
+                n_install = st.session_state.equipment_install_counts.get(grp, 0)
+                grp_df = edited_eq_df[edited_eq_df[EQUIPMENT_GROUP_COL] == grp]
+                per_install_cost = grp_df[EQUIPMENT_LINE_TOTAL_COL].sum()
+                group_total = per_install_cost * n_install
+                total_capex += group_total
+                currencies = grp_df[EQUIPMENT_CURRENCY_COL].dropna().unique().tolist()
+                currency_label = currencies[0] if len(currencies) == 1 else "/".join(currencies) if currencies else "—"
+                capex_rows.append({
+                    "Grupa Produktowa": grp, "Komponentów w cenniku": len(grp_df),
+                    "Koszt 1 instalacji": round(per_install_cost, 2), "Liczba instalacji": n_install,
+                    "CAPEX grupy": round(group_total, 2), "Waluta": currency_label,
+                })
+
+            st.dataframe(pd.DataFrame(capex_rows), hide_index=True, use_container_width=True)
+            st.metric("💰 Łączny szacowany CAPEX (wszystkie grupy)", f"{total_capex:,.0f}")
+
+            with st.expander("📋 Szczegółowa lista komponentów per grupa", expanded=False):
+                for grp in groups_in_price_list:
+                    st.markdown(f"**{grp}**")
+                    st.dataframe(edited_eq_df[edited_eq_df[EQUIPMENT_GROUP_COL] == grp].drop(columns=[EQUIPMENT_GROUP_COL]),
+                                 hide_index=True, use_container_width=True)
+        else:
+            st.info("💡 Wgraj cennik powyżej, aby zobaczyć tu podsumowanie CAPEX per grupa produktowa.")
+
+        st.markdown("---")
+        st.markdown("### 📈 Krok 4: ROI (z uwzględnieniem krzywej rozruchu)")
+        st.caption("Przychód liczony jako koszt wytworzenia powiększony o zadaną marżę — 'koszt plus'. "
+                   "**OPEX skaluje się z tą samą 5-letnią krzywą rozruchu co w Zakładce 2**: część kosztu, która "
+                   "rośnie z wolumenem (surowce/robocizna, energia procesowa, paliwo grzewcze), jest mnożona przez "
+                   "% celu danego roku; odbiory pozaprodukcyjne (serwery/HVAC/oświetlenie/sprężarkownia) liczone są "
+                   "jako w przybliżeniu stałe, bo działają niezależnie od tempa produkcji.")
+        marza_pct = st.number_input("Marża narzucona na koszt wytworzenia [%]:", min_value=0.0, value=20.0, step=1.0, key="roi_marza_pct")
+
+        # Ta sama ważona (wolumenem) krzywa rozruchu co w Zakładce 2 - liczona tu od nowa na
+        # bazie confirmed_mixers, żeby ROI nie zależało od tego, czy użytkownik odwiedził
+        # Zakładkę 2 w tej samej sesji przeglądarki.
+        target_annual_t_fin = sum(m["annual_volume"] for m in st.session_state.confirmed_mixers) / 1000.0
+        roi_rows = []
+        cumulative_profit = 0.0
+        payback_year_fraction = None
+        for i in range(RAMPUP_YEARS):
+            year_tonnage_t = sum((m["annual_volume"] / 1000.0) * get_rampup_fraction(m["product_family"], i)
+                                  for m in st.session_state.confirmed_mixers)
+            frac_year = (year_tonnage_t / target_annual_t_fin) if target_annual_t_fin > 0 else 1.0
+
+            annual_variable_opex = variable_monthly_opex_target * frac_year * MONTHS_PER_YEAR
+            annual_fixed_opex = fixed_monthly_opex * MONTHS_PER_YEAR
+            annual_opex_year = annual_variable_opex + annual_fixed_opex
+            annual_revenue_year = annual_opex_year * (1.0 + marza_pct / 100.0)
+            annual_profit_year = annual_revenue_year - annual_opex_year
+
+            profit_before = cumulative_profit
+            cumulative_profit += annual_profit_year
+            if payback_year_fraction is None and total_capex > 0 and cumulative_profit >= total_capex:
+                # Interpolacja liniowa w obrębie roku, żeby okres zwrotu nie skakał "co pełny rok".
+                needed = total_capex - profit_before
+                payback_year_fraction = i + (needed / annual_profit_year if annual_profit_year > 0 else 0.0)
+
+            roi_rows.append({
+                "Rok": f"Rok {i + 1}", "% Celu": f"{frac_year * 100.0:.0f}%",
+                "OPEX roczny": round(annual_opex_year, 0), "Przychód roczny": round(annual_revenue_year, 0),
+                "Zysk roczny": round(annual_profit_year, 0), "Zysk skumulowany": round(cumulative_profit, 0),
+                "ROI (ten rok) [%]": round((annual_profit_year / total_capex * 100.0), 1) if total_capex > 0 else None,
+            })
+
+        st.dataframe(pd.DataFrame(roi_rows), hide_index=True, use_container_width=True)
+
+        chart_cum = pd.DataFrame({
+            "Rok": [r["Rok"] for r in roi_rows],
+            "Zysk skumulowany": [r["Zysk skumulowany"] for r in roi_rows],
+            "CAPEX": [total_capex] * len(roi_rows),
+        }).set_index("Rok")
+        st.line_chart(chart_cum)
+
+        r_c1, r_c2, r_c3, r_c4 = st.columns(4)
+        with r_c1:
+            st.metric("💰 OPEX w Roku 1 (rozruch)", f"{roi_rows[0]['OPEX roczny']:,.0f} {waluta}")
+        with r_c2:
+            st.metric("💵 Zysk w Roku 5 (pełna dojrzałość)", f"{roi_rows[-1]['Zysk roczny']:,.0f} {waluta}")
+        with r_c3:
+            roi_year5 = roi_rows[-1]["ROI (ten rok) [%]"]
+            st.metric("🎯 ROI w Roku 5 (ustabilizowane)", f"{roi_year5:.1f}%" if roi_year5 is not None else "—")
+        with r_c4:
+            if total_capex <= 0:
+                st.metric("⏳ Okres zwrotu (z rozruchem)", "—", help="Uzupełnij cennik CAPEX w Kroku 3 powyżej.")
+            elif payback_year_fraction is not None:
+                st.metric("⏳ Okres zwrotu (z rozruchem)", f"{payback_year_fraction:.1f} lat")
+            else:
+                st.metric("⏳ Okres zwrotu (z rozruchem)", f"> {RAMPUP_YEARS} lat",
+                          help="Skumulowany zysk nie pokrywa CAPEX nawet w Roku 5 przy obecnych założeniach.")
+
+        if total_capex <= 0:
+            st.info("ℹ️ ROI wymaga policzonego CAPEX — uzupełnij cennik instalacji w Kroku 3 powyżej.")
+
 # ==========================================
-# ZAKŁADKA 5: PARK ZBIORNIKÓW (TANK FARM)
+# ZAKŁADKA 5: PARK ZBIORNIKÓW (TANK FARM) (tab5)
 # ==========================================
 with tab5:
     st.header("🛢️ Logistyka Surowcowa i Grupy Magazynowe (Tank Farm)")
@@ -3393,7 +3599,7 @@ with tab5:
             st.metric("🧱 Całkowita wymagana liczba silosów surowcowych (szacunek grupowy)", f"{total_tanks} szt.")
 
 # ==========================================
-# ZAKŁADKA 6: MAPA STRUMIENIA WARTOŚCI (VSM)
+# ZAKŁADKA 7: MAPA STRUMIENIA WARTOŚCI (VSM) (tab6)
 # ==========================================
 with tab6:
     st.header("🧵 Mapa Strumienia Wartości (Value Stream Mapping)")
@@ -3746,7 +3952,7 @@ with tab7:
     st.header("📋 Receptury Produktów: Import z Excela")
     st.caption("Wgraj plik Excel z listą produktów (przypisanych do grupy produktowej), rocznym zapotrzebowaniem "
                "i dozowaniem surowców [kg/t] (bazy olejowe, dodatki, pakiety, zagęszczacze, smary stałe, woda DEMI, "
-               "biocyd). Dane z tej zakładki zasilają dodatkowo wymiarowanie silosów **per surowiec** w Zakładce 6 "
+               "biocyd). Dane z tej zakładki zasilają dodatkowo wymiarowanie silosów **per surowiec** w Zakładce 5 "
                "oraz podpowiedź, dla których surowców opłaca się dedykowany zbiornik, a które lepiej zostawić "
                "w beczkach/IBC/workach.")
 
@@ -3894,97 +4100,3 @@ with tab7:
 
     else:
         st.info("💡 Wgraj plik z recepturami powyżej, aby zobaczyć tu zagregowane zużycie surowców.")
-
-# ==========================================
-# ZAKŁADKA 7 (tab9): CENNIK I STANDARDOWA INSTALACJA (CAPEX)
-# ==========================================
-with tab9:
-    st.header("🧰 Cennik i Standardowa Instalacja (CAPEX)")
-    st.caption("Zdefiniuj listę komponentów standardowej instalacji per grupa produktowa (pompy, czujniki, "
-               "zawory, elektrozawory itd.) wraz z cenami jednostkowymi — treść zwykle przepisana z Twojego "
-               "istniejącego P&ID danej instalacji standardowej. Podaj, ile takich instalacji planujesz, "
-               "a aplikacja przeliczy szacunkowy CAPEX. Cennik wgrywasz ponownie, gdy ceny się zmienią.")
-
-    st.markdown("### 📥 Krok 1: Pobierz szablon cennika")
-    equipment_template_bytes = generate_equipment_template_bytes()
-    st.download_button(
-        label="⬇️ Pobierz szablon Excel (Cennik_Instalacji_Szablon.xlsx)",
-        data=equipment_template_bytes,
-        file_name="Cennik_Instalacji_Szablon.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="btn_download_equipment_template"
-    )
-
-    st.markdown("---")
-    st.markdown("### 📤 Krok 2: Wgraj uzupełniony cennik")
-    uploaded_equipment_file = st.file_uploader("Wybierz plik .xlsx z cennikiem instalacji:", type=["xlsx"], key="equipment_uploader")
-
-    if uploaded_equipment_file is not None:
-        parsed_eq_df, eq_errors = parse_equipment_excel(uploaded_equipment_file)
-        for err in eq_errors:
-            st.warning(f"⚠️ {err}")
-        if parsed_eq_df is not None and not parsed_eq_df.empty:
-            st.session_state.equipment_df = parsed_eq_df
-            st.success(f"✅ Wczytano {len(parsed_eq_df)} pozycji cennika.")
-        elif parsed_eq_df is None:
-            st.error("❌ Nie udało się wczytać żadnych poprawnych pozycji z tego pliku — popraw błędy powyżej i wgraj ponownie.")
-
-    st.markdown("---")
-
-    if st.session_state.equipment_df is not None and not st.session_state.equipment_df.empty:
-        st.markdown("### 📋 Krok 3: Wczytany cennik (edytowalny)")
-        edited_eq_df = st.data_editor(
-            st.session_state.equipment_df, hide_index=True, use_container_width=True,
-            num_rows="dynamic", key="equipment_data_editor",
-            column_config={EQUIPMENT_GROUP_COL: st.column_config.SelectboxColumn(options=RECIPE_PRODUCT_GROUPS)}
-        )
-        edited_eq_df[EQUIPMENT_LINE_TOTAL_COL] = edited_eq_df[EQUIPMENT_QTY_COL] * edited_eq_df[EQUIPMENT_UNIT_PRICE_COL]
-        st.session_state.equipment_df = edited_eq_df
-
-        st.markdown("---")
-        st.markdown("### 🧮 Krok 4: Liczba Planowanych Instalacji per Grupa")
-        groups_in_price_list = sorted(edited_eq_df[EQUIPMENT_GROUP_COL].dropna().unique().tolist())
-
-        # Domyślna liczba instalacji = liczba unikalnych produktów danej grupy w recepturach
-        # wgranych w Zakładce 1, jeśli są dostępne - w przeciwnym razie 1.
-        default_counts_from_recipes = {}
-        if st.session_state.recipes_df is not None and not st.session_state.recipes_df.empty:
-            default_counts_from_recipes = st.session_state.recipes_df.groupby(RECIPE_GROUP_COL)[RECIPE_PRODUCT_COL].nunique().to_dict()
-
-        cols_counts = st.columns(min(len(groups_in_price_list), 4)) if groups_in_price_list else []
-        for i, grp in enumerate(groups_in_price_list):
-            with cols_counts[i % len(cols_counts)]:
-                default_val = int(st.session_state.equipment_install_counts.get(grp, default_counts_from_recipes.get(grp, 1)))
-                st.session_state.equipment_install_counts[grp] = st.number_input(
-                    f"{grp} — instalacji:", min_value=0, value=default_val, step=1, key=f"eq_count_{grp}"
-                )
-
-        st.markdown("---")
-        st.markdown("### 💰 Krok 5: Szacowany CAPEX")
-
-        capex_rows = []
-        total_capex = 0.0
-        for grp in groups_in_price_list:
-            n_install = st.session_state.equipment_install_counts.get(grp, 0)
-            grp_df = edited_eq_df[edited_eq_df[EQUIPMENT_GROUP_COL] == grp]
-            per_install_cost = grp_df[EQUIPMENT_LINE_TOTAL_COL].sum()
-            group_total = per_install_cost * n_install
-            total_capex += group_total
-            currencies = grp_df[EQUIPMENT_CURRENCY_COL].dropna().unique().tolist()
-            currency_label = currencies[0] if len(currencies) == 1 else "/".join(currencies) if currencies else "—"
-            capex_rows.append({
-                "Grupa Produktowa": grp, "Komponentów w cenniku": len(grp_df),
-                "Koszt 1 instalacji": round(per_install_cost, 2), "Liczba instalacji": n_install,
-                "CAPEX grupy": round(group_total, 2), "Waluta": currency_label,
-            })
-
-        st.dataframe(pd.DataFrame(capex_rows), hide_index=True, use_container_width=True)
-        st.metric("💰 Łączny szacowany CAPEX (wszystkie grupy)", f"{total_capex:,.0f}")
-
-        with st.expander("📋 Szczegółowa lista komponentów per grupa", expanded=False):
-            for grp in groups_in_price_list:
-                st.markdown(f"**{grp}**")
-                st.dataframe(edited_eq_df[edited_eq_df[EQUIPMENT_GROUP_COL] == grp].drop(columns=[EQUIPMENT_GROUP_COL]),
-                             hide_index=True, use_container_width=True)
-    else:
-        st.info("💡 Wgraj cennik powyżej, aby zobaczyć tu podsumowanie CAPEX per grupa produktowa.")
