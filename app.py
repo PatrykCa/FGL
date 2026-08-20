@@ -112,7 +112,8 @@ RECIPE_RAW_MATERIALS = [
     "Pakiet Hydrauliczny (Hydraulic) [kg/t]", "Zagęszczacz Mydłowy (Li/Ca/Complex) [kg/t]",
     "Zagęszczacz Niemydłowy (Polyurea/Bentonit) [kg/t]", "Smar Stały: MoS2 / Grafit [kg/t]",
     "Smar Stały: PTFE / Boron Nitride [kg/t]", "Barwnik / Znacznik / Zapach [kg/t]",
-    "Woda Demineralizowana [kg/t]", "Biocyd / Fungicyd [kg/t]",
+    "Woda Demineralizowana [kg/t]", "Biocyd / Fungicyd [kg/t]", 
+    "Rozpuszczalniki [kg/t]",
 ]
 
 # Grupy produktowe do wyboru (lista rozwijana w szablonie Excel + walidacja przy imporcie).
