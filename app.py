@@ -2060,6 +2060,35 @@ AVAILABLE_HOURS_MONTH = (WORKING_DAYS_YEAR * godziny_dziennie) / MONTHS_PER_YEAR
 
 st.sidebar.markdown("---")
 
+st.sidebar.header("📈 KROK 3: Symulacja Rozruchu (5 lat)")
+st.sidebar.caption("Flota i magazyn budowane są od razu pod docelową (100%) produkcję — to poniżej steruje "
+                    "tylko tym, jak WYKORZYSTANIE tej floty i magazynu rośnie w pierwszych 5 latach. Wpływa "
+                    "na wszystkie zakładki na żywo.")
+st.session_state.rampup_differentiate = st.sidebar.checkbox(
+    "🔧 Zróżnicuj tempo rozruchu per linia produktowa", value=st.session_state.rampup_differentiate,
+    help="Domyślnie jedna wspólna krzywa dla całej fabryki. Włącz, jeśli np. Engine Oils ma ruszyć "
+         "szybciej niż Greases."
+)
+year_labels = [f"Rok {i+1}" for i in range(RAMPUP_YEARS)]
+if not st.session_state.rampup_differentiate:
+    for i in range(RAMPUP_YEARS):
+        st.session_state.rampup_global_pct[i] = st.sidebar.slider(
+            f"{year_labels[i]} [%]", min_value=0.0, max_value=100.0,
+            value=float(st.session_state.rampup_global_pct[i]), step=5.0, key=f"rampup_global_{i}"
+        )
+else:
+    for kat in wybrane_kategorie:
+        st.session_state.rampup_per_line_pct.setdefault(kat, list(st.session_state.rampup_global_pct))
+        with st.sidebar.expander(f"{kat}", expanded=False):
+            for i in range(RAMPUP_YEARS):
+                st.session_state.rampup_per_line_pct[kat][i] = st.slider(
+                    f"{year_labels[i]} [%]", min_value=0.0, max_value=100.0,
+                    value=float(st.session_state.rampup_per_line_pct[kat][i]), step=5.0,
+                    key=f"rampup_line_{kat}_{i}"
+                )
+
+st.sidebar.markdown("---")
+
 # --- STRUKTURA INTERFEJSU ---
 tab1, tab5, tab2, tab3, tab4, tab6, tab8 = st.tabs([
     "📋 1. Receptury Produktów i Flota",
@@ -3804,16 +3833,19 @@ with tab3:
             with m_wh3: st.metric("📐 Powierzchnia magazynu (budowana pod 100%)", f"{total_powierzchnia_m2:,.0f} m²")
             with m_wh4: st.metric("📊 Wykorzystanie magazynu w tym roku", f"{wykorzystanie_magazynu_pct:.0f}%")
 
-            # Jasna, bezwzględna ilość materiału w magazynie [t] - nie tylko liczba miejsc paletowych,
-            # które nie mówią wprost "ile mamy" komuś, kto nie myśli w paletach.
+            # Jasna, bezwzględna ilość materiału w magazynie [t] I w paletach - nie tylko liczba
+            # miejsc paletowych (które uwzględniają dni zapasu i poziomy składowania i nie mówią
+            # wprost "ile mamy" komuś, kto nie myśli w tych kategoriach).
             total_fg_tony_month = sum(r.get("_masa_kg_miesiac", 0.0) for r in real_split_rows) / 1000.0
+            total_fg_palety_month = sum(r["Palet [/mies] 🧱"] for r in real_split_rows)
             rm_consumption_this_view = compute_rm_consumption_for_year(effective_year_idx_for_import)
             total_rm_tony_month = sum(rm_consumption_this_view.values()) / MONTHS_PER_YEAR if rm_consumption_this_view else 0.0
+            total_rm_palety_month = sum(r["Palet [/mies]"] for r in rm_warehouse_rows) if rm_warehouse_rows else 0
             m_qty1, m_qty2 = st.columns(2)
             with m_qty1: st.metric("🏷️ Wyroby Gotowe (FG) w magazynie", f"{total_fg_tony_month:,.1f} t",
-                                    help="Miesięczna produkcja FG w wybranym roku/widoku (przybliżenie stanu magazynowego).")
+                                    help=f"≈ {total_fg_palety_month:,.0f} palet/mies. Miesięczna produkcja FG w wybranym roku/widoku (przybliżenie stanu magazynowego).")
             with m_qty2: st.metric("🛢️ Surowce (RM) w magazynie", f"{total_rm_tony_month:,.1f} t",
-                                    help="Miesięczne zużycie surowców w wybranym roku/widoku (tanki + beczki/IBC razem) — przybliżenie stanu magazynowego.")
+                                    help=f"≈ {total_rm_palety_month:,.0f} palet/mies. (RM w beczkach/IBC — zbiorniki liczone osobno w Zakładce 2). Miesięczne zużycie surowców w wybranym roku/widoku — przybliżenie stanu magazynowego.")
 
             st.caption("💡 Powierzchnia = ⌈(docelowe miejsca paletowe FG + RM + stały Import) / liczba poziomów⌉ × "
                        "powierzchnia/miejsce (1 poziom) — budynek stawiany RAZ, pod pełną (100%) zdolność. "
@@ -3903,25 +3935,31 @@ with tab3:
             shipment_ratio = (actual_pallets_per_day / suggested_pallets_per_day) if suggested_pallets_per_day > 0 else 1.0
             fg_capacity_pallets = total_fg_positions_target
 
-            # Przelicznik palety -> kg -> wartość SPRZEDAŻNA (koszt + marża z Zakładki 5, Krok 4 -
-            # to jest realna wartość towaru leżącego w magazynie, nie tylko koszt wytworzenia).
-            # Koszt/kg pochodzi z Zakładki 5 (per grupa produktowa), ważony rzeczywistym miksem
-            # produkcji tej floty; jeśli Zakładka 5 nie była jeszcze skonfigurowana, używane są
-            # wartości domyślne.
+            # Przelicznik palety -> kg -> wartość SPRZEDAŻNA (Zakładka 5, Krok 1: cena sprzedaży per
+            # grupa produktowa [waluta/L], przeliczona na [waluta/kg] przez gęstość) - to jest realna
+            # wartość towaru leżącego w magazynie, nie tylko koszt wytworzenia. Ważona rzeczywistym
+            # miksem produkcji tej floty; jeśli Zakładka 5 nie była jeszcze skonfigurowana, używane
+            # są wartości domyślne.
             target_monthly_mass_kg_total = sum(m["batches_count"] * m["mass_per_batch"] for m in mixers_fleet)
             avg_kg_per_pallet = (target_monthly_mass_kg_total / total_palety_month_fg_target) if total_palety_month_fg_target > 0 else 0.0
-            manuf_cost_per_group_stock = st.session_state.get("manuf_cost_per_group", {})
+            group_pricing_stock = st.session_state.get("group_pricing", {})
             total_annual_volume_kg = sum(m["annual_volume"] for m in mixers_fleet)
-            avg_manuf_cost_per_kg = (sum(m["annual_volume"] * manuf_cost_per_group_stock.get(m["product_family"], 2.12) for m in mixers_fleet)
-                                      / total_annual_volume_kg) if total_annual_volume_kg > 0 else 2.12
-            marza_pct_stock = st.session_state.get("roi_marza_pct", 20.0)
-            avg_selling_value_per_kg = avg_manuf_cost_per_kg * (1.0 + marza_pct_stock / 100.0)
+
+            def _selling_value_per_kg(grp):
+                pricing = group_pricing_stock.get(grp)
+                if not pricing:
+                    return 2.54  # domyślna wartość, spójna z resztą apki, dopóki Krok 1 nie zostanie ustawiony
+                density_kg_l = st.session_state.active_portfolio.get(grp, {}).get("density", 0.9)
+                return pricing["sales_price"] / density_kg_l if density_kg_l > 0 else 2.54
+
+            avg_selling_value_per_kg = (sum(m["annual_volume"] * _selling_value_per_kg(m["product_family"]) for m in mixers_fleet)
+                                         / total_annual_volume_kg) if total_annual_volume_kg > 0 else 2.54
 
             waluta_stock = st.selectbox("Waluta wyceny zapasu:", ["PLN", "EUR", "USD"], key="waluta_stock_value")
-            if not manuf_cost_per_group_stock:
-                st.caption(f"ℹ️ Koszt produkcyjny per grupa nie był jeszcze ustawiany w Zakładce 5 — użyto wartości "
-                           f"domyślnej ({avg_manuf_cost_per_kg:.2f} {waluta_stock}/kg + {marza_pct_stock:.0f}% marży). "
-                           f"Ustaw go w Zakładce 5, aby wycena była dokładniejsza.")
+            if not group_pricing_stock:
+                st.caption(f"ℹ️ Cena sprzedaży per grupa nie była jeszcze ustawiana w Zakładce 5, Krok 1 — użyto "
+                           f"wartości domyślnej ({avg_selling_value_per_kg:.2f} {waluta_stock}/kg). "
+                           f"Ustaw ją w Zakładce 5, aby wycena była dokładniejsza.")
 
             stock_rows = []
             stock_level = 0.0
@@ -3946,8 +3984,8 @@ with tab3:
             st.session_state["stock_simulation_df"] = df_stock  # do raportu PDF (Zakładka 5)
             st.session_state["fg_capacity_pallets_report"] = fg_capacity_pallets
 
-            st.caption(f"Wartość produktu z marżą użyta do wyceny: {avg_selling_value_per_kg:.2f} {waluta_stock}/kg "
-                       f"(koszt produkcyjny × (1 + {marza_pct_stock:.0f}% marży), ważony miksem produkcji floty). "
+            st.caption(f"Wartość sprzedażna użyta do wyceny: {avg_selling_value_per_kg:.2f} {waluta_stock}/kg "
+                       "(cena sprzedaży per grupa z Zakładki 5, Krok 1, ważona miksem produkcji floty). "
                        "Rosnące słupki w kolejnych latach pokazują rosnące wykorzystanie magazynu wraz z rozruchem produkcji.")
 
             st.markdown("**Stan magazynowy [palety]**")
@@ -4010,46 +4048,17 @@ with tab4:
         waluta = st.selectbox("Wybierz walutę operacyjną:", ["PLN", "EUR", "USD"])
 
         # ==========================================
-        # SYMULACJA ROZRUCHU (RAMPUP) — flota budowana od razu pod cel, ale wykorzystanie
-        # rośnie w czasie. Ta sama krzywa % jest reużywana w Zakładce 2 (magazyn FG+RM), żeby
-        # historia "startujemy nisko, dochodzimy do celu" była spójna w całej aplikacji.
+        # SYMULACJA ROZRUCHU (RAMPUP) — wejścia ustawiasz w panelu bocznym (KROK 3), tu tylko
+        # wynikowe podsumowanie. Flota budowana od razu pod cel, ale wykorzystanie rośnie w
+        # czasie; ta sama krzywa % jest reużywana w Zakładce 2 (magazyn FG+RM), żeby historia
+        # "startujemy nisko, dochodzimy do celu" była spójna w całej aplikacji.
         # ==========================================
         st.markdown("---")
-        with st.expander("📈 Symulacja Rozruchu (Rampup) — 5 lat", expanded=False):
-            st.caption("Flota i magazyn (Zakładka 2) są wymiarowane od razu pod docelową produkcję wpisaną powyżej — "
-                       "to buduje się raz. Poniższa krzywa pokazuje/symuluje, jak realnie rośnie WYKORZYSTANIE tej "
-                       "floty i magazynu w pierwszych 5 latach, zanim produkcja dojdzie do 100% celu.")
-
-            st.session_state.rampup_differentiate = st.checkbox(
-                "🔧 Zróżnicuj tempo rozruchu per linia produktowa", value=st.session_state.rampup_differentiate,
-                help="Domyślnie jedna wspólna krzywa dla całej fabryki. Włącz, jeśli np. Engine Oils ma ruszyć "
-                     "szybciej niż Greases."
-            )
+        with st.expander("📈 Symulacja Rozruchu (Rampup) — 5 lat — wyniki", expanded=False):
+            st.caption("Ustawienia krzywej rozruchu zmieniasz w **panelu bocznym (KROK 3)** — działają na żywo "
+                       "we wszystkich zakładkach. Tu tylko podsumowanie wynikowe.")
 
             year_labels = [f"Rok {i+1}" for i in range(RAMPUP_YEARS)]
-
-            if not st.session_state.rampup_differentiate:
-                st.markdown("###### Wspólna krzywa dla całej fabryki")
-                cols_ramp = st.columns(RAMPUP_YEARS)
-                for i, c in enumerate(cols_ramp):
-                    with c:
-                        st.session_state.rampup_global_pct[i] = st.number_input(
-                            f"{year_labels[i]} [%]", min_value=0.0, max_value=100.0,
-                            value=float(st.session_state.rampup_global_pct[i]), step=5.0, key=f"rampup_global_{i}"
-                        )
-            else:
-                st.markdown("###### Krzywa per linia produktowa")
-                for kat in wybrane_kategorie:
-                    st.session_state.rampup_per_line_pct.setdefault(kat, list(st.session_state.rampup_global_pct))
-                    st.markdown(f"**{kat}**")
-                    cols_ramp = st.columns(RAMPUP_YEARS)
-                    for i, c in enumerate(cols_ramp):
-                        with c:
-                            st.session_state.rampup_per_line_pct[kat][i] = st.number_input(
-                                f"{year_labels[i]} [%]", min_value=0.0, max_value=100.0,
-                                value=float(st.session_state.rampup_per_line_pct[kat][i]), step=5.0,
-                                key=f"rampup_line_{kat}_{i}"
-                            )
 
             # --- Przeliczenie: tonaż roczny i średnia utylizacja floty per rok symulacji ---
             target_annual_t = sum(m["annual_volume"] for m in st.session_state.confirmed_mixers) / 1000.0
@@ -4105,129 +4114,180 @@ with tab4:
                        f"= **{target_batches_month_total} szarż/miesiąc** (**{target_batches_month_total * MONTHS_PER_YEAR} szarż/rok**) "
                        "dla całej floty. Ta sama krzywa steruje wykorzystaniem magazynu w Zakładce 2 (wybór roku symulacji).")
 
-        st.markdown("### 💵 Krok 1: Koszt Produkcyjny per Grupa")
-        st.caption("Koszt produkcyjny (surowce + robocizna + narzut, bez energii - tę liczymy osobno niżej z realnej "
-                   "hydrauliki/bilansu cieplnego) różni się między grupami produktowymi — podaj go osobno dla "
-                   "każdej aktywnej linii.")
-        if "manuf_cost_per_group" not in st.session_state:
-            st.session_state.manuf_cost_per_group = {}
+            st.markdown("---")
+            st.markdown("###### 🏭 Mieszalniki — tonaż i produkt przypisany, per rok")
+            st.caption("Liczba i pojemność mieszalników jest stała (budowane raz, pod 100% celu) — poniżej widać, "
+                       "**który z nich faktycznie pracuje i z jakim tonażem w danym roku**. 'Nieużywany' = w tym "
+                       "roku popyt na ten produkt/linię jeszcze nie generuje ani jednej pełnej szarży.")
+            mixer_year_rows = []
+            for i in range(RAMPUP_YEARS):
+                for m in st.session_state.confirmed_mixers:
+                    frac = get_rampup_fraction(m["product_family"], i)
+                    tonnage_year_t = (m["annual_volume"] / 1000.0) * frac
+                    scaled_monthly_mass = (m["annual_volume"] / MONTHS_PER_YEAR) * frac
+                    scaled_batches = math.ceil(scaled_monthly_mass / m["mass_per_batch"]) if m["mass_per_batch"] > 0 else 0
+                    mixer_year_rows.append({
+                        "Rok": year_labels[i], "Tag": m["tag"], "Linia": m["product_family"],
+                        "Produkt": m.get("recipe_product") or "—", "Pojemność [m³]": m["capacity_m3"],
+                        "Tonaż ten rok [t]": round(tonnage_year_t, 1), "Szarż/miesiąc ten rok": scaled_batches,
+                        "Status": "🟢 Aktywny" if scaled_batches > 0 else "⚪ Nieużywany (jeszcze)",
+                    })
+            df_mixer_year = pd.DataFrame(mixer_year_rows)
+            selected_year_view = st.selectbox("Pokaż rok:", year_labels, key="mixer_year_view_select")
+            st.dataframe(df_mixer_year[df_mixer_year["Rok"] == selected_year_view].drop(columns=["Rok"]),
+                         hide_index=True, use_container_width=True)
+            n_active_this_year = (df_mixer_year[df_mixer_year["Rok"] == selected_year_view]["Status"] == "🟢 Aktywny").sum()
+            st.caption(f"Aktywnych mieszalników w {selected_year_view}: {n_active_this_year} / {len(st.session_state.confirmed_mixers)}.")
+
+            confirmed_rm_tanks_ramp = st.session_state.get("confirmed_rm_tanks", [])
+            if confirmed_rm_tanks_ramp:
+                st.markdown("###### 🛢️ Zbiorniki RM — zużycie surowca przypisane, per rok")
+                st.caption("Liczba i pojemność zbiorników RM też jest stała (budowane raz, pod 100% zużycia) — "
+                           "poniżej widać zużycie surowca w danym roku i jak duża część łącznej pojemności "
+                           "przypisanych zbiorników jest realnie wykorzystywana.")
+                rm_stock_days = st.session_state.get("days_of_stock_tab5", 14)
+                tanks_by_material = {}
+                for t in confirmed_rm_tanks_ramp:
+                    tanks_by_material.setdefault(t["material"], []).append(t)
+
+                rm_year_rows = []
+                for i in range(RAMPUP_YEARS):
+                    year_consumption = compute_rm_consumption_for_year(i)
+                    for material, tanks_this_material in tanks_by_material.items():
+                        year_t = year_consumption.get(material, 0.0)
+                        total_capacity_m3 = sum(t["capacity_m3"] for t in tanks_this_material)
+                        required_buffer_m3 = ((year_t / WORKING_DAYS_YEAR) * rm_stock_days) / OIL_FILL_FACTOR
+                        utilization_pct = (required_buffer_m3 / total_capacity_m3 * 100.0) if total_capacity_m3 > 0 else 0.0
+                        rm_year_rows.append({
+                            "Rok": year_labels[i], "Surowiec": material, "Zbiorników (zatwierdzonych)": len(tanks_this_material),
+                            "Łączna pojemność [m³]": round(total_capacity_m3, 0), "Zużycie ten rok [t/rok]": round(year_t, 1),
+                            "Wykorzystanie pojemności": f"{utilization_pct:.0f}%",
+                            "Status": "🟢 Aktywny" if year_t > 0 else "⚪ Nieużywany (jeszcze)",
+                        })
+                df_rm_year = pd.DataFrame(rm_year_rows)
+                st.dataframe(df_rm_year[df_rm_year["Rok"] == selected_year_view].drop(columns=["Rok"]),
+                             hide_index=True, use_container_width=True)
+
+        st.markdown("### 💵 Krok 1: Rentowność per Grupa Produktowa (Cena − Koszty)")
+        st.caption("Ustaw cenę sprzedaży, koszt surowców i pozostałe czynniki kosztotwórcze — wszystko w "
+                   "[waluta]/L (jak w Twoim zestawieniu). Marża brutto i procent ceny, jaki stanowi każdy koszt, "
+                   "liczą się automatycznie. **Białe pola edytujesz, szare (marża, %) to wynik.**")
+
+        if "group_pricing" not in st.session_state:
+            st.session_state.group_pricing = {}
         active_groups_fin = sorted(set(m["product_family"] for m in st.session_state.confirmed_mixers))
-        cost_cols = st.columns(min(len(active_groups_fin), 4)) if active_groups_fin else []
-        for i, grp in enumerate(active_groups_fin):
-            with cost_cols[i % len(cost_cols)]:
-                default_cost = st.session_state.manuf_cost_per_group.get(grp, 2.12)
-                st.session_state.manuf_cost_per_group[grp] = st.number_input(
-                    f"{grp} [{waluta}/kg]:", min_value=0.01, value=float(default_cost), step=0.05,
-                    format="%.3f", key=f"manuf_cost_{grp}"
-                )
 
-        st.markdown("---")
-        st.markdown("### ⚡ Krok 2: Koszty Energii i Bilans Miesięczny")
-        cena_mwh = st.number_input(f"Cena energii elektrycznej [{waluta}/MWh]:", min_value=1.0, value=750.0)
-        st.session_state["cena_mwh_tab4"] = cena_mwh
+        cost_item_keys = ["labour", "energy", "qc", "maintenance", "logistics", "overhead"]
+        cost_item_labels = {
+            "labour": "Robocizna bezpośrednia", "energy": "Energia i media", "qc": "QC/lab/eksploatacyjne",
+            "maintenance": "Utrzymanie ruchu", "logistics": "Logistyka wych.", "overhead": "Narzut fabryczny",
+        }
 
-        if not st.session_state.calculated_times:
-            st.info("ℹ️ Skonfiguruj urządzenia w Zakładce 2, aby koszty energii odzwierciedlały rzeczywistą hydraulikę i bilans cieplny "
-                    "(w przeciwnym razie poniżej używane są bezpieczne wartości domyślne).")
+        pricing_table_rows = []
+        for grp in active_groups_fin:
+            density_kg_l = st.session_state.active_portfolio[grp]["density"]
+            annual_volume_kg = sum(m["annual_volume"] for m in st.session_state.confirmed_mixers if m["product_family"] == grp)
+            annual_volume_l = annual_volume_kg / density_kg_l if density_kg_l > 0 else 0.0
 
-        # Cena i sprawność "paliwa grzewczego" (gaz lub prąd, zależnie od wyboru kotła w Zakładce 2)
-        # — używana zarówno do kosztu ogrzewania, jak i do wyceny odzysku ciepła (fizycznie
-        # spójniej niż stosowanie ogólnej ceny elektrycznej do oszczędności cieplnej).
-        heating_fuel_price = st.session_state.get("cena_mwh_tab4", cena_mwh)
-        heating_fuel_efficiency = st.session_state.get("sprawnosc_kotla_frac", 0.98)
-        if st.session_state.get("typ_kotla") == "Gazowy":
-            heating_fuel_price = st.session_state.get("cena_gazu_mwh", 250.0)
-        heating_fuel_price = heating_fuel_price if heating_fuel_price else cena_mwh
-        heating_fuel_efficiency = heating_fuel_efficiency if heating_fuel_efficiency else 1.0
-
-        financial_summary = []
-        total_monthly_saving_thermal = 0.0
-        total_base_manuf_cost = 0.0
-        total_energy_cost_el = 0.0
-        calculated_times = st.session_state.get("calculated_times", {})
-
-        for mixer in st.session_state.confirmed_mixers:
-            tag = mixer["tag"]
-            kat = mixer["product_family"]
-            prod_info = st.session_state.active_portfolio[kat]
-            m_monthly_kg = mixer["annual_volume"] / MONTHS_PER_YEAR
-            batches_per_month = mixer["batches_count"]
-            manuf_cost_per_kg_kat = st.session_state.manuf_cost_per_group.get(kat, 2.12)
-
-            # POPRAWKA: te dane teraz faktycznie pochodzą z Zakładki 2 (patrz zapis do
-            # st.session_state.calculated_times w pętli obliczeniowej Zakładki 2).
-            # Wartości domyślne poniżej są używane wyłącznie, jeśli użytkownik jeszcze
-            # nie odwiedził Zakładki 2 dla danego urządzenia.
-            m_data = calculated_times.get(tag, {"power_mix_kw": 5.5, "power_pump_kw": 1.5, "heating": 1.5, "pumping": 0.75, "t_max_mix": 60.0, "t_rozlew": 30.0})
-
-            mixing_energy = m_data["power_mix_kw"] * mixer.get("cycle_h", prod_info["cycle_h"]) * batches_per_month
-            pumping_energy = m_data["power_pump_kw"] * m_data["pumping"] * batches_per_month
-            cost_el = ((mixing_energy + pumping_energy) / 1000.0) * cena_mwh
-            total_energy_cost_el += cost_el
-
-            base_manuf_cost_monthly = m_monthly_kg * manuf_cost_per_kg_kat
-            total_base_manuf_cost += base_manuf_cost_monthly
-
-            oszczednosc_cieplna = 0.0
-            if m_data["t_rozlew"] < m_data["t_max_mix"]:
-                oszczednosc_cieplna = ((m_monthly_kg * prod_info["cp"] * (m_data["t_max_mix"] - m_data["t_rozlew"])) / 3_600_000.0) * heating_fuel_price / heating_fuel_efficiency
-                total_monthly_saving_thermal += oszczednosc_cieplna
-
-            financial_summary.append({
-                "Reaktor": tag, "Linia": kat, "Miesięczny tonaż [kg]": int(m_monthly_kg),
-                "Koszt Prod. [kg]": manuf_cost_per_kg_kat,
-                "Energia Mieszania [kWh]": round(mixing_energy, 1), "Energia Pompowania [kWh]": round(pumping_energy, 1),
-                "Koszt prądu": f"{cost_el:.2f} {waluta}", "Odzysk ciepła": f"- {oszczednosc_cieplna:.2f} {waluta}",
-                "Źródło danych": "Zakładka 2" if tag in calculated_times else "Wartości domyślne"
+            defaults = st.session_state.group_pricing.setdefault(grp, {
+                "sales_price": 2.0, "raw_material_cost": 1.35, "labour": 0.07, "energy": 0.04,
+                "qc": 0.04, "maintenance": 0.04, "logistics": 0.04, "overhead": 0.04,
             })
+            total_cost_l = defaults["raw_material_cost"] + sum(defaults[k] for k in cost_item_keys)
+            margin_l = defaults["sales_price"] - total_cost_l
+            margin_pct = (margin_l / defaults["sales_price"] * 100.0) if defaults["sales_price"] > 0 else 0.0
 
-        st.dataframe(pd.DataFrame(financial_summary), hide_index=True, use_container_width=True)
+            row = {
+                "Grupa": grp, "Produkcja [L/rok]": round(annual_volume_l, 0),
+                f"Cena sprzedaży [{waluta}/L]": defaults["sales_price"],
+                f"Koszt surowców [{waluta}/L]": defaults["raw_material_cost"],
+            }
+            for k in cost_item_keys:
+                row[f"{cost_item_labels[k]} [{waluta}/L]"] = defaults[k]
+            row[f"Marża brutto [{waluta}/L]"] = round(margin_l, 3)
+            row["Marża brutto [%]"] = round(margin_pct, 1)
+            pricing_table_rows.append(row)
 
-        koszt_paliwa_grzewczego = st.session_state.get("koszt_paliwa_grzewczego_month", 0.0)
-        if koszt_paliwa_grzewczego > 0:
-            typ_kotla_disp = st.session_state.get("typ_kotla", "—")
-            st.metric(label=f"🔥 Koszt paliwa grzewczego ({typ_kotla_disp}, z Zakładki 2)",
-                      value=f"{koszt_paliwa_grzewczego:,.2f} {waluta}")
-        else:
-            st.info("ℹ️ Skonfiguruj kocioł i typ paliwa w Zakładce 2 (sekcja 'Dobór Kotła Grzewczego'), aby doliczyć "
-                    "koszt ogrzewania do kosztu wytworzenia.")
+        cost_col_config = {
+            f"Cena sprzedaży [{waluta}/L]": st.column_config.NumberColumn(min_value=0.01, step=0.01, format="%.2f"),
+            f"Koszt surowców [{waluta}/L]": st.column_config.NumberColumn(min_value=0.0, step=0.01, format="%.2f"),
+        }
+        for k in cost_item_keys:
+            cost_col_config[f"{cost_item_labels[k]} [{waluta}/L]"] = st.column_config.NumberColumn(min_value=0.0, step=0.01, format="%.2f")
 
-        # Koszt energii elektrycznej PROCESU (silniki, kocioł elektryczny, chłodzenie przez COP)
-        # i odbiorów POZAPRODUKCYJNYCH (serwery, HVAC, oświetlenie, sprężarkownia) - z sekcji ⚡
-        # Zakładki 2, dotąd NIEUWZGLĘDNIANE tutaj (liczono tylko mieszanie/pompowanie powyżej).
-        # Rozbite na dwa koszty CELOWO: proces skaluje się z wolumenem produkcji (krok 4, ROI
-        # z rozruchem), odbiory pozaprodukcyjne są w przybliżeniu STAŁE niezależnie od tego,
-        # ile realnie produkujesz w danym roku (światło/HVAC/serwery działają tak samo).
-        process_demand_kw = st.session_state.get("process_demand_kw", 0.0)
-        facility_demand_kw = st.session_state.get("facility_demand_kw", 0.0)
-        godziny_rocznie_zakladu = godziny_dziennie * WORKING_DAYS_YEAR
-        koszt_energii_proces_month = ((process_demand_kw * godziny_rocznie_zakladu) / 1000.0 / MONTHS_PER_YEAR) * cena_mwh
-        koszt_energii_facility_month = ((facility_demand_kw * godziny_rocznie_zakladu) / 1000.0 / MONTHS_PER_YEAR) * cena_mwh
-        if process_demand_kw > 0 or facility_demand_kw > 0:
-            c_en3, c_en4 = st.columns(2)
-            with c_en3:
-                st.metric("⚙️ Energia — proces (skaluje się z rozruchem)", f"{koszt_energii_proces_month:,.2f} {waluta}/mies.")
-            with c_en4:
-                st.metric("🏢 Energia — pozaprodukcyjne (stałe, z Zakładki 2)", f"{koszt_energii_facility_month:,.2f} {waluta}/mies.")
-        else:
-            st.info("ℹ️ Skonfiguruj sekcję ⚡ 'Zapotrzebowanie na Moc Elektryczną' w Zakładce 2, aby doliczyć pełny "
-                    "koszt energii procesowej i pozaprodukcyjnej (dziś liczone tylko mieszanie/pompowanie powyżej).")
+        edited_pricing_df = st.data_editor(
+            pd.DataFrame(pricing_table_rows), hide_index=True, use_container_width=True, key="group_pricing_editor",
+            disabled=["Grupa", "Produkcja [L/rok]", f"Marża brutto [{waluta}/L]", "Marża brutto [%]"],
+            column_config=cost_col_config
+        )
+        for _, row in edited_pricing_df.iterrows():
+            grp = row["Grupa"]
+            d = st.session_state.group_pricing.setdefault(grp, {})
+            d["sales_price"] = row[f"Cena sprzedaży [{waluta}/L]"]
+            d["raw_material_cost"] = row[f"Koszt surowców [{waluta}/L]"]
+            for k in cost_item_keys:
+                d[k] = row[f"{cost_item_labels[k]} [{waluta}/L]"]
 
-        # Część kosztu, która skaluje się z wolumenem produkcji (a więc z krzywą rozruchu w Kroku 4)
-        variable_monthly_opex_target = (total_base_manuf_cost + total_energy_cost_el + koszt_paliwa_grzewczego
-                                         + koszt_energii_proces_month - total_monthly_saving_thermal)
-        # Część kosztu w przybliżeniu STAŁA niezależnie od roku rozruchu (odbiory pozaprodukcyjne)
-        fixed_monthly_opex = koszt_energii_facility_month
+        total_annual_revenue_target = sum(
+            (sum(m["annual_volume"] for m in st.session_state.confirmed_mixers if m["product_family"] == grp)
+             / st.session_state.active_portfolio[grp]["density"]) * st.session_state.group_pricing[grp]["sales_price"]
+            for grp in active_groups_fin
+        )
+        st.metric(f"💰 Roczny przychód (100% celu, wszystkie grupy)", f"{total_annual_revenue_target:,.0f} {waluta}")
 
-        final_cost = variable_monthly_opex_target + fixed_monthly_opex
-        st.metric(label="🚀 CAŁKOWITY KOSZT WYTWORZENIA (Miesięcznie, przy 100% celu)", value=f"{final_cost:,.2f} {waluta}")
+        with st.expander("🔍 Szczegółowe źródła kosztu energii (opcjonalnie, do porównania z % 'Energia i media' powyżej)", expanded=False):
+            cena_mwh = st.number_input(f"Cena energii elektrycznej [{waluta}/MWh]:", min_value=1.0, value=750.0)
+            st.session_state["cena_mwh_tab4"] = cena_mwh
 
-        st.info("💡 Pełna analiza czasu cyklu szarży (dozowanie, grzanie, homogenizacja, QC, pompowanie, chłodzenie, "
-                "rozlew) oraz rekomendacja liczby zmian znajdują się w **Zakładce 6 (Mapa Strumienia Wartości)**, "
-                "razem z resztą analizy czasu procesu.")
+            if not st.session_state.calculated_times:
+                st.info("ℹ️ Skonfiguruj urządzenia w Zakładce 2, aby koszty energii odzwierciedlały rzeczywistą hydraulikę i bilans cieplny "
+                        "(w przeciwnym razie poniżej używane są bezpieczne wartości domyślne).")
+
+            heating_fuel_price = st.session_state.get("cena_mwh_tab4", cena_mwh)
+            heating_fuel_efficiency = st.session_state.get("sprawnosc_kotla_frac", 0.98)
+            if st.session_state.get("typ_kotla") == "Gazowy":
+                heating_fuel_price = st.session_state.get("cena_gazu_mwh", 250.0)
+            heating_fuel_price = heating_fuel_price if heating_fuel_price else cena_mwh
+            heating_fuel_efficiency = heating_fuel_efficiency if heating_fuel_efficiency else 1.0
+
+            total_monthly_saving_thermal = 0.0
+            total_energy_cost_el = 0.0
+            calculated_times = st.session_state.get("calculated_times", {})
+
+            for mixer in st.session_state.confirmed_mixers:
+                tag = mixer["tag"]
+                kat = mixer["product_family"]
+                prod_info = st.session_state.active_portfolio[kat]
+                m_monthly_kg = mixer["annual_volume"] / MONTHS_PER_YEAR
+                batches_per_month = mixer["batches_count"]
+                m_data = calculated_times.get(tag, {"power_mix_kw": 5.5, "power_pump_kw": 1.5, "heating": 1.5, "pumping": 0.75, "t_max_mix": 60.0, "t_rozlew": 30.0})
+                mixing_energy = m_data["power_mix_kw"] * mixer.get("cycle_h", prod_info["cycle_h"]) * batches_per_month
+                pumping_energy = m_data["power_pump_kw"] * m_data["pumping"] * batches_per_month
+                cost_el = ((mixing_energy + pumping_energy) / 1000.0) * cena_mwh
+                total_energy_cost_el += cost_el
+                if m_data["t_rozlew"] < m_data["t_max_mix"]:
+                    total_monthly_saving_thermal += ((m_monthly_kg * prod_info["cp"] * (m_data["t_max_mix"] - m_data["t_rozlew"])) / 3_600_000.0) * heating_fuel_price / heating_fuel_efficiency
+
+            koszt_paliwa_grzewczego = st.session_state.get("koszt_paliwa_grzewczego_month", 0.0)
+            process_demand_kw = st.session_state.get("process_demand_kw", 0.0)
+            facility_demand_kw = st.session_state.get("facility_demand_kw", 0.0)
+            godziny_rocznie_zakladu = godziny_dziennie * WORKING_DAYS_YEAR
+            koszt_energii_proces_month = ((process_demand_kw * godziny_rocznie_zakladu) / 1000.0 / MONTHS_PER_YEAR) * cena_mwh
+            koszt_energii_facility_month = ((facility_demand_kw * godziny_rocznie_zakladu) / 1000.0 / MONTHS_PER_YEAR) * cena_mwh
+
+            real_energy_cost_month = (total_energy_cost_el + koszt_paliwa_grzewczego + koszt_energii_proces_month
+                                       + koszt_energii_facility_month - total_monthly_saving_thermal)
+            real_energy_pct_of_revenue = (real_energy_cost_month * MONTHS_PER_YEAR / total_annual_revenue_target * 100.0) \
+                if total_annual_revenue_target > 0 else 0.0
+            st.metric("📐 Rzeczywisty koszt energii (z inżynierii) jako % przychodu",
+                      f"{real_energy_pct_of_revenue:.1f}%",
+                      help=f"Realny koszt energii: {real_energy_cost_month:,.0f} {waluta}/mies. Porównaj z sumą "
+                           f"'% Energia i media' wpisaną w tabeli powyżej — jeśli mocno się różnią, dostosuj %.")
+
+            fixed_monthly_opex = koszt_energii_facility_month
 
         st.markdown("---")
-        st.markdown("### 🧰 Krok 3: CAPEX — Nakłady Inwestycyjne")
+        st.markdown("### 🧰 Krok 2: CAPEX — Nakłady Inwestycyjne")
         st.caption("Wybierz sposób określenia CAPEX zależnie od zaawansowania prac projektowych: kwota całkowita "
                    "jako szybki szacunek na wczesnym etapie, albo szczegółowy cennik instalacji z Excela, gdy masz "
                    "już rozpisany projekt (P&ID, dobrane urządzenia, ceny jednostkowe).")
@@ -4378,40 +4438,50 @@ with tab4:
                 st.metric("💰 CAPEX razem (z rezerwą)", f"{total_capex:,.0f} {waluta}")
 
         st.markdown("---")
-        st.markdown("### 📈 Krok 4: ROI (z uwzględnieniem krzywej rozruchu)")
-        st.caption("Przychód liczony jako koszt wytworzenia powiększony o zadaną marżę — 'koszt plus'. "
-                   "**OPEX skaluje się z tą samą 5-letnią krzywą rozruchu co w Zakładce 5**: część kosztu, która "
-                   "rośnie z wolumenem (surowce/robocizna, energia procesowa, paliwo grzewcze), jest mnożona przez "
-                   "% celu danego roku; odbiory pozaprodukcyjne (serwery/HVAC/oświetlenie/sprężarkownia) liczone są "
-                   "jako w przybliżeniu stałe, bo działają niezależnie od tempa produkcji.")
-        marza_pct = st.number_input("Marża narzucona na koszt wytworzenia [%]:", min_value=0.0, value=20.0, step=1.0, key="roi_marza_pct")
+        st.markdown("### 📈 Krok 3: ROI (z uwzględnieniem krzywej rozruchu)")
+        st.caption("Przychód i koszt liczone **per grupa produktowa** (ceny/koszty z Kroku 1), każda skalowana "
+                   "WŁASNĄ krzywą rozruchu (panel boczny). Doliczana jest też stała energia pozaprodukcyjna "
+                   "(z rozwijanego panelu w Kroku 1, jeśli skonfigurowana).")
 
-        # Ta sama ważona (wolumenem) krzywa rozruchu co w Zakładce 2 - liczona tu od nowa na
-        # bazie confirmed_mixers, żeby ROI nie zależało od tego, czy użytkownik odwiedził
-        # Zakładkę 2 w tej samej sesji przeglądarki.
+        # Ta sama krzywa rozruchu co w panelu bocznym, per grupa - liczona tu od nowa na bazie
+        # confirmed_mixers, żeby ROI nie zależało od tego, czy użytkownik odwiedził Zakładkę 2.
         target_annual_t_fin = sum(m["annual_volume"] for m in st.session_state.confirmed_mixers) / 1000.0
         roi_rows = []
-        energy_kpi_rows = []  # do raportu PDF i wglądu tutaj: rozbicie energii per rok
+        energy_kpi_rows = []  # do raportu PDF i wglądu tutaj: rozbicie energii per rok (szacunek uproszczony)
         cumulative_profit = 0.0
         payback_year_fraction = None
         for i in range(RAMPUP_YEARS):
-            year_tonnage_t = sum((m["annual_volume"] / 1000.0) * get_rampup_fraction(m["product_family"], i)
-                                  for m in st.session_state.confirmed_mixers)
-            frac_year = (year_tonnage_t / target_annual_t_fin) if target_annual_t_fin > 0 else 1.0
+            annual_revenue_year = 0.0
+            annual_variable_cost_year = 0.0
+            year_tonnage_t = 0.0
+            for grp in active_groups_fin:
+                density_kg_l = st.session_state.active_portfolio[grp]["density"]
+                annual_volume_kg_target = sum(m["annual_volume"] for m in st.session_state.confirmed_mixers if m["product_family"] == grp)
+                annual_volume_l_target = annual_volume_kg_target / density_kg_l if density_kg_l > 0 else 0.0
+                frac = get_rampup_fraction(grp, i)
+                vol_l_year = annual_volume_l_target * frac
+                year_tonnage_t += (annual_volume_kg_target / 1000.0) * frac
 
-            annual_variable_opex = variable_monthly_opex_target * frac_year * MONTHS_PER_YEAR
+                pricing = st.session_state.group_pricing.get(grp, {
+                    "sales_price": 2.0, "raw_material_cost": 1.35, "labour": 0.07, "energy": 0.04,
+                    "qc": 0.04, "maintenance": 0.04, "logistics": 0.04, "overhead": 0.04,
+                })
+                cost_per_l = pricing["raw_material_cost"] + sum(
+                    pricing[k] for k in ["labour", "energy", "qc", "maintenance", "logistics", "overhead"]
+                )
+                annual_revenue_year += vol_l_year * pricing["sales_price"]
+                annual_variable_cost_year += vol_l_year * cost_per_l
+
+            frac_year_blended = (year_tonnage_t / target_annual_t_fin) if target_annual_t_fin > 0 else 1.0
             annual_fixed_opex = fixed_monthly_opex * MONTHS_PER_YEAR
-            annual_opex_year = annual_variable_opex + annual_fixed_opex
-            annual_revenue_year = annual_opex_year * (1.0 + marza_pct / 100.0)
+            annual_opex_year = annual_variable_cost_year + annual_fixed_opex
             annual_profit_year = annual_revenue_year - annual_opex_year
 
-            # Rozbicie energii per rok - każdy składnik OPEX-u zmiennego skaluje się tym samym
-            # frac_year (bo wszystkie razem tworzą variable_monthly_opex_target), więc dekompozycja
-            # jest bezpośrednia. Chłodzenie jest wliczone w "Elektryczność - proces" (COP, Zakładka 2),
-            # bo nie jest tam liczone jako osobna pozycja kosztowa.
-            heating_annual_year = koszt_paliwa_grzewczego * MONTHS_PER_YEAR * frac_year
-            electricity_process_annual_year = (total_energy_cost_el + koszt_energii_proces_month) * MONTHS_PER_YEAR * frac_year
-            electricity_facility_annual_year = fixed_monthly_opex * MONTHS_PER_YEAR  # stałe, nie skaluje się z rozruchem
+            # Rozbicie energii per rok - uproszczony szacunek (do raportów/Dashboardu), skalowany
+            # tą samą (ważoną wolumenem) krzywą co reszta OPEX-u zmiennego.
+            heating_annual_year = koszt_paliwa_grzewczego * MONTHS_PER_YEAR * frac_year_blended
+            electricity_process_annual_year = (total_energy_cost_el + koszt_energii_proces_month) * MONTHS_PER_YEAR * frac_year_blended
+            electricity_facility_annual_year = fixed_monthly_opex * MONTHS_PER_YEAR
             energy_kpi_rows.append({
                 "Rok": f"Rok {i + 1}",
                 "Ogrzewanie [waluta/rok]": round(heating_annual_year, 0),
@@ -4423,12 +4493,11 @@ with tab4:
             profit_before = cumulative_profit
             cumulative_profit += annual_profit_year
             if payback_year_fraction is None and total_capex > 0 and cumulative_profit >= total_capex:
-                # Interpolacja liniowa w obrębie roku, żeby okres zwrotu nie skakał "co pełny rok".
                 needed = total_capex - profit_before
                 payback_year_fraction = i + (needed / annual_profit_year if annual_profit_year > 0 else 0.0)
 
             roi_rows.append({
-                "Rok": f"Rok {i + 1}", "% Celu": f"{frac_year * 100.0:.0f}%",
+                "Rok": f"Rok {i + 1}", "% Celu": f"{frac_year_blended * 100.0:.0f}%",
                 "OPEX roczny": round(annual_opex_year, 0), "Przychód roczny": round(annual_revenue_year, 0),
                 "Zysk roczny": round(annual_profit_year, 0), "Zysk skumulowany": round(cumulative_profit, 0),
                 "ROI (ten rok) [%]": round((annual_profit_year / total_capex * 100.0), 1) if total_capex > 0 else None,
@@ -4436,19 +4505,7 @@ with tab4:
 
         st.dataframe(pd.DataFrame(roi_rows), hide_index=True, use_container_width=True)
         st.session_state["roi_rows_report"] = roi_rows  # do raportu Excel/PDF
-
-        st.markdown("###### ⚡ Energia — rozbicie per rok (ogrzewanie / elektryczność procesowa / elektryczność stała)")
-        st.caption(f"Waluta: {waluta}. 'Proces' obejmuje mieszanie, pompowanie i chłodzenie (przez COP) — te skalują "
-                   "się z krzywą rozruchu; 'pozaprodukcyjne' (serwery/HVAC/oświetlenie/sprężarkownia) liczone jako stałe.")
-        st.dataframe(pd.DataFrame(energy_kpi_rows), hide_index=True, use_container_width=True)
         st.session_state["energy_kpi_rows_report"] = energy_kpi_rows  # do raportu PDF
-
-        chart_cum = pd.DataFrame({
-            "Rok": [r["Rok"] for r in roi_rows],
-            "Zysk skumulowany": [r["Zysk skumulowany"] for r in roi_rows],
-            "CAPEX": [total_capex] * len(roi_rows),
-        }).set_index("Rok")
-        st.line_chart(chart_cum)
 
         r_c1, r_c2, r_c3, r_c4 = st.columns(4)
         with r_c1:
@@ -4460,7 +4517,7 @@ with tab4:
             st.metric("🎯 ROI w Roku 5 (ustabilizowane)", f"{roi_year5:.1f}%" if roi_year5 is not None else "—")
         with r_c4:
             if total_capex <= 0:
-                st.metric("⏳ Okres zwrotu (z rozruchem)", "—", help="Uzupełnij cennik CAPEX w Kroku 3 powyżej.")
+                st.metric("⏳ Okres zwrotu (z rozruchem)", "—", help="Uzupełnij cennik CAPEX w Kroku 2 powyżej.")
             elif payback_year_fraction is not None:
                 st.metric("⏳ Okres zwrotu (z rozruchem)", f"{payback_year_fraction:.1f} lat")
             else:
@@ -4468,7 +4525,7 @@ with tab4:
                           help="Skumulowany zysk nie pokrywa CAPEX nawet w Roku 5 przy obecnych założeniach.")
 
         if total_capex <= 0:
-            st.info("ℹ️ ROI wymaga policzonego CAPEX — uzupełnij cennik instalacji w Kroku 3 powyżej.")
+            st.info("ℹ️ ROI wymaga policzonego CAPEX — uzupełnij cennik instalacji w Kroku 2 powyżej.")
 
         # Zapis do session_state, żeby nowa Zakładka Dashboard mogła pokazać te liczby na "pierwszy rzut oka".
         st.session_state["total_capex_report"] = total_capex
@@ -4477,7 +4534,7 @@ with tab4:
         st.session_state["waluta_report"] = waluta
 
         st.markdown("---")
-        st.markdown("### 📄 Krok 5: Raport 5-letni (PDF / Excel)")
+        st.markdown("### 📄 Krok 4: Raport 5-letni (PDF / Excel)")
         st.caption("Zbiera w jeden dokument to, co już policzone w aplikacji: skalę produkcji per rok, produkty, "
                    "produkcja własna vs import, flotę (mieszalniki), wykorzystanie magazynu i KPI energetyczne. "
                    "**PDF** — czytelny, sformatowany dokument (po angielsku) do pokazania/udostępnienia. **Excel** "
