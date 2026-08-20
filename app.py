@@ -2631,128 +2631,112 @@ with tab2:
         # interakcji — do tego czasu tabela pokazywała wynik dla poprzedniej wartości. Stąd
         # pozornie "odwrócona" fizyka (większe DN pokazujące większą prędkość) — to był efekt
         # przestarzałych danych, nie błąd wzoru.
-        st.markdown("### ⚙️ Parametryzatory Szczegółowe Maszyn i Mediów")
+        st.markdown("### ⚙️ Konfiguracja Techniczna Mieszalników (wejścia)")
+        st.caption("**Białe pola edytujesz bezpośrednio w tabeli**; kolumny 🔧/🌀/🔥/❄️ to grupy (hydraulika/pompa, "
+                   "mieszadło, grzanie, chłodzenie). Tryb pompy (dedykowana/współdzielona) i typ procesu "
+                   "(zwykły/Smar-Wax z parą) ustawiasz osobno niżej, bo od nich zależy, które pola mają znaczenie.")
 
+        mixer_table_rows = []
         for mixer in st.session_state.confirmed_mixers:
             m_id = mixer["tag"]
-            kat = mixer["product_family"]
             p = st.session_state.mixer_tech_advanced_details[m_id]
+            mixer_table_rows.append({
+                "Tag": m_id, "Linia": mixer["product_family"],
+                "🔧 DN rury": p["pipe_dn"], "🔧 Długość [m]": p["pipe_length_m"], "🔧 Δh [m]": p["delta_h_m"],
+                "🔧 Lepkość MIN [cSt]": p["viscosity_min_cst"], "🔧 Lepkość MAX [cSt]": p["viscosity_max_cst"],
+                "🔧 Kolana 90°": p["count_elbows_90"], "🔧 Zawory": p["count_valves"],
+                "🔧 Przepływ pompy [m³/h]": p["pump_flow_m3h"],
+                "🌀 Typ mieszadła": p["agitator_type"], "🌀 Obroty [obr/min]": p["agitator_rpm"],
+                "🌀 Śr. mieszadła [m]": p["agitator_diameter_m"],
+                "🔥 Medium grzewcze": p["utility_type_heat"], "🔥 Temp. zasil. grzew. [°C]": p["t_utility_heat_in"],
+                "🔥 k grzania [W/m²K]": p["k_coeff_grzania"], "🔥 ΔT grzew. [K]": p["delta_t_medium_grzewcze"],
+                "❄️ Medium chłodzące": p["utility_type_cool"], "❄️ Temp. wody chłodz. [°C]": p["t_utility_cool_in"],
+                "❄️ k chłodzenia [W/m²K]": p["k_coeff"], "❄️ ΔT chłodz. [K]": p["delta_t_medium_chlodzace"],
+                "🔥 Powierzchnia wymiany [m²]": p["exchange_area_m2"], "🔥 Temp. pocz. [°C]": p["t_product_in"],
+                "🔥 Temp. procesu [°C]": p["t_product_out"], "🔥 Temp. rozlewu [°C]": p["t_discharge_c"],
+                "🔧 MTBF reaktora [h]": p["reactor_mtbf_h"], "🔧 MTTR reaktora [h]": p["reactor_mttr_h"],
+            })
 
-            with st.expander(f"🛠️ Konfiguracja hydrauliki, mieszania i bilansu energii: {m_id}", expanded=False):
-                c1, c2, c3, c4, c5 = st.columns(5)
-                with c1:
-                    st.markdown("**🌊 Średnice, Przepływ i Reologia**")
-                    p["pump_mode"] = st.selectbox(
-                        "Tryb pompy:", ["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"],
-                        index=["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"].index(p["pump_mode"]),
-                        key=f"pump_mode_{m_id}",
-                        help="Jedna fizyczna pompa może obsługiwać kilka zbiorników na przemian — wybierz "
-                             "'Współdzielona' i podaj ten sam ID pompy dla wszystkich zbiorników, które ją dzielą. "
-                             "Przepływ, sprawność, MTBF i MTTR takiej pompy edytujesz wtedy raz, w tabeli "
-                             "'Pompy Współdzielone' poniżej listy urządzeń — obowiązują dla wszystkich zbiorników z tym ID."
-                    )
-                    if p["pump_mode"] == "Współdzielona (kilka zbiorników)":
-                        p["shared_pump_id"] = st.text_input(
-                            "ID pompy współdzielonej:", value=p["shared_pump_id"] or "P-01", key=f"shared_pump_id_{m_id}"
-                        )
-                        st.caption("Przepływ pompy [m³/h], sprawność, MTBF i MTTR dla tej pompy skonfigurujesz w tabeli "
-                                   "'🔧 Pompy Współdzielone' poniżej — tu jedynie przypisujesz zbiornik do pompy.")
-                    else:
-                        p["shared_pump_id"] = ""
-                        p["pump_flow_m3h"] = st.number_input(f"Przepływ pompy [m³/h]:", min_value=1.0, value=float(p["pump_flow_m3h"]), key=f"q_adv_{m_id}")
-                    p["pipe_dn"] = st.number_input(f"Średnica rury [DN]:", min_value=15, value=int(p["pipe_dn"]), key=f"dn_adv_{m_id}")
-                    p["viscosity_min_cst"] = st.number_input(f"Lepkość MIN [cSt]:", min_value=0.5, value=float(p["viscosity_min_cst"]), key=f"v_min_{m_id}")
-                    p["viscosity_max_cst"] = st.number_input(f"Lepkość MAX [cSt]:", min_value=1.0, value=float(p["viscosity_max_cst"]), key=f"v_max_{m_id}")
-                with c2:
-                    st.markdown("**📐 Geometria Rurociągu**")
-                    p["pipe_length_m"] = st.number_input(f"Długość rury L [m]:", min_value=0.1, value=float(p["pipe_length_m"]), key=f"l_len_{m_id}")
-                    p["delta_h_m"] = st.number_input(f"Różnica wysokości Δh [m]:", min_value=0.0, value=float(p["delta_h_m"]), key=f"h_delta_{m_id}")
-                    p["count_elbows_90"] = st.number_input(f"Liczba kolan 90°:", min_value=0, value=int(p["count_elbows_90"]), key=f"elb_{m_id}")
-                    p["count_valves"] = st.number_input(f"Liczba zaworów:", min_value=0, value=int(p["count_valves"]), key=f"val_{m_id}")
-                with c3:
-                    st.markdown("**🌀 Mieszadło**")
-                    p["agitator_type"] = st.selectbox("Typ mieszadła:", list(AGITATOR_TYPES.keys()),
-                                                        index=list(AGITATOR_TYPES.keys()).index(p["agitator_type"]), key=f"ag_type_{m_id}")
-                    p["agitator_rpm"] = st.number_input("Prędkość obrotowa [obr/min]:", min_value=1.0, value=float(p["agitator_rpm"]), key=f"ag_rpm_{m_id}")
-                    p["agitator_diameter_m"] = st.number_input("Średnica mieszadła [m]:", min_value=0.05, value=float(p["agitator_diameter_m"]), key=f"ag_d_{m_id}")
-                with c4:
-                    st.markdown("**🔥 Wymiennik Ciepła i Nośniki Energii**")
-                    p["utility_type_heat"] = st.selectbox(f"Medium grzewcze:", list(MEDIA_PROCESOWE.keys()), index=list(MEDIA_PROCESOWE.keys()).index(p["utility_type_heat"]), key=f"ut_h_type_{m_id}")
-                    p["t_utility_heat_in"] = st.number_input(f"Temp. zasilania medium grzewczego [°C]:", value=float(p["t_utility_heat_in"]), key=f"t_ut_h_{m_id}")
-                    if MEDIA_PROCESOWE[p["utility_type_heat"]].get("steam"):
-                        st.caption("ℹ️ Para nasycona: bilans liczony przez ciepło skraplania, nie cp·ΔT. Poniższe ΔT medium grzewczego nie dotyczy pary.")
-                    p["k_coeff_grzania"] = st.number_input(f"Współczynnik przenikania ciepła — grzanie k [W/m²K]:", min_value=1.0, value=float(p["k_coeff_grzania"]), key=f"k_grz_{m_id}")
-                    p["delta_t_medium_grzewcze"] = st.number_input(
-                        f"ΔT medium grzewczego (projektowy spadek) [K]:", min_value=1.0, value=float(p["delta_t_medium_grzewcze"]), key=f"dt_med_grz_{m_id}",
-                        help="Ile stopni medium grzewcze traci przechodząc przez wymiennik — z tego i mocy grzania wyliczany jest wymagany przepływ."
-                    )
-                    p["utility_type_cool"] = st.selectbox(f"Medium chłodzące:", list(MEDIA_PROCESOWE.keys()), index=list(MEDIA_PROCESOWE.keys()).index(p["utility_type_cool"]), key=f"ut_c_type_{m_id}")
-                    p["t_utility_cool_in"] = st.number_input(f"Temp. wody chłodzącej [°C]:", value=float(p["t_utility_cool_in"]), key=f"t_ut_c_{m_id}")
-                    p["k_coeff"] = st.number_input(f"Współczynnik przenikania ciepła — chłodzenie k [W/m²K]:", min_value=1.0, value=float(p["k_coeff"]), key=f"k_chl_{m_id}")
-                    p["delta_t_medium_chlodzace"] = st.number_input(
-                        f"ΔT medium chłodzącego (projektowy wzrost) [K]:", min_value=1.0, value=float(p["delta_t_medium_chlodzace"]), key=f"dt_med_chl_{m_id}",
-                        help="O ile stopni ogrzewa się chłodziwo przechodząc przez wymiennik — z tego i mocy chłodzenia wyliczany jest wymagany przepływ."
-                    )
-                    p["exchange_area_m2"] = st.number_input(f"Powierzchnia wymiany (wspólny płaszcz) [m²]:", min_value=0.1, value=float(p["exchange_area_m2"]), key=f"area_{m_id}")
-                    p["t_product_in"] = st.number_input(f"Temp. początkowa płynu [°C]:", value=float(p["t_product_in"]), key=f"tpin_adv_{m_id}")
-                    p["t_product_out"] = st.number_input(f"Temp. procesu (gorący) [°C]:", value=float(p["t_product_out"]), key=f"tpout_adv_{m_id}")
-                    p["t_discharge_c"] = st.number_input(f"Temp. rozlewu (docelowa) [°C]:", value=float(p["t_discharge_c"]), key=f"tdisc_{m_id}")
-                    st.caption("ℹ️ Czas grzania nie jest już wpisywany ręcznie — jest wyliczany z mocy grzania "
-                               "(k × A × ΔT) i wymaganej energii, tak samo jak czas chłodzenia. Przepływy obu mediów są "
-                               "teraz również wyliczane, nie zgadywane.")
-                with c5:
-                    st.markdown("**🔧 Niezawodność (MTBF/MTTR)**")
-                    st.caption("Zasila automatycznie 'Dostępność [%]' w Zakładce 6 (VSM/OEE) — patrz przycisk "
-                               "'Zastosuj wyliczoną Dostępność' w tamtej zakładce.")
-                    p["reactor_mtbf_h"] = st.number_input(
-                        "MTBF reaktora/mieszadła [h]:", min_value=1.0, value=float(p["reactor_mtbf_h"]), key=f"reactor_mtbf_{m_id}",
-                        help="Średni czas między awariami samego zbiornika/mieszadła (bez pompy)."
-                    )
-                    p["reactor_mttr_h"] = st.number_input(
-                        "MTTR reaktora/mieszadła [h]:", min_value=0.1, value=float(p["reactor_mttr_h"]), key=f"reactor_mttr_{m_id}",
-                        help="Średni czas naprawy/usunięcia awarii zbiornika/mieszadła."
-                    )
-                    if p["pump_mode"] == "Dedykowana (dla tego zbiornika)":
-                        p["pump_mtbf_h"] = st.number_input(
-                            "MTBF pompy [h]:", min_value=1.0, value=float(p["pump_mtbf_h"]), key=f"pump_mtbf_{m_id}"
-                        )
-                        p["pump_mttr_h"] = st.number_input(
-                            "MTTR pompy [h]:", min_value=0.1, value=float(p["pump_mttr_h"]), key=f"pump_mttr_{m_id}"
-                        )
-                        avail_pump_preview = p["pump_mtbf_h"] / (p["pump_mtbf_h"] + p["pump_mttr_h"]) * 100.0
-                    else:
-                        shared = st.session_state.shared_pumps.get(p["shared_pump_id"], {})
-                        pump_mtbf_disp = shared.get("mtbf_h", 2000.0)
-                        pump_mttr_disp = shared.get("mttr_h", 8.0)
-                        st.caption(f"Pompa '{p['shared_pump_id']}': MTBF {pump_mtbf_disp:.0f} h / MTTR {pump_mttr_disp:.1f} h "
-                                   f"(edytuj w tabeli 'Pompy Współdzielone' poniżej).")
-                        avail_pump_preview = pump_mtbf_disp / (pump_mtbf_disp + pump_mttr_disp) * 100.0
-                    avail_reactor_preview = p["reactor_mtbf_h"] / (p["reactor_mtbf_h"] + p["reactor_mttr_h"]) * 100.0
-                    avail_combined_preview = (avail_pump_preview / 100.0) * (avail_reactor_preview / 100.0) * 100.0
-                    st.metric("Dostępność łączna (reaktor × pompa)", f"{avail_combined_preview:.1f}%")
+        edited_mixer_table = st.data_editor(
+            pd.DataFrame(mixer_table_rows), hide_index=True, use_container_width=True, key="mixer_master_editor",
+            disabled=["Tag", "Linia"],
+            column_config={
+                "🌀 Typ mieszadła": st.column_config.SelectboxColumn(options=list(AGITATOR_TYPES.keys())),
+                "🔥 Medium grzewcze": st.column_config.SelectboxColumn(options=list(MEDIA_PROCESOWE.keys())),
+                "❄️ Medium chłodzące": st.column_config.SelectboxColumn(options=list(MEDIA_PROCESOWE.keys())),
+            }
+        )
+        _mixer_field_map = {
+            "🔧 DN rury": "pipe_dn", "🔧 Długość [m]": "pipe_length_m", "🔧 Δh [m]": "delta_h_m",
+            "🔧 Lepkość MIN [cSt]": "viscosity_min_cst", "🔧 Lepkość MAX [cSt]": "viscosity_max_cst",
+            "🔧 Kolana 90°": "count_elbows_90", "🔧 Zawory": "count_valves",
+            "🔧 Przepływ pompy [m³/h]": "pump_flow_m3h", "🌀 Typ mieszadła": "agitator_type",
+            "🌀 Obroty [obr/min]": "agitator_rpm", "🌀 Śr. mieszadła [m]": "agitator_diameter_m",
+            "🔥 Medium grzewcze": "utility_type_heat", "🔥 Temp. zasil. grzew. [°C]": "t_utility_heat_in",
+            "🔥 k grzania [W/m²K]": "k_coeff_grzania", "🔥 ΔT grzew. [K]": "delta_t_medium_grzewcze",
+            "❄️ Medium chłodzące": "utility_type_cool", "❄️ Temp. wody chłodz. [°C]": "t_utility_cool_in",
+            "❄️ k chłodzenia [W/m²K]": "k_coeff", "❄️ ΔT chłodz. [K]": "delta_t_medium_chlodzace",
+            "🔥 Powierzchnia wymiany [m²]": "exchange_area_m2", "🔥 Temp. pocz. [°C]": "t_product_in",
+            "🔥 Temp. procesu [°C]": "t_product_out", "🔥 Temp. rozlewu [°C]": "t_discharge_c",
+            "🔧 MTBF reaktora [h]": "reactor_mtbf_h", "🔧 MTTR reaktora [h]": "reactor_mttr_h",
+        }
+        for _, row in edited_mixer_table.iterrows():
+            p = st.session_state.mixer_tech_advanced_details[row["Tag"]]
+            for col_name, field_key in _mixer_field_map.items():
+                p[field_key] = row[col_name]
+            if MEDIA_PROCESOWE[p["utility_type_heat"]].get("steam"):
+                st.caption(f"ℹ️ {row['Tag']}: para nasycona jako medium grzewcze — bilans liczony przez ciepło "
+                           "skraplania, nie cp·ΔT (ΔT medium grzewczego z tabeli nie dotyczy pary).")
 
-                st.markdown("---")
-                st.markdown("**🌫️ Typ Procesu i Bilans Pary (dla smarów/waxów)**")
-                p.setdefault("process_type", "Ciecz (mieszanie/blending)")
-                p["process_type"] = st.selectbox(
-                    "Typ procesu:", ["Ciecz (mieszanie/blending)", "Smar/Wax (gotowanie z odparowaniem)"],
-                    index=["Ciecz (mieszanie/blending)", "Smar/Wax (gotowanie z odparowaniem)"].index(p["process_type"]),
-                    key=f"proc_type_{m_id}",
-                    help="Wybierz 'Smar/Wax', jeśli ten reaktor gotuje z intensywnym odparowaniem (np. zmydlanie) "
-                         "i wymaga bilansu linii zrzutu pary — poniżej pojawią się dodatkowe pola, a zbiorczy "
-                         "rurociąg zrzutowy policzy się niżej, dla wszystkich reaktorów tego typu naraz."
+        st.markdown("###### 🔍 Szczegółowa konfiguracja: tryb pompy i typ procesu")
+        st.caption("Dla jednego urządzenia naraz, bo pola zależą od siebie warunkowo.")
+        selected_mixer_tag = st.selectbox("Wybierz mieszalnik:", [m["tag"] for m in st.session_state.confirmed_mixers], key="mixer_detail_selector")
+        p = st.session_state.mixer_tech_advanced_details[selected_mixer_tag]
+
+        md1, md2 = st.columns(2)
+        with md1:
+            p["pump_mode"] = st.selectbox(
+                "Tryb pompy:", ["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"],
+                index=["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"].index(p["pump_mode"]),
+                key=f"pump_mode_{selected_mixer_tag}",
+                help="Jedna fizyczna pompa może obsługiwać kilka zbiorników na przemian — wybierz "
+                     "'Współdzielona' i podaj ten sam ID pompy dla wszystkich zbiorników, które ją dzielą."
+            )
+            if p["pump_mode"] == "Współdzielona (kilka zbiorników)":
+                p["shared_pump_id"] = st.text_input(
+                    "ID pompy współdzielonej:", value=p["shared_pump_id"] or "P-01", key=f"shared_pump_id_{selected_mixer_tag}"
                 )
-                if p["process_type"] == "Smar/Wax (gotowanie z odparowaniem)":
-                    p.setdefault("steam_avg_flow", 0.0185)
-                    p.setdefault("steam_max_process", 0.037)
-                    p.setdefault("steam_max_decompress", 0.089)
-                    cs1, cs2, cs3 = st.columns(3)
-                    with cs1:
-                        p["steam_avg_flow"] = st.number_input("Średni strumień odwadniania [kg/s]:", min_value=0.0, value=float(p["steam_avg_flow"]), step=0.001, format="%.4f", key=f"steam_avg_{m_id}")
-                    with cs2:
-                        p["steam_max_process"] = st.number_input("Maks. strumień procesowy [kg/s]:", min_value=0.0, value=float(p["steam_max_process"]), step=0.001, format="%.4f", key=f"steam_proc_{m_id}")
-                    with cs3:
-                        p["steam_max_decompress"] = st.number_input("Maks. strumień dekompresji [kg/s]:", min_value=0.0, value=float(p["steam_max_decompress"]), step=0.001, format="%.4f", key=f"steam_decomp_{m_id}")
+                st.caption("Przepływ, sprawność, MTBF i MTTR tej pompy skonfigurujesz w tabeli "
+                           "'🔧 Pompy Współdzielone' poniżej listy urządzeń.")
+                shared = st.session_state.shared_pumps.get(p["shared_pump_id"], {})
+                pump_mtbf_disp = shared.get("mtbf_h", 2000.0)
+                pump_mttr_disp = shared.get("mttr_h", 8.0)
+                avail_pump_preview = pump_mtbf_disp / (pump_mtbf_disp + pump_mttr_disp) * 100.0
+            else:
+                p["shared_pump_id"] = ""
+                p["pump_mtbf_h"] = st.number_input("MTBF pompy [h]:", min_value=1.0, value=float(p["pump_mtbf_h"]), key=f"pump_mtbf_{selected_mixer_tag}")
+                p["pump_mttr_h"] = st.number_input("MTTR pompy [h]:", min_value=0.1, value=float(p["pump_mttr_h"]), key=f"pump_mttr_{selected_mixer_tag}")
+                avail_pump_preview = p["pump_mtbf_h"] / (p["pump_mtbf_h"] + p["pump_mttr_h"]) * 100.0
+            avail_reactor_preview = p["reactor_mtbf_h"] / (p["reactor_mtbf_h"] + p["reactor_mttr_h"]) * 100.0
+            avail_combined_preview = (avail_pump_preview / 100.0) * (avail_reactor_preview / 100.0) * 100.0
+            st.metric("Dostępność łączna (reaktor × pompa)", f"{avail_combined_preview:.1f}%")
+        with md2:
+            p.setdefault("process_type", "Ciecz (mieszanie/blending)")
+            p["process_type"] = st.selectbox(
+                "Typ procesu:", ["Ciecz (mieszanie/blending)", "Smar/Wax (gotowanie z odparowaniem)"],
+                index=["Ciecz (mieszanie/blending)", "Smar/Wax (gotowanie z odparowaniem)"].index(p["process_type"]),
+                key=f"proc_type_{selected_mixer_tag}",
+                help="Wybierz 'Smar/Wax', jeśli ten reaktor gotuje z intensywnym odparowaniem (np. zmydlanie) "
+                     "i wymaga bilansu linii zrzutu pary — zbiorczy rurociąg zrzutowy policzy się niżej, dla "
+                     "wszystkich reaktorów tego typu naraz."
+            )
+            if p["process_type"] == "Smar/Wax (gotowanie z odparowaniem)":
+                p.setdefault("steam_avg_flow", 0.0185)
+                p.setdefault("steam_max_process", 0.037)
+                p.setdefault("steam_max_decompress", 0.089)
+                p["steam_avg_flow"] = st.number_input("Średni strumień odwadniania [kg/s]:", min_value=0.0, value=float(p["steam_avg_flow"]), step=0.001, format="%.4f", key=f"steam_avg_{selected_mixer_tag}")
+                p["steam_max_process"] = st.number_input("Maks. strumień procesowy [kg/s]:", min_value=0.0, value=float(p["steam_max_process"]), step=0.001, format="%.4f", key=f"steam_proc_{selected_mixer_tag}")
+                p["steam_max_decompress"] = st.number_input("Maks. strumień dekompresji [kg/s]:", min_value=0.0, value=float(p["steam_max_decompress"]), step=0.001, format="%.4f", key=f"steam_decomp_{selected_mixer_tag}")
 
         # --- Pompy współdzielone: jedno miejsce edycji przepływu/sprawności/MTBF/MTTR, ---
         # wspólne dla wszystkich zbiorników, które przypisano do tej samej pompy powyżej.
