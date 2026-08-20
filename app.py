@@ -3109,7 +3109,12 @@ with tab2:
                             st.metric("Energia grzania — dziennie", f"{heating_power_kw_detail * 24:.1f} kWh/dzień")
                             st.metric("Energia grzania — miesięcznie", f"{heating_power_kw_detail * 24 * 30.4:,.0f} kWh/mies.")
                         else:
-                            st.caption("Zbiornik niegrzany — brak stałego zapotrzebowania na energię grzania.")
+                            # Te same 3 metryki co dla grzanego (z myślnikiem zamiast wartości), żeby
+                            # wysokość kolumny nie "rozjeżdżała się" względem porównywanych obok
+                            # zbiorników grzanych - inaczej tabele "Strata ciepła" niżej nie są wyrównane.
+                            st.metric("Moc grzania (stan ustalony)", "— (niegrzany)")
+                            st.metric("Energia grzania — dziennie", "—")
+                            st.metric("Energia grzania — miesięcznie", "—")
 
                         st.markdown("**🌡️ Strata ciepła po 24h [kWh]**")
                         mass_kg_kpi = rm_tank["capacity_m3"] * TANK_SAFETY_FILL * rm_sel_defaults["density_kg_m3"]
@@ -4266,7 +4271,11 @@ with tab4:
                 st.caption("Z tych samych cen/kosztów per grupa co w Kroku 1 (Rentowność), każda grupa skalowana "
                            "WŁASNĄ krzywą rozruchu — to ten sam model, który zasila ROI w Kroku 3 niżej.")
                 chart_cost_rev_df = pd.DataFrame(rampup_cost_revenue_chart).set_index("Rok")
-                st.bar_chart(chart_cost_rev_df)
+                try:
+                    st.bar_chart(chart_cost_rev_df, stack=False)  # słupki obok siebie, nie jeden na drugim
+                except TypeError:
+                    # Starsza wersja Streamlit bez parametru "stack" - fallback do domyślnego (skumulowanego).
+                    st.bar_chart(chart_cost_rev_df)
 
             st.dataframe(pd.DataFrame(rampup_summary_rows), hide_index=True, use_container_width=True)
             st.caption("ℹ️ **Pełne szarże** — realna liczba szarż zaokrąglona w górę do liczb całkowitych (tak faktycznie "
