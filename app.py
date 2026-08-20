@@ -2746,6 +2746,44 @@ with tab2:
                         p["steam_max_process"] = st.number_input("Maks. strumień procesowy [kg/s]:", min_value=0.0, value=float(p["steam_max_process"]), step=0.001, format="%.4f", key=f"steam_proc_{selected_mixer_tag}")
                         p["steam_max_decompress"] = st.number_input("Maks. strumień dekompresji [kg/s]:", min_value=0.0, value=float(p["steam_max_decompress"]), step=0.001, format="%.4f", key=f"steam_decomp_{selected_mixer_tag}")
 
+                st.markdown("---")
+                st.markdown("**⚡ Energetyczne KPI**")
+                st.caption("Ile ciepła trzeba dostarczyć (grzanie) i ile trzeba odebrać (chłodzenie) na jedną "
+                           "szarżę, plus energia mieszania — liczone tymi samymi wzorami co tabela wyników, "
+                           "niezależnie od kolejności odświeżania.")
+                try:
+                    _visc_avg_kpi = (p["viscosity_min_cst"] + p["viscosity_max_cst"]) / 2.0
+                    _, _, agitator_power_kw_kpi = compute_agitator_power(
+                        p["agitator_type"], p["agitator_rpm"], p["agitator_diameter_m"], p["density_kg_m3"], _visc_avg_kpi
+                    )
+                    _thermal_kpi = compute_thermal_balance(
+                        mixer["mass_per_batch"], p["cp_product"], p["t_product_in"], p["t_product_out"],
+                        p["k_coeff_grzania"], p["exchange_area_m2"], p["tank_mass"], p["cp_steel"],
+                        p["utility_type_heat"], p["delta_t_medium_grzewcze"], p["t_utility_heat_in"])
+                    _q_cooling_mj_kpi, _, _cooling_time_h_kpi, _, _cooling_status_kpi = compute_cooling(
+                        mixer["mass_per_batch"], p["cp_product"], p["t_product_out"], p["t_discharge_c"],
+                        p["t_utility_cool_in"], p["k_coeff"], p["exchange_area_m2"],
+                        p["utility_type_cool"], p["delta_t_medium_chlodzace"])
+
+                    heating_kwh_batch = _thermal_kpi["q_heating_mj"] * 0.2778 if _thermal_kpi["heating_status"] == "ok" else 0.0
+                    cooling_kwh_batch = _q_cooling_mj_kpi * 0.2778 if _cooling_status_kpi == "ok" else 0.0
+                    cycle_h_kpi = mixer.get("cycle_h", p.get("t_product_out", 0) and 4.0)
+                    mixing_kwh_batch = agitator_power_kw_kpi * mixer.get("cycle_h", 4.0)
+                    batches_month_kpi = mixer.get("batches_count", 0)
+
+                    ek1, ek2, ek3, ek4 = st.columns(4)
+                    with ek1:
+                        st.metric("Grzanie / szarżę", f"{heating_kwh_batch:.1f} kWh" if _thermal_kpi["heating_status"] == "ok" else "⚠️ N/A")
+                    with ek2:
+                        st.metric("Chłodzenie / szarżę", f"{cooling_kwh_batch:.1f} kWh" if _cooling_status_kpi == "ok" else "⚠️ N/A")
+                    with ek3:
+                        st.metric("Mieszanie / szarżę", f"{mixing_kwh_batch:.1f} kWh")
+                    with ek4:
+                        total_kwh_month = (heating_kwh_batch + cooling_kwh_batch + mixing_kwh_batch) * batches_month_kpi
+                        st.metric("Razem / miesiąc", f"{total_kwh_month:,.0f} kWh")
+                except Exception as _kpi_exc:
+                    st.caption(f"⚠️ Nie udało się policzyć KPI energetycznego: {_kpi_exc}")
+
         # --- Pompy współdzielone: jedno miejsce edycji przepływu/sprawności/MTBF/MTTR, ---
         # wspólne dla wszystkich zbiorników, które przypisano do tej samej pompy powyżej.
         shared_pump_ids_in_use = sorted(set(
@@ -3048,6 +3086,40 @@ with tab2:
                         st.caption(f"Wychładzanie bez dogrzewania, start {t_start_for_curve:.0f}°C, otoczenie "
                                    f"{rm_sel_defaults['ambient_temp_c']:.0f}°C (prawo stygnięcia Newtona, uproszczenie).")
                         st.dataframe(pd.DataFrame(cooling_table_rows), hide_index=True, use_container_width=True)
+
+                    st.markdown("---")
+                    st.markdown("**⚡ Energetyczne KPI**")
+                    if rm_sel_defaults["heated"]:
+                        heating_power_kw_detail = compute_tank_heating_power_kw(
+                            rm_tank["capacity_m3"], rm_sel_defaults["insulation_mm"],
+                            rm_sel_defaults["target_temp_c"], rm_sel_defaults["ambient_temp_c"]
+                        )
+                        rk1, rk2, rk3 = st.columns(3)
+                        with rk1:
+                            st.metric("Moc grzania (stan ustalony)", f"{heating_power_kw_detail:.2f} kW")
+                        with rk2:
+                            st.metric("Energia grzania — dziennie", f"{heating_power_kw_detail * 24:.1f} kWh/dzień")
+                        with rk3:
+                            st.metric("Energia grzania — miesięcznie", f"{heating_power_kw_detail * 24 * 30.4:,.0f} kWh/mies.")
+                        st.caption("Moc/energia potrzebna do utrzymania temperatury docelowej wobec strat do otoczenia "
+                                   "(z marginesem na rozruch) — zakłada ciągłe grzanie 24/7.")
+                    else:
+                        st.caption("Zbiornik niegrzany — brak stałego zapotrzebowania na energię grzania.")
+
+                    st.markdown("**🌡️ Ile ciepła ucieknie bez dogrzewania (po 24h), w energii [kWh]**")
+                    mass_kg_kpi = rm_tank["capacity_m3"] * TANK_SAFETY_FILL * rm_sel_defaults["density_kg_m3"]
+                    heat_loss_rows = []
+                    for insul_label, insul_mm in [("Brak izolacji", 0), ("Izolacja 50 mm", 50), ("Izolacja 100 mm", 100)]:
+                        temp_after_24h = compute_tank_cooling_curve(
+                            rm_tank["capacity_m3"], insul_mm, t_start_for_curve, rm_sel_defaults["ambient_temp_c"],
+                            rm_sel_defaults["density_kg_m3"], rm_sel_defaults["specific_heat_j_kgk"], [24]
+                        )[0]
+                        heat_lost_kwh = (mass_kg_kpi * rm_sel_defaults["specific_heat_j_kgk"] * (t_start_for_curve - temp_after_24h)) / 3_600_000.0
+                        heat_loss_rows.append({"Izolacja": insul_label, "Strata ciepła po 24h [kWh]": round(heat_lost_kwh, 1)})
+                    st.dataframe(pd.DataFrame(heat_loss_rows), hide_index=True, use_container_width=True)
+                    st.caption("Ile energii trzeba by dostarczyć, żeby zrekompensować spadek temperatury do poziomu "
+                               "z tabeli wychładzania powyżej — bezpośrednie porównanie opłacalności izolacji w kWh, "
+                               "nie tylko w stopniach.")
 
             # --- Wyniki: policzone TERAZ, z aktualnym trybem pompy z paneli powyżej ---
             rm_results_rows = []
@@ -3841,13 +3913,24 @@ with tab3:
             total_fg_tony_month = sum(r.get("_masa_kg_miesiac", 0.0) for r in real_split_rows) / 1000.0
             total_fg_palety_month = sum(r["Palet [/mies] 🧱"] for r in real_split_rows)
             rm_consumption_this_view = compute_rm_consumption_for_year(effective_year_idx_for_import)
-            total_rm_tony_month = sum(rm_consumption_this_view.values()) / MONTHS_PER_YEAR if rm_consumption_this_view else 0.0
+
+            # RM "w magazynie" (paletowym) = TYLKO beczki/IBC/worki - dokładnie te same surowce, co
+            # w rm_warehouse_rows (z Zakładki 2), skąd też liczą się palety. Surowce w zbiornikach
+            # (silosy, tank farm) NIE stoją w tym magazynie paletowym - mają osobne miejsce (silosy)
+            # i pokazujemy je tu jako OSOBNĄ liczbę, żeby te dwie tonaże nigdy się nie myliły.
+            total_rm_drummed_tony_month = (sum(r["Zużycie [t/rok] 🔒"] for r in rm_warehouse_rows) / MONTHS_PER_YEAR) if rm_warehouse_rows else 0.0
             total_rm_palety_month = sum(r["Palet [/mies]"] for r in rm_warehouse_rows) if rm_warehouse_rows else 0
-            m_qty1, m_qty2 = st.columns(2)
+            drummed_materials_set = {r["Surowiec 🔒"] for r in rm_warehouse_rows} if rm_warehouse_rows else set()
+            total_rm_tank_tony_month = (sum(t for mat, t in rm_consumption_this_view.items() if mat not in drummed_materials_set)
+                                         / MONTHS_PER_YEAR) if rm_consumption_this_view else 0.0
+
+            m_qty1, m_qty2, m_qty3 = st.columns(3)
             with m_qty1: st.metric("🏷️ Wyroby Gotowe (FG) w magazynie", f"{total_fg_tony_month:,.1f} t",
                                     help=f"≈ {total_fg_palety_month:,.0f} palet/mies. Miesięczna produkcja FG w wybranym roku/widoku (przybliżenie stanu magazynowego).")
-            with m_qty2: st.metric("🛢️ Surowce (RM) w magazynie", f"{total_rm_tony_month:,.1f} t",
-                                    help=f"≈ {total_rm_palety_month:,.0f} palet/mies. (RM w beczkach/IBC — zbiorniki liczone osobno w Zakładce 2). Miesięczne zużycie surowców w wybranym roku/widoku — przybliżenie stanu magazynowego.")
+            with m_qty2: st.metric("🛢️ Surowce (RM) w magazynie (beczki/IBC)", f"{total_rm_drummed_tony_month:,.1f} t",
+                                    help=f"≈ {total_rm_palety_month:,.0f} palet/mies. Tylko surowce w beczkach/IBC/workach — to jest to, co faktycznie zajmuje miejsce paletowe w tym magazynie.")
+            with m_qty3: st.metric("🧱 Surowce (RM) w zbiornikach (tank farm)", f"{total_rm_tank_tony_month:,.1f} t",
+                                    help="Surowce magazynowane luzem w silosach (Zakładka 2) — NIE zajmują miejsca paletowego, liczone osobno, poza tym magazynem.")
 
             st.caption("💡 Powierzchnia = ⌈(docelowe miejsca paletowe FG + RM + stały Import) / liczba poziomów⌉ × "
                        "powierzchnia/miejsce (1 poziom) — budynek stawiany RAZ, pod pełną (100%) zdolność. "
@@ -4115,8 +4198,14 @@ with tab4:
                 rm_pallets_month_yi = 0.0
                 rm_year_consumption = compute_rm_consumption_for_year(i)
                 rm_container_assignment = st.session_state.get("rm_container_assignment", {})
+                rm_storage_method_override = st.session_state.get("rm_storage_method_override", {})
                 for mat, ann_t in rm_year_consumption.items():
                     if ann_t <= 0:
+                        continue
+                    # Tylko materiały faktycznie skierowane do beczek/IBC/worków (nie do zbiorników,
+                    # tank farm) - inaczej ta sama tonaż liczyłaby się podwójnie: raz jako palety
+                    # tutaj, raz jako zbiornik w Zakładce 2.
+                    if rm_storage_method_override.get(mat) == "Zbiornik (luzem)":
                         continue
                     container_name = rm_container_assignment.get(mat, "Beczka 200 kg (ciecz)")
                     container_cfg = RM_CONTAINER_TYPES.get(container_name)
