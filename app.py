@@ -2688,6 +2688,12 @@ with tab2:
                 st.caption(f"ℹ️ {row['Tag']}: para nasycona jako medium grzewcze — bilans liczony przez ciepło "
                            "skraplania, nie cp·ΔT (ΔT medium grzewczego z tabeli nie dotyczy pary).")
 
+        # Rezerwujemy tu miejsce na wyniki (wypełniamy je NIŻEJ, po tym jak selektor szczegółów i
+        # pompy współdzielone ustawią swoje wartości - w Streamlit obliczenia MUSZĄ wykonać się PO
+        # widżetach, żeby nie wrócił błąd "wyniki o jeden krok w tyle", który już raz naprawialiśmy;
+        # ale kontener pozwala mimo to WYŚWIETLIĆ wynik zaraz pod tabelą konfiguracyjną).
+        mixer_results_placeholder = st.container()
+
         st.markdown("###### 🔍 Szczegółowa konfiguracja: tryb pompy i typ procesu")
         st.caption("Dla jednego urządzenia naraz, bo pola zależą od siebie warunkowo.")
         selected_mixer_tag = st.selectbox("Wybierz mieszalnik:", [m["tag"] for m in st.session_state.confirmed_mixers], key="mixer_detail_selector")
@@ -2887,47 +2893,48 @@ with tab2:
                 st.error(f"⚠️ Błąd obliczeń dla urządzenia {m_id}: {exc}. Sprawdź parametry w sekcji poniżej.")
                 continue
 
-        st.markdown("### 📋 Zbiorcza Specyfikacja Techniczna Maszyn, Pompy i Mieszania")
-        st.info("💡 **Kryteria inżynieryjne:** Czerwonym kolorem podświetlane są **wyłącznie komórki**, które wykraczają poza normy "
-                f"(Prędkość poza przedziałem **{VELOCITY_MIN_MS} - {VELOCITY_MAX_MS} m/s**, błąd profilu termicznego LMTD, lub "
-                "niewystarczające ΔT grzania/chłodzenia).")
+        with mixer_results_placeholder:
+            st.markdown("### 📋 Zbiorcza Specyfikacja Techniczna Maszyn, Pompy i Mieszania")
+            st.info("💡 **Kryteria inżynieryjne:** Czerwonym kolorem podświetlane są **wyłącznie komórki**, które wykraczają poza normy "
+                    f"(Prędkość poza przedziałem **{VELOCITY_MIN_MS} - {VELOCITY_MAX_MS} m/s**, błąd profilu termicznego LMTD, lub "
+                    "niewystarczające ΔT grzania/chłodzenia).")
 
-        if summary_combined_rows:
-            df_summary = pd.DataFrame(summary_combined_rows)
-            columns_to_show = [c for c in df_summary.columns if not c.startswith('_')]
+            if summary_combined_rows:
+                df_summary = pd.DataFrame(summary_combined_rows)
+                columns_to_show = [c for c in df_summary.columns if not c.startswith('_')]
 
-            def style_basic_with_alerts(df_data):
-                style_matrix = pd.DataFrame('', index=df_data.index, columns=df_data.columns)
-                for idx, row in df_data.iterrows():
-                    v = df_summary.loc[idx, "_velocity_val"]
-                    if v < VELOCITY_MIN_MS or v > VELOCITY_MAX_MS:
-                        if "Prędkość [m/s]" in style_matrix.columns:
-                            style_matrix.loc[idx, "Prędkość [m/s]"] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
+                def style_basic_with_alerts(df_data):
+                    style_matrix = pd.DataFrame('', index=df_data.index, columns=df_data.columns)
+                    for idx, row in df_data.iterrows():
+                        v = df_summary.loc[idx, "_velocity_val"]
+                        if v < VELOCITY_MIN_MS or v > VELOCITY_MAX_MS:
+                            if "Prędkość [m/s]" in style_matrix.columns:
+                                style_matrix.loc[idx, "Prędkość [m/s]"] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
 
-                    lmtd_flag = df_summary.loc[idx, "_lmtd_trigger"]
-                    if lmtd_flag == "error":
-                        if "LMTD Grzania [K]" in style_matrix.columns:
-                            style_matrix.loc[idx, "LMTD Grzania [K]"] = 'background-color: #FCE4D6; color: #C00000; font-weight: bold;'
-                    elif lmtd_flag == "warning":
-                        if "LMTD Grzania [K]" in style_matrix.columns:
-                            style_matrix.loc[idx, "LMTD Grzania [K]"] = 'background-color: #FFF2CC; color: #7F6000;'
+                        lmtd_flag = df_summary.loc[idx, "_lmtd_trigger"]
+                        if lmtd_flag == "error":
+                            if "LMTD Grzania [K]" in style_matrix.columns:
+                                style_matrix.loc[idx, "LMTD Grzania [K]"] = 'background-color: #FCE4D6; color: #C00000; font-weight: bold;'
+                        elif lmtd_flag == "warning":
+                            if "LMTD Grzania [K]" in style_matrix.columns:
+                                style_matrix.loc[idx, "LMTD Grzania [K]"] = 'background-color: #FFF2CC; color: #7F6000;'
 
-                    if df_summary.loc[idx, "_cooling_status"] == "niewystarczajace_dt":
-                        if "Czas chłodzenia [h]" in style_matrix.columns:
-                            style_matrix.loc[idx, "Czas chłodzenia [h]"] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
+                        if df_summary.loc[idx, "_cooling_status"] == "niewystarczajace_dt":
+                            if "Czas chłodzenia [h]" in style_matrix.columns:
+                                style_matrix.loc[idx, "Czas chłodzenia [h]"] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
 
-                    if df_summary.loc[idx, "_heating_status"] == "niewystarczajace_dt":
-                        if "Czas Grzania [h]" in style_matrix.columns:
-                            style_matrix.loc[idx, "Czas Grzania [h]"] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
-                return style_matrix
+                        if df_summary.loc[idx, "_heating_status"] == "niewystarczajace_dt":
+                            if "Czas Grzania [h]" in style_matrix.columns:
+                                style_matrix.loc[idx, "Czas Grzania [h]"] = 'background-color: #FFC7CE; color: #9C0006; font-weight: bold;'
+                    return style_matrix
 
-            df_filtered = df_summary[columns_to_show]
-            styled_grid = df_filtered.style.apply(style_basic_with_alerts, axis=None)
+                df_filtered = df_summary[columns_to_show]
+                styled_grid = df_filtered.style.apply(style_basic_with_alerts, axis=None)
 
-            st.dataframe(styled_grid, hide_index=True, use_container_width=True)
-        else:
-            df_filtered = pd.DataFrame()
-            st.warning("Brak poprawnie policzonych urządzeń — sprawdź komunikaty o błędach powyżej.")
+                st.dataframe(styled_grid, hide_index=True, use_container_width=True)
+            else:
+                df_filtered = pd.DataFrame()
+                st.warning("Brak poprawnie policzonych urządzeń — sprawdź komunikaty o błędach powyżej.")
 
         st.markdown("---")
         st.markdown("### 🛢️ Zbiorcza Specyfikacja Techniczna Zbiorników RM")
@@ -4103,18 +4110,41 @@ with tab4:
             st.caption("Liczba i pojemność mieszalników jest stała (budowane raz, pod 100% celu) — poniżej widać, "
                        "**który z nich faktycznie pracuje i z jakim tonażem w danym roku**. 'Nieużywany' = w tym "
                        "roku popyt na ten produkt/linię jeszcze nie generuje ani jednej pełnej szarży.")
+            # Mapa produkt -> (sposób pozyskania, rok przejścia), z receptur - żeby sprawdzić, czy
+            # KONKRETNY produkt przypisany do tego mieszalnika jest jeszcze importowany w danym
+            # roku (a nie tylko czy linia produktowa w ogóle ma tam rampup > 0 - to był błąd:
+            # mieszalnik dedykowany pod produkt wciąż importowany pokazywał się jako aktywny).
+            product_sourcing_lookup = {}
+            if st.session_state.recipes_df is not None and not st.session_state.recipes_df.empty and RECIPE_SOURCING_COL in st.session_state.recipes_df.columns:
+                for _, r in st.session_state.recipes_df.iterrows():
+                    product_sourcing_lookup[r[RECIPE_PRODUCT_COL]] = (
+                        r.get(RECIPE_SOURCING_COL, "Produkcja własna"), r.get(RECIPE_IMPORT_TRANSITION_COL, "")
+                    )
+
             mixer_year_rows = []
             for i in range(RAMPUP_YEARS):
                 for m in st.session_state.confirmed_mixers:
-                    frac = get_rampup_fraction(m["product_family"], i)
-                    tonnage_year_t = (m["annual_volume"] / 1000.0) * frac
-                    scaled_monthly_mass = (m["annual_volume"] / MONTHS_PER_YEAR) * frac
-                    scaled_batches = math.ceil(scaled_monthly_mass / m["mass_per_batch"]) if m["mass_per_batch"] > 0 else 0
+                    recipe_product = m.get("recipe_product")
+                    is_still_imported = False
+                    if recipe_product and recipe_product in product_sourcing_lookup:
+                        sourcing, transition = product_sourcing_lookup[recipe_product]
+                        is_still_imported = is_product_imported_in_year(sourcing, transition, i)
+
+                    if is_still_imported:
+                        tonnage_year_t, scaled_batches = 0.0, 0
+                        status_txt = "🔵 Jeszcze importowany"
+                    else:
+                        frac = get_rampup_fraction(m["product_family"], i)
+                        tonnage_year_t = (m["annual_volume"] / 1000.0) * frac
+                        scaled_monthly_mass = (m["annual_volume"] / MONTHS_PER_YEAR) * frac
+                        scaled_batches = math.ceil(scaled_monthly_mass / m["mass_per_batch"]) if m["mass_per_batch"] > 0 else 0
+                        status_txt = "🟢 Aktywny" if scaled_batches > 0 else "⚪ Nieużywany (jeszcze)"
+
                     mixer_year_rows.append({
                         "Rok": year_labels[i], "Tag": m["tag"], "Linia": m["product_family"],
-                        "Produkt": m.get("recipe_product") or "—", "Pojemność [m³]": m["capacity_m3"],
+                        "Produkt": recipe_product or "—", "Pojemność [m³]": m["capacity_m3"],
                         "Tonaż ten rok [t]": round(tonnage_year_t, 1), "Szarż/miesiąc ten rok": scaled_batches,
-                        "Status": "🟢 Aktywny" if scaled_batches > 0 else "⚪ Nieużywany (jeszcze)",
+                        "Status": status_txt,
                     })
             df_mixer_year = pd.DataFrame(mixer_year_rows)
             selected_year_view = st.selectbox("Pokaż rok:", year_labels, key="mixer_year_view_select")
