@@ -1793,6 +1793,12 @@ if "shared_pumps" not in st.session_state:
     # nadane przez użytkownika (np. "P-01"), wartość = dict z parametrami.
     st.session_state.shared_pumps = {}
 
+if "confirmed_rm_tanks" not in st.session_state:
+    st.session_state.confirmed_rm_tanks = []  # zatwierdzone zbiorniki RM (Zakładka 3) - tag/materiał/pojemność
+
+if "rm_tank_tech_details" not in st.session_state:
+    st.session_state.rm_tank_tech_details = {}  # per RM tank tag: pompa (dedyk./współdz.), DN/długość/wysokość/zawory
+
 if "rampup_global_pct" not in st.session_state:
     # Domyślna krzywa rozruchu (% docelowej produkcji osiągane w kolejnych latach) - flota i
     # magazyn są wymiarowane od razu pod docelową (100%) produkcję; ta krzywa opisuje jedynie
@@ -2129,45 +2135,9 @@ with tab1:
                        f"rozważ większy zbiornik, krótszy cykl, więcej zmian roboczych, lub kolejny mieszalnik.")
 
         st.markdown("---")
-        st.markdown("### 🧮 Krok 4: Zagregowane roczne zużycie surowców")
-        st.caption("Roczne zużycie surowca = Σ (roczne zapotrzebowanie SUROWCOWE produktu [t], czyli już z doliczonymi "
-                   "stratami procesowymi × jego dozowanie [kg/t] / 1000), sumowane po wszystkich wgranych produktach.")
-
-        consumption_tony = {}
-        for mat in RECIPE_RAW_MATERIALS:
-            consumption_tony[mat] = (edited_recipes_df[RECIPE_RAW_DEMAND_COL] * (edited_recipes_df[mat] / 1000.0)).sum()
-
-        st.session_state.recipe_raw_material_consumption = consumption_tony
-
-        consumption_rows = [
-            {"Surowiec": mat, "Zużycie [t/rok]": round(t, 2)}
-            for mat, t in sorted(consumption_tony.items(), key=lambda x: -x[1]) if t > 0
-        ]
-        if consumption_rows:
-            st.dataframe(pd.DataFrame(consumption_rows), hide_index=True, use_container_width=True)
-        else:
-            st.info("Wszystkie dozowania [kg/t] są obecnie zerowe — sprawdź dane w tabeli powyżej.")
-
-        total_annual_t_recipes = edited_recipes_df[RECIPE_ANNUAL_COL].sum()
-        total_raw_demand_t = edited_recipes_df[RECIPE_RAW_DEMAND_COL].sum()
-        c_r1, c_r2, c_r3, c_r4 = st.columns(4)
-        with c_r1:
-            st.metric("📦 Liczba produktów w recepturach", f"{len(edited_recipes_df)}")
-        with c_r2:
-            st.metric("📈 Roczne zapotrzebowanie (produkt)", f"{total_annual_t_recipes:,.0f} t")
-        with c_r3:
-            st.metric("🧪 Roczne zapotrzebowanie surowcowe (ze stratami)", f"{total_raw_demand_t:,.0f} t")
-        with c_r4:
-            st.metric("🛢️ Surowce z niezerowym zużyciem", f"{len(consumption_rows)}")
-
-        st.markdown("##### 📦 Zestawienie po grupach produktowych")
-        group_summary = (edited_recipes_df.groupby(RECIPE_GROUP_COL)[RECIPE_ANNUAL_COL]
-                          .sum().reset_index().rename(columns={RECIPE_ANNUAL_COL: "Roczne zapotrzebowanie [t]"}))
-        st.dataframe(group_summary, hide_index=True, use_container_width=True)
-
-        st.info("💡 Przejdź do **Zakładki 5 (Surowce i Park Zbiorników)**, aby zobaczyć wymiarowanie silosów "
-                "per pojedynczy surowiec oraz rekomendację zbiornik-vs-beczki na podstawie tego zużycia. "
-                "Typy opakowań i ich rozbicie procentowe skonfigurujesz w **Zakładce 4 (Logistyka i Czas Rozlewu)**.")
+        st.info("💡 Zagregowane zużycie surowców per materiał i wymiarowanie silosów znajdziesz w **Zakładce 3 "
+                "(Magazynowanie)**. Roczne zapotrzebowanie per grupa produktowa zobaczysz w tabeli floty poniżej. "
+                "Typy opakowań i ich rozbicie procentowe skonfigurujesz w **Zakładce 5 (Logistyka i Czas Rozlewu)**.")
 
     else:
         st.info("💡 Wgraj plik z recepturami powyżej, aby zobaczyć tu zagregowane zużycie surowców.")
@@ -2514,102 +2484,6 @@ with tab1:
     else:
         st.info("💡 Wybierz co najmniej jedną linię produktową w panelu bocznym, aby rozpocząć.")
 
-    # ==========================================
-    # SYMULACJA ROZRUCHU (RAMPUP) — flota budowana od razu pod cel, ale wykorzystanie
-    # rośnie w czasie. Ta sama krzywa % jest reużywana w Zakładce 3 (magazyn FG+RM), żeby
-    # historia "startujemy nisko, dochodzimy do celu" była spójna w całej aplikacji.
-    # ==========================================
-    if st.session_state.confirmed_mixers:
-        st.markdown("---")
-        with st.expander("📈 Symulacja Rozruchu (Rampup) — 5 lat", expanded=False):
-            st.caption("Flota i magazyn (Zakładka 3) są wymiarowane od razu pod docelową produkcję wpisaną powyżej — "
-                       "to buduje się raz. Poniższa krzywa pokazuje/symuluje, jak realnie rośnie WYKORZYSTANIE tej "
-                       "floty i magazynu w pierwszych 5 latach, zanim produkcja dojdzie do 100% celu.")
-
-            st.session_state.rampup_differentiate = st.checkbox(
-                "🔧 Zróżnicuj tempo rozruchu per linia produktowa", value=st.session_state.rampup_differentiate,
-                help="Domyślnie jedna wspólna krzywa dla całej fabryki. Włącz, jeśli np. Engine Oils ma ruszyć "
-                     "szybciej niż Greases."
-            )
-
-            year_labels = [f"Rok {i+1}" for i in range(RAMPUP_YEARS)]
-
-            if not st.session_state.rampup_differentiate:
-                st.markdown("###### Wspólna krzywa dla całej fabryki")
-                cols_ramp = st.columns(RAMPUP_YEARS)
-                for i, c in enumerate(cols_ramp):
-                    with c:
-                        st.session_state.rampup_global_pct[i] = st.number_input(
-                            f"{year_labels[i]} [%]", min_value=0.0, max_value=100.0,
-                            value=float(st.session_state.rampup_global_pct[i]), step=5.0, key=f"rampup_global_{i}"
-                        )
-            else:
-                st.markdown("###### Krzywa per linia produktowa")
-                for kat in wybrane_kategorie:
-                    st.session_state.rampup_per_line_pct.setdefault(kat, list(st.session_state.rampup_global_pct))
-                    st.markdown(f"**{kat}**")
-                    cols_ramp = st.columns(RAMPUP_YEARS)
-                    for i, c in enumerate(cols_ramp):
-                        with c:
-                            st.session_state.rampup_per_line_pct[kat][i] = st.number_input(
-                                f"{year_labels[i]} [%]", min_value=0.0, max_value=100.0,
-                                value=float(st.session_state.rampup_per_line_pct[kat][i]), step=5.0,
-                                key=f"rampup_line_{kat}_{i}"
-                            )
-
-            # --- Przeliczenie: tonaż roczny i średnia utylizacja floty per rok symulacji ---
-            target_annual_t = sum(m["annual_volume"] for m in st.session_state.confirmed_mixers) / 1000.0
-            target_batches_month_total = sum(m["batches_count"] for m in st.session_state.confirmed_mixers)
-            rampup_summary_rows = []
-            rampup_tonnage_chart = {"Rok": [], "Tonaż [t/rok]": [], "Cel [t/rok]": []}
-            for i in range(RAMPUP_YEARS):
-                year_tonnage_t = 0.0
-                util_weighted, util_weight_sum = 0.0, 0.0
-                util_ciagla_weighted = 0.0
-                total_batches_month_yi = 0
-                for m in st.session_state.confirmed_mixers:
-                    frac = get_rampup_fraction(m["product_family"], i)
-                    year_tonnage_t += (m["annual_volume"] / 1000.0) * frac
-
-                    scaled_monthly_mass = (m["annual_volume"] / MONTHS_PER_YEAR) * frac
-                    scaled_batches = math.ceil(scaled_monthly_mass / m["mass_per_batch"]) if m["mass_per_batch"] > 0 else 0
-                    total_batches_month_yi += scaled_batches
-                    scaled_util_pct = (scaled_batches * m["cycle_h"]) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
-                    util_weighted += scaled_util_pct * m["capacity_m3"]
-                    util_weight_sum += m["capacity_m3"]
-
-                    # Wariant ciągły (bez zaokrąglania w górę do pełnych szarż) - czysto
-                    # diagnostyczny, żeby pokazać płynny trend rosnącego zapotrzebowania nawet
-                    # gdy realna (całkowita) liczba szarż jeszcze się nie zmienia między latami.
-                    scaled_batches_ciagle = scaled_monthly_mass / m["mass_per_batch"] if m["mass_per_batch"] > 0 else 0.0
-                    scaled_util_pct_ciagly = (scaled_batches_ciagle * m["cycle_h"]) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
-                    util_ciagla_weighted += scaled_util_pct_ciagly * m["capacity_m3"]
-
-                avg_util_pct = (util_weighted / util_weight_sum) if util_weight_sum > 0 else 0.0
-                avg_util_ciagly_pct = (util_ciagla_weighted / util_weight_sum) if util_weight_sum > 0 else 0.0
-                rampup_summary_rows.append({
-                    "Rok": year_labels[i], "Tonaż [t/rok]": round(year_tonnage_t, 0),
-                    "% Celu": f"{(year_tonnage_t / target_annual_t * 100.0) if target_annual_t > 0 else 0:.0f}%",
-                    "Szarż / miesiąc (cała flota)": total_batches_month_yi,
-                    "Szarż / rok (cała flota)": total_batches_month_yi * MONTHS_PER_YEAR,
-                    "Śr. Utylizacja Floty [%] (pełne szarże)": round(avg_util_pct, 1),
-                    "Śr. Utylizacja Floty [%] (ciągła)": round(avg_util_ciagly_pct, 1),
-                })
-                rampup_tonnage_chart["Rok"].append(year_labels[i])
-                rampup_tonnage_chart["Tonaż [t/rok]"].append(year_tonnage_t)
-                rampup_tonnage_chart["Cel [t/rok]"].append(target_annual_t)
-
-            chart_df = pd.DataFrame(rampup_tonnage_chart).set_index("Rok")
-            st.line_chart(chart_df)
-            st.dataframe(pd.DataFrame(rampup_summary_rows), hide_index=True, use_container_width=True)
-            st.caption("ℹ️ **Pełne szarże** — realna liczba szarż zaokrąglona w górę do liczb całkowitych (tak faktycznie "
-                       "planuje się produkcję); może być identyczna w sąsiednich latach, jeśli wzrost popytu nie "
-                       "przekroczył jeszcze progu kolejnej pełnej szarży na wystarczającej liczbie mieszalników. "
-                       "**Ciągła** — ta sama utylizacja bez zaokrąglania, czysto diagnostyczna: pokazuje płynny trend "
-                       "rosnącego zapotrzebowania nawet między takimi progami.")
-            st.caption(f"🎯 Docelowa produkcja (100%, jak wymiarowana jest flota): **{target_annual_t:,.0f} t/rok** "
-                       f"= **{target_batches_month_total} szarż/miesiąc** (**{target_batches_month_total * MONTHS_PER_YEAR} szarż/rok**) "
-                       "dla całej floty. Ta sama krzywa steruje wykorzystaniem magazynu w Zakładce 3 (wybór roku symulacji).")
 
 with tab2:
     st.header("📐 Karta Maszyn: Zaawansowane Projektowanie Procesowe")
@@ -3253,15 +3127,90 @@ with tab2:
         # ============================================================
         # ZAPOTRZEBOWANIE NA MOC ELEKTRYCZNĄ I DOBÓR TRANSFORMATORA
         # ============================================================
+        st.markdown("---")
+        st.markdown("### 🛢️ Zbiorniki Surowcowe (RM) — Pompy Rozładunkowe i Rurociąg")
+        confirmed_rm_tanks = st.session_state.get("confirmed_rm_tanks", [])
+        total_rm_pump_power = 0.0
+        if not confirmed_rm_tanks:
+            st.info("ℹ️ Brak zatwierdzonych zbiorników RM — zadeklaruj je w **Zakładce 3 (Magazynowanie)**, sekcja "
+                    "'✅ Zatwierdź Zbiorniki RM', żeby skonfigurować tu ich pompy i rurociąg tłoczny.")
+        else:
+            st.caption("Zbiorniki zatwierdzone w Zakładce 3. Każdy potrzebuje pompy rozładunkowej (z cysterny do "
+                       "zbiornika) — dedykowanej albo współdzielonej z inną instalacją (ta sama pula pomp, co dla "
+                       "mieszalników powyżej). Moc tych pomp jest doliczana do bilansu elektrycznego niżej.")
+            for rm_tank in confirmed_rm_tanks:
+                rm_tag = rm_tank["tag"]
+                rm_defaults = st.session_state.rm_tank_tech_details.setdefault(rm_tag, {
+                    "pump_mode": "Dedykowana (dla tego zbiornika)", "shared_pump_id": "",
+                    "pump_flow_m3h": 10.0, "pipe_dn": 65, "pipe_length_m": 15.0, "delta_h_m": 4.0,
+                    "viscosity_cst": 50.0, "density_kg_m3": 900.0, "count_elbows_90": 3, "count_valves": 2,
+                    "pump_efficiency": 0.6,
+                })
+                with st.expander(f"🔧 {rm_tag} — {rm_tank['material']} ({rm_tank['capacity_m3']:.0f} m³)", expanded=False):
+                    rc1, rc2, rc3 = st.columns(3)
+                    with rc1:
+                        rm_defaults["pump_mode"] = st.selectbox(
+                            "Tryb pompy:", ["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"],
+                            index=["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"].index(rm_defaults["pump_mode"]),
+                            key=f"rm_pump_mode_{rm_tag}"
+                        )
+                        if rm_defaults["pump_mode"] == "Współdzielona (kilka zbiorników)":
+                            rm_defaults["shared_pump_id"] = st.text_input(
+                                "ID pompy współdzielonej:", value=rm_defaults["shared_pump_id"] or "P-RM-01",
+                                key=f"rm_shared_pump_id_{rm_tag}",
+                                help="Może to być ta sama pula co pompy mieszalników powyżej — wpisz identyczny ID, "
+                                     "jeśli fizycznie ma to być ta sama pompa."
+                            )
+                        else:
+                            rm_defaults["shared_pump_id"] = ""
+                            rm_defaults["pump_flow_m3h"] = st.number_input("Przepływ pompy [m³/h]:", min_value=0.5, value=float(rm_defaults["pump_flow_m3h"]), key=f"rm_flow_{rm_tag}")
+                            rm_defaults["pump_efficiency"] = st.number_input("Sprawność pompy [-]:", min_value=0.1, max_value=1.0, value=float(rm_defaults["pump_efficiency"]), key=f"rm_eff_{rm_tag}")
+                    with rc2:
+                        rm_defaults["pipe_dn"] = st.number_input("Średnica rury [DN]:", min_value=15, value=int(rm_defaults["pipe_dn"]), key=f"rm_dn_{rm_tag}")
+                        rm_defaults["pipe_length_m"] = st.number_input("Długość odcinka tłocznego [m]:", min_value=0.5, value=float(rm_defaults["pipe_length_m"]), key=f"rm_len_{rm_tag}")
+                        rm_defaults["delta_h_m"] = st.number_input("Różnica wysokości Δh [m]:", min_value=0.0, value=float(rm_defaults["delta_h_m"]), key=f"rm_dh_{rm_tag}")
+                    with rc3:
+                        rm_defaults["viscosity_cst"] = st.number_input("Lepkość surowca [cSt]:", min_value=0.5, value=float(rm_defaults["viscosity_cst"]), key=f"rm_visc_{rm_tag}")
+                        rm_defaults["density_kg_m3"] = st.number_input("Gęstość surowca [kg/m³]:", min_value=500.0, value=float(rm_defaults["density_kg_m3"]), key=f"rm_dens_{rm_tag}")
+                        rm_defaults["count_elbows_90"] = st.number_input("Liczba kolan 90°:", min_value=0, value=int(rm_defaults["count_elbows_90"]), key=f"rm_elb_{rm_tag}")
+                        rm_defaults["count_valves"] = st.number_input("Liczba zaworów:", min_value=0, value=int(rm_defaults["count_valves"]), key=f"rm_val_{rm_tag}")
+
+                    if rm_defaults["pump_mode"] == "Współdzielona (kilka zbiorników)" and rm_defaults["shared_pump_id"] in st.session_state.shared_pumps:
+                        shared_cfg = st.session_state.shared_pumps[rm_defaults["shared_pump_id"]]
+                        eff_flow = shared_cfg["flow_m3h"]
+                        eff_eff = shared_cfg["efficiency"]
+                        st.caption(f"Pompa '{rm_defaults['shared_pump_id']}': przepływ {eff_flow:.1f} m³/h, sprawność "
+                                   f"{eff_eff:.2f} (edytuj w tabeli 'Pompy Współdzielone' powyżej, w sekcji mieszalników).")
+                    else:
+                        eff_flow = rm_defaults["pump_flow_m3h"]
+                        eff_eff = rm_defaults["pump_efficiency"]
+
+                    zeta_sum_rm = (rm_defaults["count_elbows_90"] * 0.5) + (rm_defaults["count_valves"] * 0.2)
+                    _, p_bar_rm, power_kw_rm, velocity_rm = compute_hydraulics(
+                        eff_flow, rm_defaults["pipe_dn"], rm_defaults["pipe_length_m"], rm_defaults["delta_h_m"],
+                        rm_defaults["viscosity_cst"], rm_defaults["density_kg_m3"], zeta_sum_rm, eff_eff
+                    )
+                    total_rm_pump_power += power_kw_rm
+                    rc_m1, rc_m2, rc_m3 = st.columns(3)
+                    with rc_m1:
+                        st.metric("Prędkość przepływu", f"{velocity_rm:.2f} m/s")
+                    with rc_m2:
+                        st.metric("Opór hydrauliczny", f"{p_bar_rm:.2f} bar")
+                    with rc_m3:
+                        st.metric("Moc pompy", f"{power_kw_rm:.2f} kW")
+
+            st.metric("⚡ Moc pomp RM razem (doliczana do bilansu elektrycznego niżej)", f"{total_rm_pump_power:.2f} kW")
+
+        st.markdown("---")
         st.markdown("### ⚡ Zapotrzebowanie na Moc Elektryczną i Dobór Transformatora")
-        st.caption("Sumuje moc silników mieszadeł i pomp z floty, ewentualny kocioł elektryczny oraz (opcjonalnie) "
-                   "szacunkowe zapotrzebowanie elektryczne chłodzenia (przez współczynnik COP), z uwzględnieniem "
-                   "współczynnika jednoczesności i mocy transformatora w kVA.")
+        st.caption("Sumuje moc silników mieszadeł i pomp z floty (w tym pomp zbiorników RM powyżej), ewentualny "
+                   "kocioł elektryczny oraz (opcjonalnie) szacunkowe zapotrzebowanie elektryczne chłodzenia (przez "
+                   "współczynnik COP), z uwzględnieniem współczynnika jednoczesności i mocy transformatora w kVA.")
 
         total_mix_power = sum(st.session_state.calculated_times.get(m["tag"], {}).get("power_mix_kw", 0.0)
                                for m in st.session_state.confirmed_mixers)
         total_pump_power = sum(st.session_state.calculated_times.get(m["tag"], {}).get("power_pump_kw", 0.0)
-                                for m in st.session_state.confirmed_mixers)
+                                for m in st.session_state.confirmed_mixers) + total_rm_pump_power
         total_cooling_duty = sum(st.session_state.calculated_times.get(m["tag"], {}).get("power_cooling_kw", 0.0)
                                   for m in st.session_state.confirmed_mixers)
 
@@ -3928,6 +3877,102 @@ with tab4:
     else:
         waluta = st.selectbox("Wybierz walutę operacyjną:", ["PLN", "EUR", "USD"])
 
+        # ==========================================
+        # SYMULACJA ROZRUCHU (RAMPUP) — flota budowana od razu pod cel, ale wykorzystanie
+        # rośnie w czasie. Ta sama krzywa % jest reużywana w Zakładce 3 (magazyn FG+RM), żeby
+        # historia "startujemy nisko, dochodzimy do celu" była spójna w całej aplikacji.
+        # ==========================================
+        st.markdown("---")
+        with st.expander("📈 Symulacja Rozruchu (Rampup) — 5 lat", expanded=False):
+            st.caption("Flota i magazyn (Zakładka 3) są wymiarowane od razu pod docelową produkcję wpisaną powyżej — "
+                       "to buduje się raz. Poniższa krzywa pokazuje/symuluje, jak realnie rośnie WYKORZYSTANIE tej "
+                       "floty i magazynu w pierwszych 5 latach, zanim produkcja dojdzie do 100% celu.")
+
+            st.session_state.rampup_differentiate = st.checkbox(
+                "🔧 Zróżnicuj tempo rozruchu per linia produktowa", value=st.session_state.rampup_differentiate,
+                help="Domyślnie jedna wspólna krzywa dla całej fabryki. Włącz, jeśli np. Engine Oils ma ruszyć "
+                     "szybciej niż Greases."
+            )
+
+            year_labels = [f"Rok {i+1}" for i in range(RAMPUP_YEARS)]
+
+            if not st.session_state.rampup_differentiate:
+                st.markdown("###### Wspólna krzywa dla całej fabryki")
+                cols_ramp = st.columns(RAMPUP_YEARS)
+                for i, c in enumerate(cols_ramp):
+                    with c:
+                        st.session_state.rampup_global_pct[i] = st.number_input(
+                            f"{year_labels[i]} [%]", min_value=0.0, max_value=100.0,
+                            value=float(st.session_state.rampup_global_pct[i]), step=5.0, key=f"rampup_global_{i}"
+                        )
+            else:
+                st.markdown("###### Krzywa per linia produktowa")
+                for kat in wybrane_kategorie:
+                    st.session_state.rampup_per_line_pct.setdefault(kat, list(st.session_state.rampup_global_pct))
+                    st.markdown(f"**{kat}**")
+                    cols_ramp = st.columns(RAMPUP_YEARS)
+                    for i, c in enumerate(cols_ramp):
+                        with c:
+                            st.session_state.rampup_per_line_pct[kat][i] = st.number_input(
+                                f"{year_labels[i]} [%]", min_value=0.0, max_value=100.0,
+                                value=float(st.session_state.rampup_per_line_pct[kat][i]), step=5.0,
+                                key=f"rampup_line_{kat}_{i}"
+                            )
+
+            # --- Przeliczenie: tonaż roczny i średnia utylizacja floty per rok symulacji ---
+            target_annual_t = sum(m["annual_volume"] for m in st.session_state.confirmed_mixers) / 1000.0
+            target_batches_month_total = sum(m["batches_count"] for m in st.session_state.confirmed_mixers)
+            rampup_summary_rows = []
+            rampup_tonnage_chart = {"Rok": [], "Tonaż [t/rok]": [], "Cel [t/rok]": []}
+            for i in range(RAMPUP_YEARS):
+                year_tonnage_t = 0.0
+                util_weighted, util_weight_sum = 0.0, 0.0
+                util_ciagla_weighted = 0.0
+                total_batches_month_yi = 0
+                for m in st.session_state.confirmed_mixers:
+                    frac = get_rampup_fraction(m["product_family"], i)
+                    year_tonnage_t += (m["annual_volume"] / 1000.0) * frac
+
+                    scaled_monthly_mass = (m["annual_volume"] / MONTHS_PER_YEAR) * frac
+                    scaled_batches = math.ceil(scaled_monthly_mass / m["mass_per_batch"]) if m["mass_per_batch"] > 0 else 0
+                    total_batches_month_yi += scaled_batches
+                    scaled_util_pct = (scaled_batches * m["cycle_h"]) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
+                    util_weighted += scaled_util_pct * m["capacity_m3"]
+                    util_weight_sum += m["capacity_m3"]
+
+                    # Wariant ciągły (bez zaokrąglania w górę do pełnych szarż) - czysto
+                    # diagnostyczny, żeby pokazać płynny trend rosnącego zapotrzebowania nawet
+                    # gdy realna (całkowita) liczba szarż jeszcze się nie zmienia między latami.
+                    scaled_batches_ciagle = scaled_monthly_mass / m["mass_per_batch"] if m["mass_per_batch"] > 0 else 0.0
+                    scaled_util_pct_ciagly = (scaled_batches_ciagle * m["cycle_h"]) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
+                    util_ciagla_weighted += scaled_util_pct_ciagly * m["capacity_m3"]
+
+                avg_util_pct = (util_weighted / util_weight_sum) if util_weight_sum > 0 else 0.0
+                avg_util_ciagly_pct = (util_ciagla_weighted / util_weight_sum) if util_weight_sum > 0 else 0.0
+                rampup_summary_rows.append({
+                    "Rok": year_labels[i], "Tonaż [t/rok]": round(year_tonnage_t, 0),
+                    "% Celu": f"{(year_tonnage_t / target_annual_t * 100.0) if target_annual_t > 0 else 0:.0f}%",
+                    "Szarż / miesiąc (cała flota)": total_batches_month_yi,
+                    "Szarż / rok (cała flota)": total_batches_month_yi * MONTHS_PER_YEAR,
+                    "Śr. Utylizacja Floty [%] (pełne szarże)": round(avg_util_pct, 1),
+                    "Śr. Utylizacja Floty [%] (ciągła)": round(avg_util_ciagly_pct, 1),
+                })
+                rampup_tonnage_chart["Rok"].append(year_labels[i])
+                rampup_tonnage_chart["Tonaż [t/rok]"].append(year_tonnage_t)
+                rampup_tonnage_chart["Cel [t/rok]"].append(target_annual_t)
+
+            chart_df = pd.DataFrame(rampup_tonnage_chart).set_index("Rok")
+            st.line_chart(chart_df)
+            st.dataframe(pd.DataFrame(rampup_summary_rows), hide_index=True, use_container_width=True)
+            st.caption("ℹ️ **Pełne szarże** — realna liczba szarż zaokrąglona w górę do liczb całkowitych (tak faktycznie "
+                       "planuje się produkcję); może być identyczna w sąsiednich latach, jeśli wzrost popytu nie "
+                       "przekroczył jeszcze progu kolejnej pełnej szarży na wystarczającej liczbie mieszalników. "
+                       "**Ciągła** — ta sama utylizacja bez zaokrąglania, czysto diagnostyczna: pokazuje płynny trend "
+                       "rosnącego zapotrzebowania nawet między takimi progami.")
+            st.caption(f"🎯 Docelowa produkcja (100%, jak wymiarowana jest flota): **{target_annual_t:,.0f} t/rok** "
+                       f"= **{target_batches_month_total} szarż/miesiąc** (**{target_batches_month_total * MONTHS_PER_YEAR} szarż/rok**) "
+                       "dla całej floty. Ta sama krzywa steruje wykorzystaniem magazynu w Zakładce 3 (wybór roku symulacji).")
+
         st.markdown("### 💵 Krok 1: Koszt Produkcyjny per Grupa")
         st.caption("Koszt produkcyjny (surowce + robocizna + narzut, bez energii - tę liczymy osobno niżej z realnej "
                    "hydrauliki/bilansu cieplnego) różni się między grupami produktowymi — podaj go osobno dla "
@@ -4447,6 +4492,7 @@ with tab5:
             recipe_silos_rows = []
             recipe_total_tanks = 0
             drummed_materials = []  # surowce NIE trafiające do zbiornika - potrzebują miejsca w magazynie
+            dedicated_tank_candidates = []  # surowce KWALIFIKUJĄCE się do zbiornika dedykowanego - do zatwierdzenia niżej
             for material, annual_tony_target in sorted(recipe_consumption_target.items(), key=lambda x: -x[1]):
                 if annual_tony_target <= 0:
                     continue
@@ -4466,6 +4512,9 @@ with tab5:
                     bufor_txt = f"{required_m3:.1f}"
                     silosy_txt = f"{needed_tanks} szt."
                     wykorzystanie_txt = f"{(annual_tony_year / annual_tony_target * 100.0):.0f}%" if annual_tony_target > 0 else "—"
+                    dedicated_tank_candidates.append({
+                        "material": material, "needed_tanks": needed_tanks, "recommended_capacity": recommended_capacity,
+                    })
                 else:
                     rekomendacja = "🧴 Beczki / IBC / worki"
                     uzasadnienie = info["note"] if not bulk_ok else f"Zużycie {annual_tony_target:.1f} t/rok (docelowo) < próg {prog_zbiornika_t:.0f} t/rok — zbiornik się nie opłaca."
@@ -4490,6 +4539,51 @@ with tab5:
             with m_silo2:
                 n_drums = sum(1 for r in recipe_silos_rows if "Beczki" in r["Rekomendacja"])
                 st.metric("🧴 Surowce zostające w beczkach/IBC", f"{n_drums} / {len(recipe_silos_rows)}")
+
+            st.markdown("---")
+            st.markdown("### ✅ Zatwierdź Zbiorniki RM (liczba i pojemność)")
+            st.caption("Powyższe to sugestia — tutaj **deklarujesz ostateczną** liczbę zbiorników i ich pojemność per "
+                       "surowiec (możesz nadpisać sugestię, np. jeśli wolisz mniej, większych zbiorników). Po "
+                       "zatwierdzeniu ta lista pojawi się w **Karcie Maszyn**, obok mieszalników, żebyś mógł "
+                       "przypisać im pompy (dedykowane/współdzielone) i rurociąg — dziś to była luka powodująca "
+                       "rozbieżności w bilansie mocy pomp.")
+
+            if dedicated_tank_candidates:
+                rm_tank_editor_rows = [
+                    {"Surowiec": c["material"], "Liczba zbiorników": c["needed_tanks"],
+                     "Pojemność 1 zbiornika [m³]": round(c["recommended_capacity"], 1)}
+                    for c in dedicated_tank_candidates
+                ]
+                edited_rm_tanks_df = st.data_editor(
+                    pd.DataFrame(rm_tank_editor_rows), hide_index=True, use_container_width=True,
+                    disabled=["Surowiec"], key="rm_tank_editor",
+                    column_config={
+                        "Liczba zbiorników": st.column_config.NumberColumn(min_value=1, step=1),
+                        "Pojemność 1 zbiornika [m³]": st.column_config.NumberColumn(min_value=0.5, step=0.5),
+                    }
+                )
+                if st.button("📥 Zatwierdź zbiorniki RM", type="primary", key="btn_confirm_rm_tanks"):
+                    confirmed_rm_tanks = []
+                    tag_counter = 1
+                    for _, row in edited_rm_tanks_df.iterrows():
+                        material_name = row["Surowiec"]
+                        n_tanks_confirmed = int(row["Liczba zbiorników"])
+                        cap_confirmed = float(row["Pojemność 1 zbiornika [m³]"])
+                        for t_idx in range(n_tanks_confirmed):
+                            confirmed_rm_tanks.append({
+                                "tag": f"RMT-{tag_counter}" + (f"-{t_idx+1}" if n_tanks_confirmed > 1 else ""),
+                                "material": material_name, "capacity_m3": cap_confirmed,
+                            })
+                        tag_counter += 1
+                    st.session_state["confirmed_rm_tanks"] = confirmed_rm_tanks
+                    st.success(f"🎉 Zapisano {len(confirmed_rm_tanks)} zbiorników RM — pojawią się w Karcie Maszyn.")
+
+                if st.session_state.get("confirmed_rm_tanks"):
+                    st.caption(f"✅ Aktualnie zatwierdzone: {len(st.session_state['confirmed_rm_tanks'])} zbiorników RM.")
+            else:
+                st.info("ℹ️ Żaden surowiec nie kwalifikuje się dziś do zbiornika dedykowanego (wszystko w "
+                        "beczkach/IBC/workach) — nic do zatwierdzenia.")
+                st.session_state["confirmed_rm_tanks"] = []
 
             st.markdown("---")
             st.markdown("### 📦 Magazynowanie Surowców w Beczkach/IBC/Workach")
