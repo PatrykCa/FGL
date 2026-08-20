@@ -2694,15 +2694,27 @@ with tab2:
         # ale kontener pozwala mimo to WYŚWIETLIĆ wynik zaraz pod tabelą konfiguracyjną).
         mixer_results_placeholder = st.container()
 
-        st.markdown("###### 🔍 Szczegółowa konfiguracja: tryb pompy i typ procesu")
-        st.caption("Osobno dla każdego mieszalnika — kliknij, żeby rozwinąć. Pola zależą od siebie warunkowo, "
-                   "dlatego nie mieszczą się w tabeli powyżej.")
-        for mixer in st.session_state.confirmed_mixers:
-            selected_mixer_tag = mixer["tag"]
-            p = st.session_state.mixer_tech_advanced_details[selected_mixer_tag]
-            with st.expander(f"🔧 {selected_mixer_tag} ({mixer['product_family']})", expanded=False):
-                md1, md2 = st.columns(2)
-                with md1:
+        st.markdown("###### 🔍 Porównanie mieszalników")
+        st.caption("Wybierz 2-3 mieszalniki, żeby zobaczyć konfigurację (tryb pompy, typ procesu) i wyniki obok "
+                   "siebie. Pola te zależą od siebie warunkowo, dlatego nie mieszczą się w tabeli powyżej.")
+        _all_mixer_tags = [m["tag"] for m in st.session_state.confirmed_mixers]
+        compare_mixer_tags = st.multiselect(
+            "Wybierz mieszalniki (max 3):", _all_mixer_tags,
+            default=_all_mixer_tags[:min(2, len(_all_mixer_tags))], key="mixer_compare_select"
+        )
+        if len(compare_mixer_tags) > 3:
+            st.warning("⚠️ Wybierz maksymalnie 3 — pokazuję pierwsze 3 z wybranych.")
+            compare_mixer_tags = compare_mixer_tags[:3]
+
+        if not compare_mixer_tags:
+            st.info("ℹ️ Wybierz przynajmniej jeden mieszalnik powyżej, żeby zobaczyć jego szczegóły.")
+        else:
+            compare_cols = st.columns(len(compare_mixer_tags))
+            for col, selected_mixer_tag in zip(compare_cols, compare_mixer_tags):
+                mixer = next(m for m in st.session_state.confirmed_mixers if m["tag"] == selected_mixer_tag)
+                p = st.session_state.mixer_tech_advanced_details[selected_mixer_tag]
+                with col:
+                    st.markdown(f"**🔧 {selected_mixer_tag}** ({mixer['product_family']})")
                     p["pump_mode"] = st.selectbox(
                         "Tryb pompy:", ["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"],
                         index=["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"].index(p["pump_mode"]),
@@ -2714,8 +2726,7 @@ with tab2:
                         p["shared_pump_id"] = st.text_input(
                             "ID pompy współdzielonej:", value=p["shared_pump_id"] or "P-01", key=f"shared_pump_id_{selected_mixer_tag}"
                         )
-                        st.caption("Przepływ, sprawność, MTBF i MTTR tej pompy skonfigurujesz w tabeli "
-                                   "'🔧 Pompy Współdzielone' poniżej listy urządzeń.")
+                        st.caption("Przepływ/sprawność/MTBF/MTTR tej pompy w tabeli '🔧 Pompy Współdzielone' niżej.")
                         shared = st.session_state.shared_pumps.get(p["shared_pump_id"], {})
                         pump_mtbf_disp = shared.get("mtbf_h", 2000.0)
                         pump_mttr_disp = shared.get("mttr_h", 8.0)
@@ -2727,16 +2738,15 @@ with tab2:
                         avail_pump_preview = p["pump_mtbf_h"] / (p["pump_mtbf_h"] + p["pump_mttr_h"]) * 100.0
                     avail_reactor_preview = p["reactor_mtbf_h"] / (p["reactor_mtbf_h"] + p["reactor_mttr_h"]) * 100.0
                     avail_combined_preview = (avail_pump_preview / 100.0) * (avail_reactor_preview / 100.0) * 100.0
-                    st.metric("Dostępność łączna (reaktor × pompa)", f"{avail_combined_preview:.1f}%")
-                with md2:
+                    st.metric("Dostępność łączna", f"{avail_combined_preview:.1f}%")
+
                     p.setdefault("process_type", "Ciecz (mieszanie/blending)")
                     p["process_type"] = st.selectbox(
                         "Typ procesu:", ["Ciecz (mieszanie/blending)", "Smar/Wax (gotowanie z odparowaniem)"],
                         index=["Ciecz (mieszanie/blending)", "Smar/Wax (gotowanie z odparowaniem)"].index(p["process_type"]),
                         key=f"proc_type_{selected_mixer_tag}",
-                        help="Wybierz 'Smar/Wax', jeśli ten reaktor gotuje z intensywnym odparowaniem (np. zmydlanie) "
-                             "i wymaga bilansu linii zrzutu pary — zbiorczy rurociąg zrzutowy policzy się niżej, dla "
-                             "wszystkich reaktorów tego typu naraz."
+                        help="Wybierz 'Smar/Wax', jeśli ten reaktor gotuje z intensywnym odparowaniem — zbiorczy "
+                             "rurociąg zrzutowy policzy się niżej, dla wszystkich reaktorów tego typu naraz."
                     )
                     if p["process_type"] == "Smar/Wax (gotowanie z odparowaniem)":
                         p.setdefault("steam_avg_flow", 0.0185)
@@ -2746,43 +2756,33 @@ with tab2:
                         p["steam_max_process"] = st.number_input("Maks. strumień procesowy [kg/s]:", min_value=0.0, value=float(p["steam_max_process"]), step=0.001, format="%.4f", key=f"steam_proc_{selected_mixer_tag}")
                         p["steam_max_decompress"] = st.number_input("Maks. strumień dekompresji [kg/s]:", min_value=0.0, value=float(p["steam_max_decompress"]), step=0.001, format="%.4f", key=f"steam_decomp_{selected_mixer_tag}")
 
-                st.markdown("---")
-                st.markdown("**⚡ Energetyczne KPI**")
-                st.caption("Ile ciepła trzeba dostarczyć (grzanie) i ile trzeba odebrać (chłodzenie) na jedną "
-                           "szarżę, plus energia mieszania — liczone tymi samymi wzorami co tabela wyników, "
-                           "niezależnie od kolejności odświeżania.")
-                try:
-                    _visc_avg_kpi = (p["viscosity_min_cst"] + p["viscosity_max_cst"]) / 2.0
-                    _, _, agitator_power_kw_kpi = compute_agitator_power(
-                        p["agitator_type"], p["agitator_rpm"], p["agitator_diameter_m"], p["density_kg_m3"], _visc_avg_kpi
-                    )
-                    _thermal_kpi = compute_thermal_balance(
-                        mixer["mass_per_batch"], p["cp_product"], p["t_product_in"], p["t_product_out"],
-                        p["k_coeff_grzania"], p["exchange_area_m2"], p["tank_mass"], p["cp_steel"],
-                        p["utility_type_heat"], p["delta_t_medium_grzewcze"], p["t_utility_heat_in"])
-                    _q_cooling_mj_kpi, _, _cooling_time_h_kpi, _, _cooling_status_kpi = compute_cooling(
-                        mixer["mass_per_batch"], p["cp_product"], p["t_product_out"], p["t_discharge_c"],
-                        p["t_utility_cool_in"], p["k_coeff"], p["exchange_area_m2"],
-                        p["utility_type_cool"], p["delta_t_medium_chlodzace"])
+                    st.markdown("**⚡ Energetyczne KPI**")
+                    try:
+                        _visc_avg_kpi = (p["viscosity_min_cst"] + p["viscosity_max_cst"]) / 2.0
+                        _, _, agitator_power_kw_kpi = compute_agitator_power(
+                            p["agitator_type"], p["agitator_rpm"], p["agitator_diameter_m"], p["density_kg_m3"], _visc_avg_kpi
+                        )
+                        _thermal_kpi = compute_thermal_balance(
+                            mixer["mass_per_batch"], p["cp_product"], p["t_product_in"], p["t_product_out"],
+                            p["k_coeff_grzania"], p["exchange_area_m2"], p["tank_mass"], p["cp_steel"],
+                            p["utility_type_heat"], p["delta_t_medium_grzewcze"], p["t_utility_heat_in"])
+                        _q_cooling_mj_kpi, _, _cooling_time_h_kpi, _, _cooling_status_kpi = compute_cooling(
+                            mixer["mass_per_batch"], p["cp_product"], p["t_product_out"], p["t_discharge_c"],
+                            p["t_utility_cool_in"], p["k_coeff"], p["exchange_area_m2"],
+                            p["utility_type_cool"], p["delta_t_medium_chlodzace"])
 
-                    heating_kwh_batch = _thermal_kpi["q_heating_mj"] * 0.2778 if _thermal_kpi["heating_status"] == "ok" else 0.0
-                    cooling_kwh_batch = _q_cooling_mj_kpi * 0.2778 if _cooling_status_kpi == "ok" else 0.0
-                    cycle_h_kpi = mixer.get("cycle_h", p.get("t_product_out", 0) and 4.0)
-                    mixing_kwh_batch = agitator_power_kw_kpi * mixer.get("cycle_h", 4.0)
-                    batches_month_kpi = mixer.get("batches_count", 0)
-
-                    ek1, ek2, ek3, ek4 = st.columns(4)
-                    with ek1:
-                        st.metric("Grzanie / szarżę", f"{heating_kwh_batch:.1f} kWh" if _thermal_kpi["heating_status"] == "ok" else "⚠️ N/A")
-                    with ek2:
-                        st.metric("Chłodzenie / szarżę", f"{cooling_kwh_batch:.1f} kWh" if _cooling_status_kpi == "ok" else "⚠️ N/A")
-                    with ek3:
-                        st.metric("Mieszanie / szarżę", f"{mixing_kwh_batch:.1f} kWh")
-                    with ek4:
+                        heating_kwh_batch = _thermal_kpi["q_heating_mj"] * 0.2778 if _thermal_kpi["heating_status"] == "ok" else 0.0
+                        cooling_kwh_batch = _q_cooling_mj_kpi * 0.2778 if _cooling_status_kpi == "ok" else 0.0
+                        mixing_kwh_batch = agitator_power_kw_kpi * mixer.get("cycle_h", 4.0)
+                        batches_month_kpi = mixer.get("batches_count", 0)
                         total_kwh_month = (heating_kwh_batch + cooling_kwh_batch + mixing_kwh_batch) * batches_month_kpi
+
+                        st.metric("Grzanie / szarżę", f"{heating_kwh_batch:.1f} kWh" if _thermal_kpi["heating_status"] == "ok" else "⚠️ N/A")
+                        st.metric("Chłodzenie / szarżę", f"{cooling_kwh_batch:.1f} kWh" if _cooling_status_kpi == "ok" else "⚠️ N/A")
+                        st.metric("Mieszanie / szarżę", f"{mixing_kwh_batch:.1f} kWh")
                         st.metric("Razem / miesiąc", f"{total_kwh_month:,.0f} kWh")
-                except Exception as _kpi_exc:
-                    st.caption(f"⚠️ Nie udało się policzyć KPI energetycznego: {_kpi_exc}")
+                    except Exception as _kpi_exc:
+                        st.caption(f"⚠️ Nie udało się policzyć KPI energetycznego: {_kpi_exc}")
 
         # --- Pompy współdzielone: jedno miejsce edycji przepływu/sprawności/MTBF/MTTR, ---
         # wspólne dla wszystkich zbiorników, które przypisano do tej samej pompy powyżej.
@@ -3044,15 +3044,27 @@ with tab2:
             # wypełniamy je NIŻEJ, po tym jak panele "tryb pompy" ustawią swoje wartości.
             rm_results_placeholder = st.container()
 
-            st.markdown("###### 🔍 Szczegółowa konfiguracja: tryb pompy")
-            st.caption("Osobno dla każdego zbiornika — kliknij, żeby rozwinąć. Tryb pompy (dedykowana/"
-                       "współdzielona) i wychładzanie po utracie grzania zależą od siebie warunkowo.")
-            for rm_tank in confirmed_rm_tanks:
-                selected_rm_tag = rm_tank["tag"]
-                rm_sel_defaults = st.session_state.rm_tank_tech_details[selected_rm_tag]
-                with st.expander(f"🔧 {selected_rm_tag} — {rm_tank['material']}", expanded=False):
-                    rd1, rd2 = st.columns(2)
-                    with rd1:
+            st.markdown("###### 🔍 Porównanie zbiorników")
+            st.caption("Wybierz 2-3 zbiorniki, żeby zobaczyć konfigurację (tryb pompy) i wyniki obok siebie. "
+                       "Tryb pompy i wychładzanie po utracie grzania zależą od siebie warunkowo.")
+            _all_rm_tags = [t["tag"] for t in confirmed_rm_tanks]
+            compare_rm_tags = st.multiselect(
+                "Wybierz zbiorniki (max 3):", _all_rm_tags,
+                default=_all_rm_tags[:min(2, len(_all_rm_tags))], key="rm_compare_select"
+            )
+            if len(compare_rm_tags) > 3:
+                st.warning("⚠️ Wybierz maksymalnie 3 — pokazuję pierwsze 3 z wybranych.")
+                compare_rm_tags = compare_rm_tags[:3]
+
+            if not compare_rm_tags:
+                st.info("ℹ️ Wybierz przynajmniej jeden zbiornik powyżej, żeby zobaczyć jego szczegóły.")
+            else:
+                compare_rm_cols = st.columns(len(compare_rm_tags))
+                for col, selected_rm_tag in zip(compare_rm_cols, compare_rm_tags):
+                    rm_tank = next(t for t in confirmed_rm_tanks if t["tag"] == selected_rm_tag)
+                    rm_sel_defaults = st.session_state.rm_tank_tech_details[selected_rm_tag]
+                    with col:
+                        st.markdown(f"**🔧 {selected_rm_tag}** — {rm_tank['material']}")
                         rm_sel_defaults["pump_mode"] = st.selectbox(
                             "Tryb pompy:", ["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"],
                             index=["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"].index(rm_sel_defaults["pump_mode"]),
@@ -3067,7 +3079,7 @@ with tab2:
                             )
                         else:
                             rm_sel_defaults["shared_pump_id"] = ""
-                    with rd2:
+
                         if rm_sel_defaults["heated"]:
                             t_start_for_curve = rm_sel_defaults["target_temp_c"]
                         else:
@@ -3084,42 +3096,32 @@ with tab2:
                                 crow[f"Po {h}h"] = f"{t:.1f}°C"
                             cooling_table_rows.append(crow)
                         st.caption(f"Wychładzanie bez dogrzewania, start {t_start_for_curve:.0f}°C, otoczenie "
-                                   f"{rm_sel_defaults['ambient_temp_c']:.0f}°C (prawo stygnięcia Newtona, uproszczenie).")
+                                   f"{rm_sel_defaults['ambient_temp_c']:.0f}°C.")
                         st.dataframe(pd.DataFrame(cooling_table_rows), hide_index=True, use_container_width=True)
 
-                    st.markdown("---")
-                    st.markdown("**⚡ Energetyczne KPI**")
-                    if rm_sel_defaults["heated"]:
-                        heating_power_kw_detail = compute_tank_heating_power_kw(
-                            rm_tank["capacity_m3"], rm_sel_defaults["insulation_mm"],
-                            rm_sel_defaults["target_temp_c"], rm_sel_defaults["ambient_temp_c"]
-                        )
-                        rk1, rk2, rk3 = st.columns(3)
-                        with rk1:
+                        st.markdown("**⚡ Energetyczne KPI**")
+                        if rm_sel_defaults["heated"]:
+                            heating_power_kw_detail = compute_tank_heating_power_kw(
+                                rm_tank["capacity_m3"], rm_sel_defaults["insulation_mm"],
+                                rm_sel_defaults["target_temp_c"], rm_sel_defaults["ambient_temp_c"]
+                            )
                             st.metric("Moc grzania (stan ustalony)", f"{heating_power_kw_detail:.2f} kW")
-                        with rk2:
                             st.metric("Energia grzania — dziennie", f"{heating_power_kw_detail * 24:.1f} kWh/dzień")
-                        with rk3:
                             st.metric("Energia grzania — miesięcznie", f"{heating_power_kw_detail * 24 * 30.4:,.0f} kWh/mies.")
-                        st.caption("Moc/energia potrzebna do utrzymania temperatury docelowej wobec strat do otoczenia "
-                                   "(z marginesem na rozruch) — zakłada ciągłe grzanie 24/7.")
-                    else:
-                        st.caption("Zbiornik niegrzany — brak stałego zapotrzebowania na energię grzania.")
+                        else:
+                            st.caption("Zbiornik niegrzany — brak stałego zapotrzebowania na energię grzania.")
 
-                    st.markdown("**🌡️ Ile ciepła ucieknie bez dogrzewania (po 24h), w energii [kWh]**")
-                    mass_kg_kpi = rm_tank["capacity_m3"] * TANK_SAFETY_FILL * rm_sel_defaults["density_kg_m3"]
-                    heat_loss_rows = []
-                    for insul_label, insul_mm in [("Brak izolacji", 0), ("Izolacja 50 mm", 50), ("Izolacja 100 mm", 100)]:
-                        temp_after_24h = compute_tank_cooling_curve(
-                            rm_tank["capacity_m3"], insul_mm, t_start_for_curve, rm_sel_defaults["ambient_temp_c"],
-                            rm_sel_defaults["density_kg_m3"], rm_sel_defaults["specific_heat_j_kgk"], [24]
-                        )[0]
-                        heat_lost_kwh = (mass_kg_kpi * rm_sel_defaults["specific_heat_j_kgk"] * (t_start_for_curve - temp_after_24h)) / 3_600_000.0
-                        heat_loss_rows.append({"Izolacja": insul_label, "Strata ciepła po 24h [kWh]": round(heat_lost_kwh, 1)})
-                    st.dataframe(pd.DataFrame(heat_loss_rows), hide_index=True, use_container_width=True)
-                    st.caption("Ile energii trzeba by dostarczyć, żeby zrekompensować spadek temperatury do poziomu "
-                               "z tabeli wychładzania powyżej — bezpośrednie porównanie opłacalności izolacji w kWh, "
-                               "nie tylko w stopniach.")
+                        st.markdown("**🌡️ Strata ciepła po 24h [kWh]**")
+                        mass_kg_kpi = rm_tank["capacity_m3"] * TANK_SAFETY_FILL * rm_sel_defaults["density_kg_m3"]
+                        heat_loss_rows = []
+                        for insul_label, insul_mm in [("Brak izolacji", 0), ("Izolacja 50 mm", 50), ("Izolacja 100 mm", 100)]:
+                            temp_after_24h = compute_tank_cooling_curve(
+                                rm_tank["capacity_m3"], insul_mm, t_start_for_curve, rm_sel_defaults["ambient_temp_c"],
+                                rm_sel_defaults["density_kg_m3"], rm_sel_defaults["specific_heat_j_kgk"], [24]
+                            )[0]
+                            heat_lost_kwh = (mass_kg_kpi * rm_sel_defaults["specific_heat_j_kgk"] * (t_start_for_curve - temp_after_24h)) / 3_600_000.0
+                            heat_loss_rows.append({"Izolacja": insul_label, "Strata [kWh]": round(heat_lost_kwh, 1)})
+                        st.dataframe(pd.DataFrame(heat_loss_rows), hide_index=True, use_container_width=True)
 
             # --- Wyniki: policzone TERAZ, z aktualnym trybem pompy z paneli powyżej ---
             rm_results_rows = []
@@ -4254,12 +4256,17 @@ with tab4:
                 rampup_cost_revenue_chart[f"Koszt produkcji [{waluta}/rok]"].append(cost_year_chart)
                 rampup_cost_revenue_chart[f"Przychód sprzedaży [{waluta}/rok]"].append(revenue_year_chart)
 
-            st.markdown(f"**Koszt produkcji vs Przychód sprzedaży [{waluta}/rok]**")
-            st.caption("Z tych samych cen/kosztów per grupa co w Kroku 1 (Rentowność), każda grupa skalowana "
-                       "WŁASNĄ krzywą rozruchu — to ten sam model, który zasila ROI w Kroku 3 niżej. Tonaż [t/rok] "
-                       "per rok znajdziesz w tabeli poniżej.")
-            chart_cost_rev_df = pd.DataFrame(rampup_cost_revenue_chart).set_index("Rok")
-            st.bar_chart(chart_cost_rev_df)
+            ch_c1, ch_c2 = st.columns(2)
+            with ch_c1:
+                st.markdown("**Tonaż [t/rok]**")
+                chart_df = pd.DataFrame(rampup_tonnage_chart).set_index("Rok")
+                st.line_chart(chart_df)
+            with ch_c2:
+                st.markdown(f"**Koszt produkcji vs Przychód sprzedaży [{waluta}/rok]**")
+                st.caption("Z tych samych cen/kosztów per grupa co w Kroku 1 (Rentowność), każda grupa skalowana "
+                           "WŁASNĄ krzywą rozruchu — to ten sam model, który zasila ROI w Kroku 3 niżej.")
+                chart_cost_rev_df = pd.DataFrame(rampup_cost_revenue_chart).set_index("Rok")
+                st.bar_chart(chart_cost_rev_df)
 
             st.dataframe(pd.DataFrame(rampup_summary_rows), hide_index=True, use_container_width=True)
             st.caption("ℹ️ **Pełne szarże** — realna liczba szarż zaokrąglona w górę do liczb całkowitych (tak faktycznie "
