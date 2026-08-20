@@ -4795,35 +4795,6 @@ with tab5:
                  "potrzebuje więcej niż ten limit, zaproponuje kilka zbiorników o tej maksymalnej pojemności."
         )
 
-        st.markdown("### 📋 Zestawienie Surowcowe Floty (per Reaktor)")
-        st.caption("Rozkład bazy olejowej / wody DEMI per reaktor, na podstawie grupy oleju przypisanej do jego linii "
-                   "produktowej — kontekst fleetowy, niezależny od tego, czy wgrałeś recepturę.")
-
-        active_chemical_ratio = st.slider("Średni udział fazy ciekłej (baza + woda) w recepturze [%]:", 50, 95, 85) / 100.0
-
-        raw_material_summary = []
-        silos_aggregation = {"Mineralne (Gr. I/II)": 0.0, "Syntetyczne (Gr. III/IV)": 0.0, "Woda Procesowa DEMI": 0.0, "Inne / Pakiety płynne": 0.0}
-
-        for mixer in st.session_state.confirmed_mixers:
-            kat = mixer["product_family"]
-            prod_info = st.session_state.active_portfolio[kat]
-            total_liquid_tony = (mixer["annual_volume"] / 1000.0) * active_chemical_ratio
-
-            water_annual = total_liquid_tony * prod_info["water_content"]
-            oil_annual = total_liquid_tony * (1.0 - prod_info["water_content"]) if prod_info["oil_group"] != "Brak (Specjalistyczne)" else 0.0
-            other_liquid = total_liquid_tony - water_annual - oil_annual
-
-            silos_aggregation["Woda Procesowa DEMI"] += water_annual
-            if oil_annual > 0: silos_aggregation[prod_info["oil_group"]] += oil_annual
-            silos_aggregation["Inne / Pakiety płynne"] += other_liquid
-
-            raw_material_summary.append({
-                "ID Reaktora 🔒": mixer["tag"], "Linia 🔒": kat, "Typ Bazy": prod_info["oil_group"],
-                "Produkcja [t/rok]": round(mixer["annual_volume"]/1000.0, 1), "Baza Olejowa [t/rok]": round(oil_annual, 1), "Woda DEMI [t/rok]": round(water_annual, 1)
-            })
-
-        st.dataframe(pd.DataFrame(raw_material_summary), hide_index=True, use_container_width=True)
-
         st.markdown("---")
         st.markdown("### 🏢 Wymiarowanie Silosów Magazynowych")
 
@@ -5083,6 +5054,28 @@ with tab5:
         else:
             st.info("💡 Wgraj receptury produktów w **Zakładce 1**, aby uzyskać dokładniejsze wymiarowanie per "
                     "pojedynczy surowiec. Poniżej uproszczony szacunek grupowy (wg typu bazy z floty).")
+
+            active_chemical_ratio = st.slider("Średni udział fazy ciekłej (baza + woda) w recepturze [%]:", 50, 95, 85) / 100.0
+            silos_aggregation = {"Mineralne (Gr. I/II)": 0.0, "Syntetyczne (Gr. III/IV)": 0.0, "Woda Procesowa DEMI": 0.0, "Inne / Pakiety płynne": 0.0}
+            raw_material_summary = []
+            for mixer in st.session_state.confirmed_mixers:
+                kat = mixer["product_family"]
+                prod_info = st.session_state.active_portfolio[kat]
+                total_liquid_tony = (mixer["annual_volume"] / 1000.0) * active_chemical_ratio
+                water_annual = total_liquid_tony * prod_info["water_content"]
+                oil_annual = total_liquid_tony * (1.0 - prod_info["water_content"]) if prod_info["oil_group"] != "Brak (Specjalistyczne)" else 0.0
+                other_liquid = total_liquid_tony - water_annual - oil_annual
+                silos_aggregation["Woda Procesowa DEMI"] += water_annual
+                if oil_annual > 0:
+                    silos_aggregation[prod_info["oil_group"]] += oil_annual
+                silos_aggregation["Inne / Pakiety płynne"] += other_liquid
+                raw_material_summary.append({
+                    "ID Reaktora 🔒": mixer["tag"], "Linia 🔒": kat, "Typ Bazy": prod_info["oil_group"],
+                    "Produkcja [t/rok]": round(mixer["annual_volume"] / 1000.0, 1),
+                    "Baza Olejowa [t/rok]": round(oil_annual, 1), "Woda DEMI [t/rok]": round(water_annual, 1),
+                })
+            st.markdown("###### 📋 Zestawienie Surowcowe Floty (per Reaktor) — szacunek grupowy")
+            st.dataframe(pd.DataFrame(raw_material_summary), hide_index=True, use_container_width=True)
 
             silos_rows = []
             total_tanks = 0
