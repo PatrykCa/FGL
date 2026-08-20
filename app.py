@@ -2917,17 +2917,22 @@ with tab2:
             st.warning("Brak poprawnie policzonych urządzeń — sprawdź komunikaty o błędach powyżej.")
 
         st.markdown("---")
-        st.markdown("### 🛢️ Zbiorniki Surowcowe (RM) — Pompy Rozładunkowe i Rurociąg")
+        st.markdown("### 🛢️ Zbiorcza Specyfikacja Techniczna Zbiorników RM")
         confirmed_rm_tanks = st.session_state.get("confirmed_rm_tanks", [])
         total_rm_pump_power = 0.0
         total_rm_heating_power = 0.0
         if not confirmed_rm_tanks:
             st.info("ℹ️ Brak zatwierdzonych zbiorników RM — zadeklaruj je w **Zakładce 2 (Magazynowanie)**, sekcja "
-                    "'✅ Zatwierdź Zbiorniki RM', żeby skonfigurować tu ich pompy i rurociąg tłoczny.")
+                    "'✅ Zatwierdź Zbiorniki RM', żeby skonfigurować tu ich pompy, rurociąg i grzanie.")
         else:
-            st.caption("Zbiorniki zatwierdzone w Zakładce 2. Każdy potrzebuje pompy rozładunkowej (z cysterny do "
-                       "zbiornika) — dedykowanej albo współdzielonej z inną instalacją (ta sama pula pomp, co dla "
-                       "mieszalników powyżej). Moc tych pomp jest doliczana do bilansu elektrycznego niżej.")
+            st.caption("Zbiorniki zatwierdzone w Zakładce 2. **Białe pola edytujesz bezpośrednio w tabeli** "
+                       "(🔧 hydraulika/pompa, 🌡️ grzanie/izolacja); **szare pola (📊) to wyniki** — liczą się "
+                       "automatycznie z pól obok i nie da się ich edytować wprost. Tryb pompy (dedykowana / "
+                       "współdzielona z inną instalacją) ustawiasz osobno niżej, bo zależy od niego, które pola "
+                       "mają znaczenie. ℹ️ Wyniki (📊) aktualizują się po zapisaniu zmiany w tabeli (jedno "
+                       "odświeżenie opóźnienia).")
+
+            rm_table_rows = []
             for rm_tank in confirmed_rm_tanks:
                 rm_tag = rm_tank["tag"]
                 rm_defaults = st.session_state.rm_tank_tech_details.setdefault(rm_tag, {
@@ -2937,108 +2942,116 @@ with tab2:
                     "pump_efficiency": 0.6, "heated": False, "target_temp_c": 40.0, "insulation_mm": 50,
                     "ambient_temp_c": 10.0, "specific_heat_j_kgk": 2000.0,
                 })
-                with st.expander(f"🔧 {rm_tag} — {rm_tank['material']} ({rm_tank['capacity_m3']:.0f} m³)", expanded=False):
-                    rc1, rc2, rc3 = st.columns(3)
-                    with rc1:
-                        rm_defaults["pump_mode"] = st.selectbox(
-                            "Tryb pompy:", ["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"],
-                            index=["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"].index(rm_defaults["pump_mode"]),
-                            key=f"rm_pump_mode_{rm_tag}"
-                        )
-                        if rm_defaults["pump_mode"] == "Współdzielona (kilka zbiorników)":
-                            rm_defaults["shared_pump_id"] = st.text_input(
-                                "ID pompy współdzielonej:", value=rm_defaults["shared_pump_id"] or "P-RM-01",
-                                key=f"rm_shared_pump_id_{rm_tag}",
-                                help="Może to być ta sama pula co pompy mieszalników powyżej — wpisz identyczny ID, "
-                                     "jeśli fizycznie ma to być ta sama pompa."
-                            )
-                        else:
-                            rm_defaults["shared_pump_id"] = ""
-                            rm_defaults["pump_flow_m3h"] = st.number_input("Przepływ pompy [m³/h]:", min_value=0.5, value=float(rm_defaults["pump_flow_m3h"]), key=f"rm_flow_{rm_tag}")
-                            rm_defaults["pump_efficiency"] = st.number_input("Sprawność pompy [-]:", min_value=0.1, max_value=1.0, value=float(rm_defaults["pump_efficiency"]), key=f"rm_eff_{rm_tag}")
-                    with rc2:
-                        rm_defaults["pipe_dn"] = st.number_input("Średnica rury [DN]:", min_value=15, value=int(rm_defaults["pipe_dn"]), key=f"rm_dn_{rm_tag}")
-                        rm_defaults["pipe_length_m"] = st.number_input("Długość odcinka tłocznego [m]:", min_value=0.5, value=float(rm_defaults["pipe_length_m"]), key=f"rm_len_{rm_tag}")
-                        rm_defaults["delta_h_m"] = st.number_input("Różnica wysokości Δh [m]:", min_value=0.0, value=float(rm_defaults["delta_h_m"]), key=f"rm_dh_{rm_tag}")
-                    with rc3:
-                        rm_defaults["viscosity_cst"] = st.number_input("Lepkość surowca [cSt]:", min_value=0.5, value=float(rm_defaults["viscosity_cst"]), key=f"rm_visc_{rm_tag}")
-                        rm_defaults["density_kg_m3"] = st.number_input("Gęstość surowca [kg/m³]:", min_value=500.0, value=float(rm_defaults["density_kg_m3"]), key=f"rm_dens_{rm_tag}")
-                        rm_defaults["count_elbows_90"] = st.number_input("Liczba kolan 90°:", min_value=0, value=int(rm_defaults["count_elbows_90"]), key=f"rm_elb_{rm_tag}")
-                        rm_defaults["count_valves"] = st.number_input("Liczba zaworów:", min_value=0, value=int(rm_defaults["count_valves"]), key=f"rm_val_{rm_tag}")
 
-                    if rm_defaults["pump_mode"] == "Współdzielona (kilka zbiorników)" and rm_defaults["shared_pump_id"] in st.session_state.shared_pumps:
-                        shared_cfg = st.session_state.shared_pumps[rm_defaults["shared_pump_id"]]
-                        eff_flow = shared_cfg["flow_m3h"]
-                        eff_eff = shared_cfg["efficiency"]
-                        st.caption(f"Pompa '{rm_defaults['shared_pump_id']}': przepływ {eff_flow:.1f} m³/h, sprawność "
-                                   f"{eff_eff:.2f} (edytuj w tabeli 'Pompy Współdzielone' powyżej, w sekcji mieszalników).")
-                    else:
-                        eff_flow = rm_defaults["pump_flow_m3h"]
-                        eff_eff = rm_defaults["pump_efficiency"]
+                if rm_defaults["pump_mode"] == "Współdzielona (kilka zbiorników)" and rm_defaults["shared_pump_id"] in st.session_state.shared_pumps:
+                    shared_cfg = st.session_state.shared_pumps[rm_defaults["shared_pump_id"]]
+                    eff_flow, eff_eff = shared_cfg["flow_m3h"], shared_cfg["efficiency"]
+                else:
+                    eff_flow, eff_eff = rm_defaults["pump_flow_m3h"], rm_defaults["pump_efficiency"]
 
-                    zeta_sum_rm = (rm_defaults["count_elbows_90"] * 0.5) + (rm_defaults["count_valves"] * 0.2)
-                    _, p_bar_rm, power_kw_rm, velocity_rm = compute_hydraulics(
-                        eff_flow, rm_defaults["pipe_dn"], rm_defaults["pipe_length_m"], rm_defaults["delta_h_m"],
-                        rm_defaults["viscosity_cst"], rm_defaults["density_kg_m3"], zeta_sum_rm, eff_eff
+                zeta_sum_rm = (rm_defaults["count_elbows_90"] * 0.5) + (rm_defaults["count_valves"] * 0.2)
+                _, p_bar_rm, power_kw_rm, velocity_rm = compute_hydraulics(
+                    eff_flow, rm_defaults["pipe_dn"], rm_defaults["pipe_length_m"], rm_defaults["delta_h_m"],
+                    rm_defaults["viscosity_cst"], rm_defaults["density_kg_m3"], zeta_sum_rm, eff_eff
+                )
+                total_rm_pump_power += power_kw_rm
+
+                heating_power_kw = 0.0
+                if rm_defaults["heated"]:
+                    heating_power_kw = compute_tank_heating_power_kw(
+                        rm_tank["capacity_m3"], rm_defaults["insulation_mm"],
+                        rm_defaults["target_temp_c"], rm_defaults["ambient_temp_c"]
                     )
-                    total_rm_pump_power += power_kw_rm
-                    rc_m1, rc_m2, rc_m3 = st.columns(3)
-                    with rc_m1:
-                        st.metric("Prędkość przepływu", f"{velocity_rm:.2f} m/s")
-                    with rc_m2:
-                        st.metric("Opór hydrauliczny", f"{p_bar_rm:.2f} bar")
-                    with rc_m3:
-                        st.metric("Moc pompy", f"{power_kw_rm:.2f} kW")
+                    total_rm_heating_power += heating_power_kw
 
-                    st.markdown("###### 🔥 Grzanie i izolacja zbiornika")
-                    rh1, rh2, rh3 = st.columns(3)
-                    with rh1:
-                        rm_defaults["heated"] = st.checkbox(
-                            "Zbiornik grzany", value=rm_defaults["heated"], key=f"rm_heated_{rm_tag}",
-                            help="Zaznacz, jeśli surowiec wymaga podgrzewania, żeby zachować płynność "
-                                 "(np. gęste dodatki, woski)."
-                        )
-                        if rm_defaults["heated"]:
-                            rm_defaults["target_temp_c"] = st.number_input(
-                                "Temperatura docelowa [°C]:", min_value=0.0, max_value=120.0,
-                                value=float(rm_defaults["target_temp_c"]), key=f"rm_target_temp_{rm_tag}"
-                            )
-                    with rh2:
-                        rm_defaults["insulation_mm"] = st.selectbox(
-                            "Izolacja zbiornika:", [0, 50, 100], index=[0, 50, 100].index(rm_defaults["insulation_mm"]),
-                            format_func=lambda x: "Brak izolacji" if x == 0 else f"{x} mm",
-                            key=f"rm_insulation_{rm_tag}"
-                        )
-                        rm_defaults["ambient_temp_c"] = st.number_input(
-                            "Temperatura otoczenia [°C]:", min_value=-30.0, max_value=45.0,
-                            value=float(rm_defaults["ambient_temp_c"]), key=f"rm_ambient_{rm_tag}"
-                        )
-                    with rh3:
-                        if rm_defaults["heated"]:
-                            heating_power_kw = compute_tank_heating_power_kw(
-                                rm_tank["capacity_m3"], rm_defaults["insulation_mm"],
-                                rm_defaults["target_temp_c"], rm_defaults["ambient_temp_c"]
-                            )
-                            total_rm_heating_power += heating_power_kw
-                            st.metric("Szacowana moc grzania", f"{heating_power_kw:.2f} kW",
-                                      help="Moc w stanie ustalonym, potrzebna do pokrycia strat ciepła do otoczenia "
-                                           "(z marginesem bezpieczeństwa na rozruch) — nie liczy czasu nagrzewania od zimna.")
-                        else:
-                            st.caption("Zbiornik niegrzany — poniżej krzywa wychładzania dla informacji "
-                                       "(np. jak szybko stygnie po dostawie ciepłego surowca).")
+                rm_table_rows.append({
+                    "Tag": rm_tag, "Surowiec": rm_tank["material"], "Pojemność [m³]": rm_tank["capacity_m3"],
+                    "🔧 DN rury": rm_defaults["pipe_dn"], "🔧 Długość [m]": rm_defaults["pipe_length_m"],
+                    "🔧 Δh [m]": rm_defaults["delta_h_m"], "🔧 Lepkość [cSt]": rm_defaults["viscosity_cst"],
+                    "🔧 Gęstość [kg/m³]": rm_defaults["density_kg_m3"], "🔧 Kolana 90°": rm_defaults["count_elbows_90"],
+                    "🔧 Zawory": rm_defaults["count_valves"], "🔧 Przepływ pompy [m³/h]": rm_defaults["pump_flow_m3h"],
+                    "🔧 Sprawność pompy": rm_defaults["pump_efficiency"],
+                    "🌡️ Grzany": rm_defaults["heated"], "🌡️ Temp. docelowa [°C]": rm_defaults["target_temp_c"],
+                    "🌡️ Izolacja [mm]": rm_defaults["insulation_mm"], "🌡️ Temp. otoczenia [°C]": rm_defaults["ambient_temp_c"],
+                    "📊 Prędkość [m/s]": round(velocity_rm, 2), "📊 Opór [bar]": round(p_bar_rm, 2),
+                    "📊 Moc pompy [kW]": round(power_kw_rm, 2), "📊 Moc grzania [kW]": round(heating_power_kw, 2),
+                })
 
-                    t_start_for_curve = rm_defaults["target_temp_c"] if rm_defaults["heated"] else max(rm_defaults["ambient_temp_c"] + 20.0, rm_defaults["ambient_temp_c"])
-                    hours_range = list(range(0, 73, 4))
-                    cooling_df = pd.DataFrame({
-                        "Godzina": hours_range,
-                        "Brak izolacji": compute_tank_cooling_curve(rm_tank["capacity_m3"], 0, t_start_for_curve, rm_defaults["ambient_temp_c"], rm_defaults["density_kg_m3"], rm_defaults["specific_heat_j_kgk"], hours_range),
-                        "Izolacja 50 mm": compute_tank_cooling_curve(rm_tank["capacity_m3"], 50, t_start_for_curve, rm_defaults["ambient_temp_c"], rm_defaults["density_kg_m3"], rm_defaults["specific_heat_j_kgk"], hours_range),
-                        "Izolacja 100 mm": compute_tank_cooling_curve(rm_tank["capacity_m3"], 100, t_start_for_curve, rm_defaults["ambient_temp_c"], rm_defaults["density_kg_m3"], rm_defaults["specific_heat_j_kgk"], hours_range),
-                    }).set_index("Godzina")
-                    st.caption(f"Wychładzanie zbiornika bez dogrzewania, start od {t_start_for_curve:.0f}°C, przy "
-                               f"{rm_defaults['ambient_temp_c']:.0f}°C na zewnątrz (prawo stygnięcia Newtona — "
-                               "uproszczenie inżynierskie, bez wiatru/promieniowania).")
-                    st.line_chart(cooling_df)
+            edited_rm_table = st.data_editor(
+                pd.DataFrame(rm_table_rows), hide_index=True, use_container_width=True, key="rm_tank_master_editor",
+                disabled=["Tag", "Surowiec", "Pojemność [m³]", "📊 Prędkość [m/s]", "📊 Opór [bar]",
+                          "📊 Moc pompy [kW]", "📊 Moc grzania [kW]"],
+                column_config={
+                    "🔧 DN rury": st.column_config.NumberColumn(min_value=15, step=5),
+                    "🔧 Długość [m]": st.column_config.NumberColumn(min_value=0.5, step=0.5),
+                    "🔧 Δh [m]": st.column_config.NumberColumn(min_value=0.0, step=0.5),
+                    "🔧 Lepkość [cSt]": st.column_config.NumberColumn(min_value=0.5, step=1.0),
+                    "🔧 Gęstość [kg/m³]": st.column_config.NumberColumn(min_value=500.0, step=10.0),
+                    "🔧 Kolana 90°": st.column_config.NumberColumn(min_value=0, step=1),
+                    "🔧 Zawory": st.column_config.NumberColumn(min_value=0, step=1),
+                    "🔧 Przepływ pompy [m³/h]": st.column_config.NumberColumn(min_value=0.5, step=0.5),
+                    "🔧 Sprawność pompy": st.column_config.NumberColumn(min_value=0.1, max_value=1.0, step=0.05),
+                    "🌡️ Grzany": st.column_config.CheckboxColumn(),
+                    "🌡️ Temp. docelowa [°C]": st.column_config.NumberColumn(min_value=0.0, max_value=120.0, step=1.0),
+                    "🌡️ Izolacja [mm]": st.column_config.SelectboxColumn(options=[0, 50, 100]),
+                    "🌡️ Temp. otoczenia [°C]": st.column_config.NumberColumn(min_value=-30.0, max_value=45.0, step=1.0),
+                }
+            )
+            # Zapis edycji z powrotem do session_state (wynikowe kolumny 📊 przeliczą się na
+            # następnym przebiegu - to samo opóźnienie o jeden krok, co przy zatwierdzaniu floty).
+            for _, row in edited_rm_table.iterrows():
+                tag = row["Tag"]
+                d = st.session_state.rm_tank_tech_details.setdefault(tag, {})
+                d["pipe_dn"] = row["🔧 DN rury"]; d["pipe_length_m"] = row["🔧 Długość [m]"]
+                d["delta_h_m"] = row["🔧 Δh [m]"]; d["viscosity_cst"] = row["🔧 Lepkość [cSt]"]
+                d["density_kg_m3"] = row["🔧 Gęstość [kg/m³]"]; d["count_elbows_90"] = row["🔧 Kolana 90°"]
+                d["count_valves"] = row["🔧 Zawory"]; d["pump_flow_m3h"] = row["🔧 Przepływ pompy [m³/h]"]
+                d["pump_efficiency"] = row["🔧 Sprawność pompy"]; d["heated"] = row["🌡️ Grzany"]
+                d["target_temp_c"] = row["🌡️ Temp. docelowa [°C]"]; d["insulation_mm"] = row["🌡️ Izolacja [mm]"]
+                d["ambient_temp_c"] = row["🌡️ Temp. otoczenia [°C]"]
+
+            st.markdown("###### 🔍 Szczegółowa konfiguracja: tryb pompy")
+            st.caption("Tryb pompy (dedykowana / współdzielona z inną instalacją) i wychładzanie po utracie "
+                       "grzania — dla jednego zbiornika naraz, bo pola zależą od siebie warunkowo.")
+            selected_rm_tag = st.selectbox("Wybierz zbiornik:", [t["tag"] for t in confirmed_rm_tanks], key="rm_detail_selector")
+            selected_rm_tank = next(t for t in confirmed_rm_tanks if t["tag"] == selected_rm_tag)
+            rm_sel_defaults = st.session_state.rm_tank_tech_details[selected_rm_tag]
+
+            rd1, rd2 = st.columns(2)
+            with rd1:
+                rm_sel_defaults["pump_mode"] = st.selectbox(
+                    "Tryb pompy:", ["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"],
+                    index=["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"].index(rm_sel_defaults["pump_mode"]),
+                    key=f"rm_pump_mode_{selected_rm_tag}"
+                )
+                if rm_sel_defaults["pump_mode"] == "Współdzielona (kilka zbiorników)":
+                    rm_sel_defaults["shared_pump_id"] = st.text_input(
+                        "ID pompy współdzielonej:", value=rm_sel_defaults["shared_pump_id"] or "P-RM-01",
+                        key=f"rm_shared_pump_id_{selected_rm_tag}",
+                        help="Może to być ta sama pula co pompy mieszalników — wpisz identyczny ID, jeśli "
+                             "fizycznie ma to być ta sama pompa."
+                    )
+                else:
+                    rm_sel_defaults["shared_pump_id"] = ""
+            with rd2:
+                if rm_sel_defaults["heated"]:
+                    t_start_for_curve = rm_sel_defaults["target_temp_c"]
+                else:
+                    t_start_for_curve = max(rm_sel_defaults["ambient_temp_c"] + 20.0, rm_sel_defaults["ambient_temp_c"])
+                checkpoint_hours = [4, 12, 24, 48, 72]
+                cooling_table_rows = []
+                for insul_label, insul_mm in [("Brak izolacji", 0), ("Izolacja 50 mm", 50), ("Izolacja 100 mm", 100)]:
+                    temps_at_checkpoints = compute_tank_cooling_curve(
+                        selected_rm_tank["capacity_m3"], insul_mm, t_start_for_curve, rm_sel_defaults["ambient_temp_c"],
+                        rm_sel_defaults["density_kg_m3"], rm_sel_defaults["specific_heat_j_kgk"], checkpoint_hours
+                    )
+                    row = {"Izolacja": insul_label}
+                    for h, t in zip(checkpoint_hours, temps_at_checkpoints):
+                        row[f"Po {h}h"] = f"{t:.1f}°C"
+                    cooling_table_rows.append(row)
+                st.caption(f"Wychładzanie bez dogrzewania, start {t_start_for_curve:.0f}°C, otoczenie "
+                           f"{rm_sel_defaults['ambient_temp_c']:.0f}°C (prawo stygnięcia Newtona, uproszczenie).")
+                st.dataframe(pd.DataFrame(cooling_table_rows), hide_index=True, use_container_width=True)
 
             st.metric("⚡ Moc pomp RM razem (doliczana do bilansu elektrycznego niżej)", f"{total_rm_pump_power:.2f} kW")
             if total_rm_heating_power > 0:
@@ -3616,7 +3629,8 @@ with tab3:
                         "Źródło %": split_source,
                         "Opakowań [/mies]": int(liczba_sztuk_month), "Palet [/mies] 🧱": int(liczba_palet_month),
                         "Miejsca magazynowe [szt] 📐": int(miejsca_paletowe), "Czas rozlewu strumienia [h] ⏱️": round(czas_rozlewu_h, 1),
-                        "Wąskie gardło": "Pompa" if q_pump_m3h < sekcja_nalewania_m3_h else "Sekcja nalewania"
+                        "Wąskie gardło": "Pompa" if q_pump_m3h < sekcja_nalewania_m3_h else "Sekcja nalewania",
+                        "_masa_kg_miesiac": masa_opakowania_month,
                     })
 
         st.session_state["logistics_results"] = real_split_rows
@@ -3679,7 +3693,9 @@ with tab3:
                            "(Zakładka 1, per produkt) czy z ręcznego podziału w panelu bocznym (per grupa, gdy receptura "
                            "nie precyzuje opakowań dla tego produktu). Kolumna **Wąskie gardło** pokazuje, czy czas rozlewu "
                            "jest dziś limitowany przez wydajność pompy TEGO reaktora (Zakładka 2), czy przez sekcję głowic nalewczych.")
-                st.dataframe(pd.DataFrame(real_split_rows), hide_index=True, use_container_width=True)
+                _df_fg_display = pd.DataFrame(real_split_rows)
+                st.dataframe(_df_fg_display[[c for c in _df_fg_display.columns if not c.startswith("_")]],
+                             hide_index=True, use_container_width=True)
             else:
                 st.info("ℹ️ W wybranym roku/widoku wszystkie produkty tej floty są jeszcze importowane (patrz sekcja "
                         "'📦 Import' poniżej) — brak własnej produkcji FG do pokazania.")
@@ -3787,6 +3803,17 @@ with tab3:
                                    help=f"W tym stały import (\"Nigdy\"): {total_import_positions_target:,} szt.")
             with m_wh3: st.metric("📐 Powierzchnia magazynu (budowana pod 100%)", f"{total_powierzchnia_m2:,.0f} m²")
             with m_wh4: st.metric("📊 Wykorzystanie magazynu w tym roku", f"{wykorzystanie_magazynu_pct:.0f}%")
+
+            # Jasna, bezwzględna ilość materiału w magazynie [t] - nie tylko liczba miejsc paletowych,
+            # które nie mówią wprost "ile mamy" komuś, kto nie myśli w paletach.
+            total_fg_tony_month = sum(r.get("_masa_kg_miesiac", 0.0) for r in real_split_rows) / 1000.0
+            rm_consumption_this_view = compute_rm_consumption_for_year(effective_year_idx_for_import)
+            total_rm_tony_month = sum(rm_consumption_this_view.values()) / MONTHS_PER_YEAR if rm_consumption_this_view else 0.0
+            m_qty1, m_qty2 = st.columns(2)
+            with m_qty1: st.metric("🏷️ Wyroby Gotowe (FG) w magazynie", f"{total_fg_tony_month:,.1f} t",
+                                    help="Miesięczna produkcja FG w wybranym roku/widoku (przybliżenie stanu magazynowego).")
+            with m_qty2: st.metric("🛢️ Surowce (RM) w magazynie", f"{total_rm_tony_month:,.1f} t",
+                                    help="Miesięczne zużycie surowców w wybranym roku/widoku (tanki + beczki/IBC razem) — przybliżenie stanu magazynowego.")
 
             st.caption("💡 Powierzchnia = ⌈(docelowe miejsca paletowe FG + RM + stały Import) / liczba poziomów⌉ × "
                        "powierzchnia/miejsce (1 poziom) — budynek stawiany RAZ, pod pełną (100%) zdolność. "
@@ -4612,6 +4639,40 @@ with tab5:
                     "TEN SAM, spójny wariant (wcześniej to były dwa niezależne, rozjeżdżające się wyliczenia)."
                 )
 
+            # --- Sposób magazynowania: automatyczna sugestia + RĘCZNE nadpisanie per surowiec ---
+            # Algorytm sugeruje "Zbiornik" tylko gdy fizycznie się nadaje (bulk_eligible) I przekracza
+            # próg opłacalności - ale to tylko sugestia. Materiał sypki, dostępny wyłącznie w
+            # paczkach/workach, albo z innego powodu niemagazynowalny luzem MUSI dać się ręcznie
+            # skierować do beczek/IBC/worków, niezależnie od sugestii.
+            if "rm_storage_method_override" not in st.session_state:
+                st.session_state.rm_storage_method_override = {}
+
+            override_rows = []
+            for material, annual_tony_target in sorted(recipe_consumption_target.items(), key=lambda x: -x[1]):
+                if annual_tony_target <= 0:
+                    continue
+                info = RAW_MATERIAL_STORAGE_INFO.get(material, {"bulk_eligible": True, "note": "Brak danych - domyślnie traktowany jak ciecz magazynowalna luzem."})
+                auto_suggestion = "Zbiornik (luzem)" if (info["bulk_eligible"] and annual_tony_target >= prog_zbiornika_t) else "Beczki / IBC / worki"
+                current_choice = st.session_state.rm_storage_method_override.get(material, auto_suggestion)
+                override_rows.append({
+                    "Surowiec": material, "Zużycie docelowe [t/rok]": round(annual_tony_target, 1),
+                    "Sugestia algorytmu": auto_suggestion, "Sposób magazynowania": current_choice,
+                })
+
+            st.markdown("##### 🔀 Sposób magazynowania per surowiec (możesz nadpisać sugestię)")
+            st.caption("Np. materiał sypki, dostępny tylko w paczkach/workach, albo z innego powodu "
+                       "niemagazynowalny luzem — zmień 'Sposób magazynowania' na 'Beczki / IBC / worki', a "
+                       "przeliczy się to poprawnie do magazynu RM poniżej.")
+            edited_override_df = st.data_editor(
+                pd.DataFrame(override_rows), hide_index=True, use_container_width=True,
+                disabled=["Surowiec", "Zużycie docelowe [t/rok]", "Sugestia algorytmu"], key="rm_storage_override_editor",
+                column_config={
+                    "Sposób magazynowania": st.column_config.SelectboxColumn(options=["Zbiornik (luzem)", "Beczki / IBC / worki"]),
+                }
+            )
+            for _, r in edited_override_df.iterrows():
+                st.session_state.rm_storage_method_override[r["Surowiec"]] = r["Sposób magazynowania"]
+
             recipe_silos_rows = []
             recipe_total_tanks = 0
             drummed_materials = []  # surowce NIE trafiające do zbiornika - potrzebują miejsca w magazynie
@@ -4622,9 +4683,11 @@ with tab5:
                 annual_tony_year = recipe_consumption.get(material, 0.0)
                 info = RAW_MATERIAL_STORAGE_INFO.get(material, {"bulk_eligible": True, "note": "Brak danych - domyślnie traktowany jak ciecz magazynowalna luzem."})
                 bulk_ok = info["bulk_eligible"]
-                recommend_tank = bulk_ok and annual_tony_target >= prog_zbiornika_t
+                recommend_tank = st.session_state.rm_storage_method_override.get(material) == "Zbiornik (luzem)"
 
                 daily_t = annual_tony_target / WORKING_DAYS_YEAR
+                is_manual_override = st.session_state.rm_storage_method_override.get(material) != (
+                    "Zbiornik (luzem)" if (bulk_ok and annual_tony_target >= prog_zbiornika_t) else "Beczki / IBC / worki")
                 if recommend_tank:
                     required_m3 = (daily_t * days_of_stock) / OIL_FILL_FACTOR
                     # Netto pojemność potrzebna PO uwzględnieniu współczynnika bezpiecznego napełnienia -
@@ -4639,7 +4702,8 @@ with tab5:
                         needed_tanks = math.ceil(required_m3_gross / max_single_tank_m3)
                     recipe_total_tanks += needed_tanks
                     rekomendacja = f"🛢️ {needed_tanks}× zbiornik dedykowany ({recommended_capacity:.0f} m³)"
-                    uzasadnienie = f"Zużycie {annual_tony_target:.1f} t/rok (docelowo) ≥ próg {prog_zbiornika_t:.0f} t/rok, nadaje się do magazynowania luzem."
+                    uzasadnienie = (f"Zużycie {annual_tony_target:.1f} t/rok (docelowo) ≥ próg {prog_zbiornika_t:.0f} t/rok, nadaje się do magazynowania luzem."
+                                     if not is_manual_override else "Ręcznie wybrane powyżej (odbiega od sugestii algorytmu).")
                     bufor_txt = f"{required_m3:.1f}"
                     silosy_txt = f"{needed_tanks} szt."
                     wykorzystanie_txt = f"{(annual_tony_year / annual_tony_target * 100.0):.0f}%" if annual_tony_target > 0 else "—"
@@ -4648,7 +4712,10 @@ with tab5:
                     })
                 else:
                     rekomendacja = "🧴 Beczki / IBC / worki"
-                    uzasadnienie = info["note"] if not bulk_ok else f"Zużycie {annual_tony_target:.1f} t/rok (docelowo) < próg {prog_zbiornika_t:.0f} t/rok — zbiornik się nie opłaca."
+                    if is_manual_override:
+                        uzasadnienie = "Ręcznie wybrane powyżej (odbiega od sugestii algorytmu) — np. materiał sypki/w paczkach."
+                    else:
+                        uzasadnienie = info["note"] if not bulk_ok else f"Zużycie {annual_tony_target:.1f} t/rok (docelowo) < próg {prog_zbiornika_t:.0f} t/rok — zbiornik się nie opłaca."
                     bufor_txt = "—"
                     silosy_txt = "—"
                     wykorzystanie_txt = "—"
@@ -4760,7 +4827,7 @@ with tab5:
                     n_pallets_month = math.ceil(n_containers_month / container_cfg["per_pallet"])
                     miejsca_paletowe_rm = math.ceil((n_pallets_month / dni_robocze_miesiac_rm) * days_of_stock)
                     rm_warehouse_rows.append({
-                        "Surowiec 🔒": mat, "Typ pojemnika 🔒": container_name,
+                        "Surowiec 🔒": mat, "Typ pojemnika 🔒": container_name, "Zużycie [t/rok] 🔒": round(ann_t, 2),
                         "Pojemników [/mies]": int(n_containers_month), "Palet [/mies]": int(n_pallets_month),
                         "Miejsca magazynowe [szt]": int(miejsca_paletowe_rm),
                     })
