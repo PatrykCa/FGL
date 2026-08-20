@@ -4254,14 +4254,12 @@ with tab4:
                 rampup_cost_revenue_chart[f"Koszt produkcji [{waluta}/rok]"].append(cost_year_chart)
                 rampup_cost_revenue_chart[f"Przychód sprzedaży [{waluta}/rok]"].append(revenue_year_chart)
 
-            chart_df = pd.DataFrame(rampup_tonnage_chart).set_index("Rok")
-            st.line_chart(chart_df)
-
-            chart_cost_rev_df = pd.DataFrame(rampup_cost_revenue_chart).set_index("Rok")
             st.markdown(f"**Koszt produkcji vs Przychód sprzedaży [{waluta}/rok]**")
             st.caption("Z tych samych cen/kosztów per grupa co w Kroku 1 (Rentowność), każda grupa skalowana "
-                       "WŁASNĄ krzywą rozruchu — to ten sam model, który zasila ROI w Kroku 3 niżej.")
-            st.line_chart(chart_cost_rev_df)
+                       "WŁASNĄ krzywą rozruchu — to ten sam model, który zasila ROI w Kroku 3 niżej. Tonaż [t/rok] "
+                       "per rok znajdziesz w tabeli poniżej.")
+            chart_cost_rev_df = pd.DataFrame(rampup_cost_revenue_chart).set_index("Rok")
+            st.bar_chart(chart_cost_rev_df)
 
             st.dataframe(pd.DataFrame(rampup_summary_rows), hide_index=True, use_container_width=True)
             st.caption("ℹ️ **Pełne szarże** — realna liczba szarż zaokrąglona w górę do liczb całkowitych (tak faktycznie "
