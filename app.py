@@ -1583,6 +1583,59 @@ def compute_hydraulics(q_m3h, pipe_dn_mm, pipe_length_m, delta_h_m, viscosity_cs
     return re, tot_p_bar, power_kw, velocity
 
 
+def estimate_tank_surface_area_m2(capacity_m3):
+    """
+    Szacunkowa powierzchnia zewnętrzna zbiornika cylindrycznego, przy założeniu H≈D (typowe dla
+    małych/średnich zbiorników magazynowych) - powierzchnia boczna + dwie podstawy.
+    """
+    if capacity_m3 <= 0:
+        return 0.0
+    d_m = (4.0 * capacity_m3 / math.pi) ** (1.0 / 3.0)  # H=D -> V = (pi/4)*D^3
+    area_side = math.pi * d_m * d_m  # H=D, więc powierzchnia boczna = pi*D*H = pi*D^2
+    area_ends = 2.0 * (math.pi / 4.0) * d_m ** 2
+    return area_side + area_ends
+
+
+def compute_tank_overall_u_wm2k(insulation_mm, k_insulation_wmk=0.04, h_inside_wm2k=50.0, h_outside_wm2k=10.0):
+    """
+    Całkowity współczynnik przenikania ciepła [W/(m2*K)] przez ściankę zbiornika - opór stali
+    pominięty (bardzo dobry przewodnik, opór pomijalny wobec izolacji/konwekcji). Bez izolacji
+    (0 mm) liczy się tylko z oporów konwekcji wewnątrz/na zewnątrz.
+    """
+    r_total = (1.0 / h_inside_wm2k) + (1.0 / h_outside_wm2k)
+    if insulation_mm > 0:
+        r_total += (insulation_mm / 1000.0) / k_insulation_wmk
+    return 1.0 / r_total if r_total > 0 else 0.0
+
+
+def compute_tank_cooling_curve(capacity_m3, insulation_mm, t_start_c, t_ambient_c,
+                                density_kgm3=900.0, cp_j_kgk=2000.0, hours=range(0, 73, 4)):
+    """
+    Krzywa wychładzania zbiornika (prawo stygnięcia Newtona): T(t) = T_amb + (T0-T_amb)*exp(-t/tau),
+    tau = (m*cp)/(U*A). Zwraca listę temperatur [°C] dla podanych godzin. Uproszczenie inżynierskie:
+    stały współczynnik U (nie uwzględnia np. wiatru, promieniowania, zmiany lepkości z temperaturą).
+    """
+    area_m2 = estimate_tank_surface_area_m2(capacity_m3)
+    mass_kg = capacity_m3 * TANK_SAFETY_FILL * density_kgm3
+    u_val = compute_tank_overall_u_wm2k(insulation_mm)
+    if area_m2 <= 0 or mass_kg <= 0 or u_val <= 0:
+        return [t_start_c for _ in hours]
+    tau_s = (mass_kg * cp_j_kgk) / (u_val * area_m2)
+    return [t_ambient_c + (t_start_c - t_ambient_c) * math.exp(-(h * 3600.0) / tau_s) for h in hours]
+
+
+def compute_tank_heating_power_kw(capacity_m3, insulation_mm, t_target_c, t_ambient_c, safety_margin=1.2):
+    """
+    Szacunkowa moc grzania [kW] potrzebna, żeby w stanie ustalonym utrzymać zbiornik w temperaturze
+    docelowej wobec strat do otoczenia (Q = U*A*ΔT), z marginesem bezpieczeństwa na rozruch.
+    """
+    area_m2 = estimate_tank_surface_area_m2(capacity_m3)
+    u_val = compute_tank_overall_u_wm2k(insulation_mm)
+    delta_t = max(t_target_c - t_ambient_c, 0.0)
+    q_watts = u_val * area_m2 * delta_t * safety_margin
+    return q_watts / 1000.0
+
+
 def compute_agitator_power(agitator_type, rpm, impeller_d_m, density_kgm3, viscosity_cst):
     """
     Szacunkowa moc mieszania na podstawie liczby Reynoldsa mieszania.
@@ -2867,6 +2920,7 @@ with tab2:
         st.markdown("### 🛢️ Zbiorniki Surowcowe (RM) — Pompy Rozładunkowe i Rurociąg")
         confirmed_rm_tanks = st.session_state.get("confirmed_rm_tanks", [])
         total_rm_pump_power = 0.0
+        total_rm_heating_power = 0.0
         if not confirmed_rm_tanks:
             st.info("ℹ️ Brak zatwierdzonych zbiorników RM — zadeklaruj je w **Zakładce 2 (Magazynowanie)**, sekcja "
                     "'✅ Zatwierdź Zbiorniki RM', żeby skonfigurować tu ich pompy i rurociąg tłoczny.")
@@ -2880,7 +2934,8 @@ with tab2:
                     "pump_mode": "Dedykowana (dla tego zbiornika)", "shared_pump_id": "",
                     "pump_flow_m3h": 10.0, "pipe_dn": 65, "pipe_length_m": 15.0, "delta_h_m": 4.0,
                     "viscosity_cst": 50.0, "density_kg_m3": 900.0, "count_elbows_90": 3, "count_valves": 2,
-                    "pump_efficiency": 0.6,
+                    "pump_efficiency": 0.6, "heated": False, "target_temp_c": 40.0, "insulation_mm": 50,
+                    "ambient_temp_c": 10.0, "specific_heat_j_kgk": 2000.0,
                 })
                 with st.expander(f"🔧 {rm_tag} — {rm_tank['material']} ({rm_tank['capacity_m3']:.0f} m³)", expanded=False):
                     rc1, rc2, rc3 = st.columns(3)
@@ -2935,7 +2990,59 @@ with tab2:
                     with rc_m3:
                         st.metric("Moc pompy", f"{power_kw_rm:.2f} kW")
 
+                    st.markdown("###### 🔥 Grzanie i izolacja zbiornika")
+                    rh1, rh2, rh3 = st.columns(3)
+                    with rh1:
+                        rm_defaults["heated"] = st.checkbox(
+                            "Zbiornik grzany", value=rm_defaults["heated"], key=f"rm_heated_{rm_tag}",
+                            help="Zaznacz, jeśli surowiec wymaga podgrzewania, żeby zachować płynność "
+                                 "(np. gęste dodatki, woski)."
+                        )
+                        if rm_defaults["heated"]:
+                            rm_defaults["target_temp_c"] = st.number_input(
+                                "Temperatura docelowa [°C]:", min_value=0.0, max_value=120.0,
+                                value=float(rm_defaults["target_temp_c"]), key=f"rm_target_temp_{rm_tag}"
+                            )
+                    with rh2:
+                        rm_defaults["insulation_mm"] = st.selectbox(
+                            "Izolacja zbiornika:", [0, 50, 100], index=[0, 50, 100].index(rm_defaults["insulation_mm"]),
+                            format_func=lambda x: "Brak izolacji" if x == 0 else f"{x} mm",
+                            key=f"rm_insulation_{rm_tag}"
+                        )
+                        rm_defaults["ambient_temp_c"] = st.number_input(
+                            "Temperatura otoczenia [°C]:", min_value=-30.0, max_value=45.0,
+                            value=float(rm_defaults["ambient_temp_c"]), key=f"rm_ambient_{rm_tag}"
+                        )
+                    with rh3:
+                        if rm_defaults["heated"]:
+                            heating_power_kw = compute_tank_heating_power_kw(
+                                rm_tank["capacity_m3"], rm_defaults["insulation_mm"],
+                                rm_defaults["target_temp_c"], rm_defaults["ambient_temp_c"]
+                            )
+                            total_rm_heating_power += heating_power_kw
+                            st.metric("Szacowana moc grzania", f"{heating_power_kw:.2f} kW",
+                                      help="Moc w stanie ustalonym, potrzebna do pokrycia strat ciepła do otoczenia "
+                                           "(z marginesem bezpieczeństwa na rozruch) — nie liczy czasu nagrzewania od zimna.")
+                        else:
+                            st.caption("Zbiornik niegrzany — poniżej krzywa wychładzania dla informacji "
+                                       "(np. jak szybko stygnie po dostawie ciepłego surowca).")
+
+                    t_start_for_curve = rm_defaults["target_temp_c"] if rm_defaults["heated"] else max(rm_defaults["ambient_temp_c"] + 20.0, rm_defaults["ambient_temp_c"])
+                    hours_range = list(range(0, 73, 4))
+                    cooling_df = pd.DataFrame({
+                        "Godzina": hours_range,
+                        "Brak izolacji": compute_tank_cooling_curve(rm_tank["capacity_m3"], 0, t_start_for_curve, rm_defaults["ambient_temp_c"], rm_defaults["density_kg_m3"], rm_defaults["specific_heat_j_kgk"], hours_range),
+                        "Izolacja 50 mm": compute_tank_cooling_curve(rm_tank["capacity_m3"], 50, t_start_for_curve, rm_defaults["ambient_temp_c"], rm_defaults["density_kg_m3"], rm_defaults["specific_heat_j_kgk"], hours_range),
+                        "Izolacja 100 mm": compute_tank_cooling_curve(rm_tank["capacity_m3"], 100, t_start_for_curve, rm_defaults["ambient_temp_c"], rm_defaults["density_kg_m3"], rm_defaults["specific_heat_j_kgk"], hours_range),
+                    }).set_index("Godzina")
+                    st.caption(f"Wychładzanie zbiornika bez dogrzewania, start od {t_start_for_curve:.0f}°C, przy "
+                               f"{rm_defaults['ambient_temp_c']:.0f}°C na zewnątrz (prawo stygnięcia Newtona — "
+                               "uproszczenie inżynierskie, bez wiatru/promieniowania).")
+                    st.line_chart(cooling_df)
+
             st.metric("⚡ Moc pomp RM razem (doliczana do bilansu elektrycznego niżej)", f"{total_rm_pump_power:.2f} kW")
+            if total_rm_heating_power > 0:
+                st.metric("🔥 Moc grzania zbiorników RM razem", f"{total_rm_heating_power:.2f} kW")
 
         st.markdown("---")
 
