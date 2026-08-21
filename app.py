@@ -4063,6 +4063,9 @@ with tab3:
             wykorzystanie_magazynu_pct = (total_miejsca_magazynowe / total_miejsca_magazynowe_target * 100.0) \
                 if total_miejsca_magazynowe_target > 0 else 0.0
 
+            st.session_state["total_miejsca_magazynowe_target_report"] = total_miejsca_magazynowe_target
+            st.session_state["total_powierzchnia_m2_report"] = total_powierzchnia_m2
+
             m_wh1, m_wh2, m_wh3, m_wh4 = st.columns(4)
             with m_wh1: st.metric("📦 Miejsca paletowe — ten rok (FG + RM + Import)", f"{total_miejsca_magazynowe:,} szt.",
                                    help=f"FG: {total_fg_positions:,} szt. · RM: {total_rm_positions:,} szt. · Import: {total_import_positions:,} szt.")
@@ -5683,6 +5686,11 @@ with tab8:
 
         st.markdown("### 🏭 Produkcja i Flota")
         st.metric("🎯 Docelowa produkcja (100%, Rok 5+)", f"{target_annual_t_dash:,.0f} t/rok — {n_mixers} mieszalników, {len(groups_active)} grup produktowych")
+        st.caption("⚠️ **O niskiej 'Min. utylizacji':** szarże liczone są w pełnych sztukach (nie da się uruchomić "
+                   "0,3 szarży) — jeśli w danym miesiącu popyt jest mały, reaktor i tak uruchamia **minimum 1 pełną "
+                   "szarżę**. Przy dużej docelowej liczbie szarż/miesiąc (np. 30) ta jedna szarża da niską wartość % "
+                   "(np. 3%) — to prawidłowe zaokrąglenie fizyczne, nie błąd, ale oznacza realnie niemal bezczynny "
+                   "reaktor w tym miesiącu, nie usterkę obliczeń.")
 
         recipes_df_dash = st.session_state.get("recipes_df")
         product_sourcing_lookup_dash = {}
@@ -5735,6 +5743,31 @@ with tab8:
                 st.metric("📦 Import", f"{import_tonnage_y:,.0f} t")
 
         st.markdown("---")
+        st.markdown("### 🛢️ Zbiorniki RM")
+        confirmed_rm_tanks_dash2 = st.session_state.get("confirmed_rm_tanks", [])
+        if not confirmed_rm_tanks_dash2:
+            st.info("ℹ️ Brak zatwierdzonych zbiorników RM — odwiedź Zakładkę 2 (Magazynowanie), sekcję "
+                    "'✅ Zatwierdź Zbiorniki RM'.")
+        else:
+            tanks_by_material_dash2 = {}
+            for t in confirmed_rm_tanks_dash2:
+                tanks_by_material_dash2.setdefault(t["material"], []).append(t)
+            year_cols_tanks = st.columns(RAMPUP_YEARS)
+            for year_idx, col in enumerate(year_cols_tanks):
+                active_tanks_n, inactive_tanks_n = 0, 0
+                for material, tanks_this_material in tanks_by_material_dash2.items():
+                    year_consumption = compute_rm_consumption_for_year(year_idx)
+                    is_active = year_consumption.get(material, 0.0) > 0
+                    if is_active:
+                        active_tanks_n += len(tanks_this_material)
+                    else:
+                        inactive_tanks_n += len(tanks_this_material)
+                with col:
+                    st.markdown(f"**Rok {year_idx + 1}**")
+                    st.metric("🟢 Aktywne", f"{active_tanks_n} szt.")
+                    st.metric("⚪ Nieaktywne", f"{inactive_tanks_n} szt.")
+
+        st.markdown("---")
         st.markdown("### 💰 CAPEX i ROI")
         total_capex_dash = st.session_state.get("total_capex_report")
         payback_dash = st.session_state.get("payback_year_fraction_report")
@@ -5757,11 +5790,19 @@ with tab8:
                       help=None if roi_year5_dash is not None else "Odwiedź Krok 4 (ROI) w Zakładce 5.")
 
         st.markdown("---")
-        st.markdown("### 🏢 Magazyn (FG)")
+        st.markdown("### 🏢 Magazyn — FG / RM (beczki) / Import, osobno per rok")
+        total_wh_target_dash = st.session_state.get("total_miejsca_magazynowe_target_report")
+        total_wh_m2_dash = st.session_state.get("total_powierzchnia_m2_report")
+        if total_wh_target_dash:
+            st.metric("🎯 Docelowa pojemność magazynu (FG + RM w beczkach + stały import, razem)",
+                      f"{total_wh_target_dash:,.0f} szt." + (f" · {total_wh_m2_dash:,.0f} m²" if total_wh_m2_dash else ""))
+
         fg_capacity_dash = st.session_state.get("fg_capacity_pallets_report")
         stock_df_dash = st.session_state.get("stock_simulation_df")
         powierzchnia_na_miejsce_dash = st.session_state.get("powierzchnia_na_miejsce_report")
         liczba_poziomow_dash = st.session_state.get("liczba_poziomow_report")
+        import_pallet_mass_kg_dash = st.session_state.get("import_pallet_mass_kg", 800.0)
+        recipes_df_dash2 = st.session_state.get("recipes_df")
 
         if not fg_capacity_dash or stock_df_dash is None or stock_df_dash.empty:
             st.info("ℹ️ Odwiedź Zakładkę 4 (Logistyka), sekcję symulacji stanu magazynowego, aby zobaczyć wykorzystanie per rok.")
@@ -5772,22 +5813,73 @@ with tab8:
                 floor_slots = math.ceil(pal_count / liczba_poziomow_dash) if liczba_poziomow_dash > 0 else pal_count
                 return floor_slots * powierzchnia_na_miejsce_dash
 
+            def _rm_drummed_positions_for_year(year_idx_calc):
+                """Palety RM (beczki/IBC/worki) dla danego roku - materiały skierowane do beczek,
+                nie do zbiorników (te liczone osobno, jako zbiorniki, nie palety)."""
+                rm_year_consumption = compute_rm_consumption_for_year(year_idx_calc)
+                rm_container_assignment = st.session_state.get("rm_container_assignment", {})
+                rm_storage_method_override = st.session_state.get("rm_storage_method_override", {})
+                positions = 0
+                for mat, ann_t in rm_year_consumption.items():
+                    if ann_t <= 0 or rm_storage_method_override.get(mat) == "Zbiornik (luzem)":
+                        continue
+                    container_name = rm_container_assignment.get(mat, "Beczka 200 kg (ciecz)")
+                    container_cfg = RM_CONTAINER_TYPES.get(container_name)
+                    if not container_cfg:
+                        continue
+                    monthly_kg = (ann_t * 1000.0) / MONTHS_PER_YEAR
+                    n_containers = math.ceil(monthly_kg / container_cfg["capacity_kg"]) if container_cfg["capacity_kg"] > 0 else 0
+                    positions += math.ceil(n_containers / container_cfg["per_pallet"]) if container_cfg["per_pallet"] > 0 else 0
+                return positions
+
+            def _import_positions_for_year(year_idx_calc):
+                """Ta sama logika co compute_import_positions w Zakładce 4 (lokalna tam, więc
+                odtworzona tutaj) - miejsca paletowe produktów jeszcze/na stałe importowanych,
+                z WYŁĄCZENIEM 'Nigdy (bufor)' (te mają własny zbiornik, nie paletę)."""
+                total_positions = 0
+                if recipes_df_dash2 is None or recipes_df_dash2.empty or RECIPE_SOURCING_COL not in recipes_df_dash2.columns:
+                    return total_positions
+                import_rows_df = recipes_df_dash2[
+                    (recipes_df_dash2[RECIPE_SOURCING_COL] == "Import") &
+                    (recipes_df_dash2.get(RECIPE_IMPORT_TRANSITION_COL, pd.Series(dtype=str)) != "Nigdy (bufor)")
+                ]
+                for _, r in import_rows_df.iterrows():
+                    if not is_product_imported_in_year(r.get(RECIPE_SOURCING_COL, "Produkcja własna"),
+                                                         r.get(RECIPE_IMPORT_TRANSITION_COL, ""), year_idx_calc):
+                        continue
+                    annual_t_target = float(r.get(RECIPE_ANNUAL_COL, 0) or 0)
+                    frac = get_rampup_fraction(r[RECIPE_GROUP_COL], year_idx_calc)
+                    effective_annual_t = annual_t_target * frac
+                    daily_t = effective_annual_t / WORKING_DAYS_YEAR if WORKING_DAYS_YEAR > 0 else 0.0
+                    lot_t = float(r.get(RECIPE_IMPORT_LOT_COL, 0) or 0)
+                    safety_days = float(r.get(RECIPE_IMPORT_SAFETY_DAYS_COL, 0) or 0)
+                    peak_stock_t = lot_t + safety_days * daily_t
+                    total_positions += math.ceil((peak_stock_t * 1000.0) / import_pallet_mass_kg_dash) if import_pallet_mass_kg_dash > 0 else 0
+                return total_positions
+
+            buffer_products_dash = []
+            if recipes_df_dash2 is not None and not recipes_df_dash2.empty and RECIPE_IMPORT_TRANSITION_COL in recipes_df_dash2.columns:
+                buffer_mask_dash = (recipes_df_dash2[RECIPE_SOURCING_COL] == "Import") & \
+                                    (recipes_df_dash2[RECIPE_IMPORT_TRANSITION_COL] == "Nigdy (bufor)")
+                buffer_products_dash = recipes_df_dash2.loc[buffer_mask_dash, RECIPE_PRODUCT_COL].tolist()
+
             year_end_indices = [11, 23, 35, 47, 59]
             year_cols_wh = st.columns(RAMPUP_YEARS)
             for year_idx, col in enumerate(year_cols_wh):
                 idx = year_end_indices[year_idx]
                 if idx >= len(stock_df_dash):
                     continue
-                used_pal = stock_df_dash.iloc[idx]["Stan magazynowy [pal]"]
-                free_pal = max(fg_capacity_dash - used_pal, 0.0)
-                util_pct = (used_pal / fg_capacity_dash * 100.0) if fg_capacity_dash > 0 else 0.0
-                used_m2 = _pal_to_m2_dash(used_pal)
-                free_m2 = _pal_to_m2_dash(free_pal)
+                fg_used_pal = stock_df_dash.iloc[idx]["Stan magazynowy [pal]"]
+                rm_used_pal = _rm_drummed_positions_for_year(year_idx)
+                import_used_pal = _import_positions_for_year(year_idx)
                 with col:
                     st.markdown(f"**Rok {year_idx + 1}**")
-                    st.metric("📊 Wykorzystanie", f"{util_pct:.0f}%")
-                    st.metric("✅ Zajęte", f"{used_pal:,.0f} pal." + (f" / {used_m2:,.0f} m²" if used_m2 is not None else ""))
-                    st.metric("⬜ Wolne", f"{free_pal:,.0f} pal." + (f" / {free_m2:,.0f} m²" if free_m2 is not None else ""))
+                    st.metric("🏷️ FG", f"{fg_used_pal:,.0f} pal.")
+                    st.metric("🛢️ RM (beczki)", f"{rm_used_pal:,.0f} pal.")
+                    st.metric("📦 Import", f"{import_used_pal:,.0f} pal.")
+                    if buffer_products_dash and import_used_pal == 0 and year_idx == RAMPUP_YEARS - 1:
+                        st.caption(f"ℹ️ {', '.join(buffer_products_dash)} to import na stałe (Nigdy bufor) — "
+                                   "ma własny zbiornik, nie paletę, więc nie liczy się tu jako 'Import'.")
 
         st.markdown("---")
         st.markdown("### ⚡ Energia (Rok 1 vs. Rok 5)")
