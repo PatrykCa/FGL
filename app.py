@@ -4039,6 +4039,8 @@ with tab3:
                          "regału (zwykle 3-5). Więcej poziomów = mniejsza wymagana powierzchnia podłogi przy "
                          "tej samej liczbie miejsc paletowych. Wybierz 'Własna wartość' powyżej, aby to odblokować."
                 )
+            st.session_state["powierzchnia_na_miejsce_report"] = powierzchnia_na_miejsce
+            st.session_state["liczba_poziomow_report"] = liczba_poziomow
 
             total_fg_positions = sum(r["Miejsca magazynowe [szt] 📐"] for r in real_split_rows)
             # RM już liczone w Zakładce 2 dla WYBRANEGO tam roku/importu (nie doliczamy tu drugi
@@ -5680,13 +5682,57 @@ with tab8:
         groups_active = sorted(set(m["product_family"] for m in st.session_state.confirmed_mixers))
 
         st.markdown("### 🏭 Produkcja i Flota")
-        d1, d2, d3 = st.columns(3)
-        with d1:
-            st.metric("🎯 Docelowa produkcja (100%, Rok 5+)", f"{target_annual_t_dash:,.0f} t/rok")
-        with d2:
-            st.metric("⚙️ Mieszalniki we flocie", f"{n_mixers} szt.")
-        with d3:
-            st.metric("📦 Aktywne grupy produktowe", f"{len(groups_active)}", help=", ".join(groups_active))
+        st.metric("🎯 Docelowa produkcja (100%, Rok 5+)", f"{target_annual_t_dash:,.0f} t/rok — {n_mixers} mieszalników, {len(groups_active)} grup produktowych")
+
+        recipes_df_dash = st.session_state.get("recipes_df")
+        product_sourcing_lookup_dash = {}
+        if recipes_df_dash is not None and not recipes_df_dash.empty and RECIPE_SOURCING_COL in recipes_df_dash.columns:
+            for _, r in recipes_df_dash.iterrows():
+                product_sourcing_lookup_dash[r[RECIPE_PRODUCT_COL]] = (
+                    r.get(RECIPE_SOURCING_COL, "Produkcja własna"), r.get(RECIPE_IMPORT_TRANSITION_COL, "")
+                )
+
+        year_cols_prod = st.columns(RAMPUP_YEARS)
+        for year_idx, col in enumerate(year_cols_prod):
+            active_n, inactive_n = 0, 0
+            utilizations = []  # (tag, %)
+            own_tonnage_y, import_tonnage_y = 0.0, 0.0
+            for m in st.session_state.confirmed_mixers:
+                recipe_product = m.get("recipe_product")
+                is_imported = False
+                if recipe_product and recipe_product in product_sourcing_lookup_dash:
+                    sourcing, transition = product_sourcing_lookup_dash[recipe_product]
+                    is_imported = is_product_imported_in_year(sourcing, transition, year_idx)
+                frac = get_rampup_fraction(m["product_family"], year_idx)
+                if is_imported:
+                    inactive_n += 1
+                    import_tonnage_y += (m["annual_volume"] / 1000.0) * frac
+                    continue
+                scaled_monthly_mass = (m["annual_volume"] / MONTHS_PER_YEAR) * frac
+                scaled_batches = math.ceil(scaled_monthly_mass / m["mass_per_batch"]) if m["mass_per_batch"] > 0 else 0
+                util_pct = (scaled_batches / m["batches_count"] * 100.0) if m["batches_count"] > 0 else 0.0
+                utilizations.append((m["tag"], util_pct))
+                if scaled_batches > 0:
+                    active_n += 1
+                else:
+                    inactive_n += 1
+                own_tonnage_y += (m["annual_volume"] / 1000.0) * frac
+
+            with col:
+                st.markdown(f"**Rok {year_idx + 1}**")
+                st.metric("🟢 Aktywne", f"{active_n} szt.")
+                st.metric("⚪ Nieaktywne", f"{inactive_n} szt.")
+                if utilizations:
+                    tag_min, util_min = min(utilizations, key=lambda x: x[1])
+                    tag_max, util_max = max(utilizations, key=lambda x: x[1])
+                    util_avg = sum(u for _, u in utilizations) / len(utilizations)
+                    st.metric("📉 Min. utylizacja", f"{util_min:.0f}%", help=f"Mieszalnik: {tag_min}")
+                    st.metric("📈 Maks. utylizacja", f"{util_max:.0f}%", help=f"Mieszalnik: {tag_max}")
+                    st.metric("📊 Śr. utylizacja", f"{util_avg:.0f}%")
+                else:
+                    st.caption("Brak aktywnych mieszalników w tym roku.")
+                st.metric("🏭 Produkcja własna", f"{own_tonnage_y:,.0f} t")
+                st.metric("📦 Import", f"{import_tonnage_y:,.0f} t")
 
         st.markdown("---")
         st.markdown("### 💰 CAPEX i ROI")
@@ -5711,28 +5757,37 @@ with tab8:
                       help=None if roi_year5_dash is not None else "Odwiedź Krok 4 (ROI) w Zakładce 5.")
 
         st.markdown("---")
-        st.markdown("### 🏢 Magazyn")
+        st.markdown("### 🏢 Magazyn (FG)")
         fg_capacity_dash = st.session_state.get("fg_capacity_pallets_report")
         stock_df_dash = st.session_state.get("stock_simulation_df")
+        powierzchnia_na_miejsce_dash = st.session_state.get("powierzchnia_na_miejsce_report")
+        liczba_poziomow_dash = st.session_state.get("liczba_poziomow_report")
 
-        f1, f2, f3 = st.columns(3)
-        with f1:
-            st.metric("📐 Pojemność magazynu FG", f"{fg_capacity_dash:,.0f} palet" if fg_capacity_dash else "—",
-                      help=None if fg_capacity_dash else "Odwiedź Zakładkę 3 (Logistyka), sekcję symulacji stanu magazynowego.")
-        if stock_df_dash is not None and not stock_df_dash.empty:
-            stock_year5_pal = stock_df_dash.iloc[-1]["Stan magazynowy [pal]"]
-            wartosc_cols = [c for c in stock_df_dash.columns if c.startswith("Wartość zapasu")]
-            stock_year5_val = stock_df_dash.iloc[-1][wartosc_cols[0]] if wartosc_cols else None
-            util_pct_dash = (stock_year5_pal / fg_capacity_dash * 100.0) if fg_capacity_dash else None
-            with f2:
-                st.metric("📊 Wykorzystanie magazynu (Rok 5)", f"{util_pct_dash:.0f}%" if util_pct_dash is not None else "—")
-            with f3:
-                st.metric("💵 Wartość zapasu (Rok 5)", f"{stock_year5_val:,.0f} {waluta_dash}" if stock_year5_val is not None else "—")
+        if not fg_capacity_dash or stock_df_dash is None or stock_df_dash.empty:
+            st.info("ℹ️ Odwiedź Zakładkę 4 (Logistyka), sekcję symulacji stanu magazynowego, aby zobaczyć wykorzystanie per rok.")
         else:
-            with f2:
-                st.metric("📊 Wykorzystanie magazynu (Rok 5)", "—", help="Odwiedź Zakładkę 3 (Logistyka).")
-            with f3:
-                st.metric("💵 Wartość zapasu (Rok 5)", "—", help="Odwiedź Zakładkę 3 (Logistyka).")
+            def _pal_to_m2_dash(pal_count):
+                if not powierzchnia_na_miejsce_dash or not liczba_poziomow_dash:
+                    return None
+                floor_slots = math.ceil(pal_count / liczba_poziomow_dash) if liczba_poziomow_dash > 0 else pal_count
+                return floor_slots * powierzchnia_na_miejsce_dash
+
+            year_end_indices = [11, 23, 35, 47, 59]
+            year_cols_wh = st.columns(RAMPUP_YEARS)
+            for year_idx, col in enumerate(year_cols_wh):
+                idx = year_end_indices[year_idx]
+                if idx >= len(stock_df_dash):
+                    continue
+                used_pal = stock_df_dash.iloc[idx]["Stan magazynowy [pal]"]
+                free_pal = max(fg_capacity_dash - used_pal, 0.0)
+                util_pct = (used_pal / fg_capacity_dash * 100.0) if fg_capacity_dash > 0 else 0.0
+                used_m2 = _pal_to_m2_dash(used_pal)
+                free_m2 = _pal_to_m2_dash(free_pal)
+                with col:
+                    st.markdown(f"**Rok {year_idx + 1}**")
+                    st.metric("📊 Wykorzystanie", f"{util_pct:.0f}%")
+                    st.metric("✅ Zajęte", f"{used_pal:,.0f} pal." + (f" / {used_m2:,.0f} m²" if used_m2 is not None else ""))
+                    st.metric("⬜ Wolne", f"{free_pal:,.0f} pal." + (f" / {free_m2:,.0f} m²" if free_m2 is not None else ""))
 
         st.markdown("---")
         st.markdown("### ⚡ Energia (Rok 1 vs. Rok 5)")
@@ -5745,133 +5800,6 @@ with tab8:
                 st.metric("Rok 5 — Energia razem", f"{energy_rows_dash[-1].get('Energia razem [waluta/rok]', 0):,.0f} {waluta_dash}/rok")
         else:
             st.info("ℹ️ Odwiedź Zakładkę 5 (Analiza Finansowa, CAPEX i ROI), Krok 4, aby policzyć KPI energetyczne per rok.")
-
-        st.markdown("---")
-        st.markdown("### 📈 Symulacja 5-letnia — Min / Średnia / Maks per rok")
-        st.caption("Dzięki liniowej interpolacji krzywej rozruchu (panel boczny, KROK 3) wartości w obrębie roku "
-                   "realnie się zmieniają miesiąc do miesiąca — poniżej pełny rozrzut, nie tylko jedna liczba na rok. "
-                   "**Uwaga:** 'Stan magazynowy RM' to tu miesięczne ZUŻYCIE surowców (uproszczenie — pełna symulacja "
-                   "stanu z rytmem dostaw, jak dla FG, nie jest jeszcze zbudowana dla RM).")
-
-        recipes_df_dash = st.session_state.get("recipes_df")
-        product_sourcing_lookup_dash = {}
-        if recipes_df_dash is not None and not recipes_df_dash.empty and RECIPE_SOURCING_COL in recipes_df_dash.columns:
-            for _, r in recipes_df_dash.iterrows():
-                product_sourcing_lookup_dash[r[RECIPE_PRODUCT_COL]] = (
-                    r.get(RECIPE_SOURCING_COL, "Produkcja własna"), r.get(RECIPE_IMPORT_TRANSITION_COL, "")
-                )
-
-        group_pricing_dash = st.session_state.get("group_pricing", {})
-        active_portfolio_dash = st.session_state.get("active_portfolio", {})
-        confirmed_rm_tanks_dash = st.session_state.get("confirmed_rm_tanks", [])
-        calculated_times_dash = st.session_state.get("calculated_times", {})
-        cena_mwh_dash = st.session_state.get("cena_mwh_tab4", 750.0)
-
-        tanks_by_material_dash = {}
-        for t in confirmed_rm_tanks_dash:
-            tanks_by_material_dash.setdefault(t["material"], []).append(t)
-
-        cost_item_keys_dash = ["labour", "energy", "qc", "maintenance", "logistics", "overhead"]
-        groups_active_dash = sorted(set(m["product_family"] for m in st.session_state.confirmed_mixers))
-
-        dash_5y_rows = []
-        for year_idx in range(RAMPUP_YEARS):
-            tonnage_samples, cost_samples, revenue_samples = [], [], []
-            active_mixers_samples, active_tanks_samples, energy_samples, rm_consumption_samples = [], [], [], []
-
-            for month_idx in range(12):
-                # --- Tonaż + aktywne mieszalniki + energia (per mieszalnik, z wykluczeniem importu per produkt) ---
-                month_tonnage_t = 0.0
-                active_mixers_count = 0
-                month_energy_kwh = 0.0
-                for m in st.session_state.confirmed_mixers:
-                    recipe_product = m.get("recipe_product")
-                    is_imported = False
-                    if recipe_product and recipe_product in product_sourcing_lookup_dash:
-                        sourcing, transition = product_sourcing_lookup_dash[recipe_product]
-                        is_imported = is_product_imported_in_year(sourcing, transition, year_idx)
-                    if is_imported:
-                        continue
-                    frac = get_rampup_fraction_month(m["product_family"], year_idx, month_idx)
-                    month_mass_kg = (m["annual_volume"] / MONTHS_PER_YEAR) * frac
-                    month_tonnage_t += month_mass_kg / 1000.0
-                    scaled_batches = math.ceil(month_mass_kg / m["mass_per_batch"]) if m["mass_per_batch"] > 0 else 0
-                    if scaled_batches > 0:
-                        active_mixers_count += 1
-                    m_data = calculated_times_dash.get(m["tag"], {"power_mix_kw": 5.5, "power_pump_kw": 1.5})
-                    cycle_h_dash = m.get("cycle_h", 4.0)
-                    month_energy_kwh += (m_data["power_mix_kw"] * cycle_h_dash + m_data["power_pump_kw"] * 0.75) * scaled_batches
-
-                tonnage_samples.append(month_tonnage_t)
-                active_mixers_samples.append(active_mixers_count)
-                energy_samples.append(month_energy_kwh)
-
-                # --- Koszt / przychód (per grupa, ta sama metoda co ROI w Zakładce 5, Krok 3) ---
-                month_revenue, month_cost = 0.0, 0.0
-                for grp in groups_active_dash:
-                    density_kg_l = active_portfolio_dash.get(grp, {}).get("density", 0.9)
-                    annual_volume_kg_grp = sum(mm["annual_volume"] for mm in st.session_state.confirmed_mixers if mm["product_family"] == grp)
-                    annual_volume_l_grp = annual_volume_kg_grp / density_kg_l if density_kg_l > 0 else 0.0
-                    frac_grp = get_rampup_fraction_month(grp, year_idx, month_idx)
-                    vol_l_month_grp = (annual_volume_l_grp / MONTHS_PER_YEAR) * frac_grp
-                    pricing_grp = group_pricing_dash.get(grp, {
-                        "sales_price": 2.0, "raw_material_cost": 1.35, "labour": 0.07, "energy": 0.04,
-                        "qc": 0.04, "maintenance": 0.04, "logistics": 0.04, "overhead": 0.04,
-                    })
-                    cost_per_l_grp = pricing_grp["raw_material_cost"] + sum(pricing_grp[k] for k in cost_item_keys_dash)
-                    month_revenue += vol_l_month_grp * pricing_grp["sales_price"]
-                    month_cost += vol_l_month_grp * cost_per_l_grp
-                revenue_samples.append(month_revenue)
-                cost_samples.append(month_cost)
-
-                # --- RM: zużycie miesięczne + aktywne zbiorniki ---
-                rm_month_consumption = compute_rm_consumption_for_month(year_idx, month_idx)
-                rm_consumption_samples.append(sum(rm_month_consumption.values()))
-                active_tanks_count = sum(1 for mat in tanks_by_material_dash if rm_month_consumption.get(mat, 0.0) > 0)
-                active_tanks_samples.append(active_tanks_count)
-
-            def _mma(lst):
-                return (min(lst), sum(lst) / len(lst), max(lst))
-
-            t_min, t_avg, t_max = _mma(tonnage_samples)
-            c_min, c_avg, c_max = _mma(cost_samples)
-            r_min, r_avg, r_max = _mma(revenue_samples)
-            rm_min, rm_avg, rm_max = _mma(rm_consumption_samples)
-            am_min, am_avg, am_max = _mma(active_mixers_samples)
-            at_min, at_avg, at_max = _mma(active_tanks_samples)
-            en_min, en_avg, en_max = _mma(energy_samples)
-
-            dash_5y_rows.append({
-                "Rok": f"Rok {year_idx + 1}",
-                "Tonaż [t/mies] Min": round(t_min, 1), "Śr": round(t_avg, 1), "Maks": round(t_max, 1),
-                f"Koszt [{waluta_dash}/mies] Min": round(c_min, 0), "Śr ": round(c_avg, 0), "Maks ": round(c_max, 0),
-                f"Przychód [{waluta_dash}/mies] Min": round(r_min, 0), "Śr  ": round(r_avg, 0), "Maks  ": round(r_max, 0),
-                "RM zużycie [t/mies] Min": round(rm_min, 1), "Śr   ": round(rm_avg, 1), "Maks   ": round(rm_max, 1),
-                "Aktywne mieszalniki Min": int(am_min), "Śr    ": round(am_avg, 1), "Maks    ": int(am_max),
-                "Aktywne zbiorniki RM Min": int(at_min), "Śr     ": round(at_avg, 1), "Maks     ": int(at_max),
-                "Energia [kWh/mies] Min": round(en_min, 0), "Śr      ": round(en_avg, 0), "Maks      ": round(en_max, 0),
-            })
-
-        metric_group_dash = st.selectbox(
-            "Pokaż metrykę:",
-            ["Tonaż produkcji", "Koszt produkcji", "Przychód sprzedaży", "Zużycie RM", "Aktywne mieszalniki",
-             "Aktywne zbiorniki RM", "Zapotrzebowanie energii"],
-            key="dash_5y_metric_select"
-        )
-        _col_map_dash = {
-            "Tonaż produkcji": ["Tonaż [t/mies] Min", "Śr", "Maks"],
-            "Koszt produkcji": [f"Koszt [{waluta_dash}/mies] Min", "Śr ", "Maks "],
-            "Przychód sprzedaży": [f"Przychód [{waluta_dash}/mies] Min", "Śr  ", "Maks  "],
-            "Zużycie RM": ["RM zużycie [t/mies] Min", "Śr   ", "Maks   "],
-            "Aktywne mieszalniki": ["Aktywne mieszalniki Min", "Śr    ", "Maks    "],
-            "Aktywne zbiorniki RM": ["Aktywne zbiorniki RM Min", "Śr     ", "Maks     "],
-            "Zapotrzebowanie energii": ["Energia [kWh/mies] Min", "Śr      ", "Maks      "],
-        }
-        show_cols = ["Rok"] + _col_map_dash[metric_group_dash]
-        df_dash_5y = pd.DataFrame(dash_5y_rows)[show_cols]
-        df_dash_5y.columns = ["Rok", "Min", "Średnia", "Maks"]
-        st.dataframe(df_dash_5y, hide_index=True, use_container_width=True)
-        st.bar_chart(df_dash_5y.set_index("Rok"))
 
         st.markdown("---")
         st.caption("📄 Pełny raport (PDF/Excel) ze wszystkimi tymi liczbami znajdziesz w Zakładce 5, Krok 5.")
