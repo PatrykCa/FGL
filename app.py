@@ -112,8 +112,7 @@ RECIPE_RAW_MATERIALS = [
     "Pakiet Hydrauliczny (Hydraulic) [kg/t]", "Zagęszczacz Mydłowy (Li/Ca/Complex) [kg/t]",
     "Zagęszczacz Niemydłowy (Polyurea/Bentonit) [kg/t]", "Smar Stały: MoS2 / Grafit [kg/t]",
     "Smar Stały: PTFE / Boron Nitride [kg/t]", "Barwnik / Znacznik / Zapach [kg/t]",
-    "Woda Demineralizowana [kg/t]", "Biocyd / Fungicyd [kg/t]", 
-    "Rozpuszczalniki [kg/t]",
+    "Woda Demineralizowana [kg/t]", "Biocyd / Fungicyd [kg/t]",
 ]
 
 # Grupy produktowe do wyboru (lista rozwijana w szablonie Excel + walidacja przy imporcie).
@@ -177,7 +176,7 @@ RECIPE_NOTES_COL = "Uwagi Technologiczne / Status QA"
 RECIPE_SOURCING_COL = "Sposób Pozyskania"
 RECIPE_SOURCING_OPTIONS = ["Produkcja własna", "Import"]
 RECIPE_IMPORT_TRANSITION_COL = "Rok Przejścia na Produkcję Własną"
-RECIPE_IMPORT_TRANSITION_OPTIONS = ["Rok 1", "Rok 2", "Rok 3", "Rok 4", "Rok 5", "Nigdy (stały import)"]
+RECIPE_IMPORT_TRANSITION_OPTIONS = ["Rok 1", "Rok 2", "Rok 3", "Rok 4", "Rok 5", "Nigdy (stały import)", "Nigdy (bufor)"]
 RECIPE_IMPORT_FREQ_COL = "Częstotliwość Dostawy Importowej [dni]"
 RECIPE_IMPORT_LOT_COL = "Wielkość 1 Dostawy Importowej [tony]"
 RECIPE_IMPORT_SAFETY_DAYS_COL = "Bufor Bezpieczeństwa Importu [dni]"
@@ -227,7 +226,7 @@ def is_product_imported_in_year(sourcing, transition_label, year_idx):
     """
     if sourcing != "Import":
         return False
-    if transition_label == "Nigdy (stały import)" or not transition_label:
+    if transition_label in ("Nigdy (stały import)", "Nigdy (bufor)") or not transition_label:
         return True
     if year_idx == RAMPUP_YEAR_TARGET_SENTINEL:
         return False  # widok docelowy = pełna dojrzałość = po przejściu (chyba że "Nigdy", obsłużone wyżej)
@@ -1917,7 +1916,7 @@ def sync_recipes_into_fleet_defaults():
         # jest wymiarowana pod docelową (w pełni dojrzałą, czyli już produkowaną) zdolność.
         if RECIPE_SOURCING_COL in group_rows_all.columns and RECIPE_IMPORT_TRANSITION_COL in group_rows_all.columns:
             permanent_import_mask = (group_rows_all[RECIPE_SOURCING_COL] == "Import") & \
-                                     (group_rows_all[RECIPE_IMPORT_TRANSITION_COL] == "Nigdy (stały import)")
+                                     (group_rows_all[RECIPE_IMPORT_TRANSITION_COL].isin(["Nigdy (stały import)", "Nigdy (bufor)"]))
             group_rows = group_rows_all[~permanent_import_mask]
         else:
             group_rows = group_rows_all
@@ -3705,6 +3704,19 @@ with tab3:
                 split_source = "ręczny"
                 pack_pcts = {p: opakowania_podzial.get(f"pct_{kat}_{p}", 0.0) for p in st.session_state.pack_configs.keys()}
 
+            # KRYTYCZNE: normalizacja do 100% - jeśli suma % opakowań w źródle (recepturze albo
+            # ręcznym podziale) nie wynosi dokładnie 100% (np. wpisano tylko 67%, reszta pusta),
+            # BEZ tej normalizacji brakująca masa po prostu ZNIKAŁA z obliczeń (nigdy nie trafiała
+            # do żadnego opakowania) - produkcja/magazyn FG był wtedy cicho zaniżony. Skalujemy
+            # proporcjonalnie, żeby cała masa zawsze się rozliczyła, i zgłaszamy niezgodność do
+            # ostrzeżenia zbiorczego niżej, żeby dało się poprawić dane źródłowe.
+            pack_pcts_sum = sum(pack_pcts.values())
+            if pack_pcts_sum > 0.5 and abs(pack_pcts_sum - 100.0) > 2.0:
+                packaging_mismatch_warnings.append(
+                    f"{recipe_product or kat} ({split_source}): suma % opakowań = {pack_pcts_sum:.0f}% zamiast 100%"
+                )
+                pack_pcts = {p: v * (100.0 / pack_pcts_sum) for p, v in pack_pcts.items()}
+
             for p, udzial_pct in pack_pcts.items():
                 if udzial_pct <= 0 or p not in st.session_state.pack_configs:
                     continue
@@ -3760,7 +3772,10 @@ with tab3:
             rows, total_positions = [], 0
             if recipes_df_lookup is None or recipes_df_lookup.empty or RECIPE_SOURCING_COL not in recipes_df_lookup.columns:
                 return rows, total_positions
-            import_rows_df = recipes_df_lookup[recipes_df_lookup[RECIPE_SOURCING_COL] == "Import"]
+            import_rows_df = recipes_df_lookup[
+                (recipes_df_lookup[RECIPE_SOURCING_COL] == "Import") &
+                (recipes_df_lookup.get(RECIPE_IMPORT_TRANSITION_COL, pd.Series(dtype=str)) != "Nigdy (bufor)")
+            ]
             for _, r in import_rows_df.iterrows():
                 if not is_product_imported_in_year(r.get(RECIPE_SOURCING_COL, "Produkcja własna"),
                                                      r.get(RECIPE_IMPORT_TRANSITION_COL, ""), year_idx_for_calc):
@@ -4964,6 +4979,50 @@ with tab5:
             with m_silo2:
                 n_drums = sum(1 for r in recipe_silos_rows if "Beczki" in r["Rekomendacja"])
                 st.metric("🧴 Surowce zostające w beczkach/IBC", f"{n_drums} / {len(recipe_silos_rows)}")
+
+            # --- Zbiorniki buforowe dla produktów IMPORTOWANYCH NA STAŁE, oznaczonych w Zakładce 1
+            # jako "Nigdy (bufor)" - to gotowy produkt, nie surowiec (nie liczy się do zużycia RM,
+            # nie dostaje mieszalnika), ale mimo to potrzebuje lokalnego zbiornika (np. żeby baza
+            # się nie rozwarstwiła) zamiast zwykłych palet importowych. Ta sama logika wymiarowania
+            # (dni zapasu × wolumen), tylko wolumen produktu zamiast zużycia surowca.
+            buffer_tank_candidates = []
+            if st.session_state.recipes_df is not None and not st.session_state.recipes_df.empty and RECIPE_IMPORT_TRANSITION_COL in st.session_state.recipes_df.columns:
+                buffer_products_df = st.session_state.recipes_df[
+                    (st.session_state.recipes_df[RECIPE_SOURCING_COL] == "Import") &
+                    (st.session_state.recipes_df[RECIPE_IMPORT_TRANSITION_COL] == "Nigdy (bufor)")
+                ]
+                if not buffer_products_df.empty:
+                    st.markdown("###### 🔵 Zbiorniki buforowe — produkty importowane na stałe, wymagające lokalnego bufora")
+                    st.caption("Oznaczone w Zakładce 1 jako 'Nigdy (bufor)' — gotowy produkt, nie surowiec (nie liczy "
+                               "się do zużycia RM, nie ma mieszalnika), ale dostaje własny zbiornik zamiast miejsca "
+                               "paletowego w buforze importu. Trafią do tej samej tabeli zbiorników RM w Karcie "
+                               "Maszyn — z pompą, hydrauliką i opcjonalnym mieszaniem, żeby zapobiec sedymentacji.")
+                    buffer_rows_display = []
+                    for _, r in buffer_products_df.iterrows():
+                        product_name = r[RECIPE_PRODUCT_COL]
+                        annual_t = float(r.get(RECIPE_ANNUAL_COL, 0) or 0)
+                        if annual_t <= 0:
+                            continue
+                        daily_t_buf = annual_t / WORKING_DAYS_YEAR
+                        required_m3_buf = (daily_t_buf * days_of_stock) / OIL_FILL_FACTOR
+                        required_m3_gross_buf = required_m3_buf / TANK_SAFETY_FILL
+                        if required_m3_gross_buf <= max_single_tank_m3:
+                            needed_tanks_buf = 1
+                            recommended_capacity_buf = next((s for s in STANDARD_SMALL_TANK_SIZES_M3 if s >= required_m3_gross_buf), max_single_tank_m3)
+                        else:
+                            recommended_capacity_buf = max_single_tank_m3
+                            needed_tanks_buf = math.ceil(required_m3_gross_buf / max_single_tank_m3)
+                        material_label = f"🔵 Produkt (bufor): {product_name}"
+                        buffer_tank_candidates.append({
+                            "material": material_label, "needed_tanks": needed_tanks_buf, "recommended_capacity": recommended_capacity_buf,
+                        })
+                        buffer_rows_display.append({
+                            "Produkt": product_name, "Linia": r[RECIPE_GROUP_COL], "Wolumen [t/rok]": round(annual_t, 1),
+                            "Wymagany bufor [m³]": round(required_m3_buf, 1), "Zbiorników": needed_tanks_buf,
+                            "Pojemność 1 zbiornika [m³]": round(recommended_capacity_buf, 1),
+                        })
+                    st.dataframe(pd.DataFrame(buffer_rows_display), hide_index=True, use_container_width=True)
+                    dedicated_tank_candidates.extend(buffer_tank_candidates)
 
             st.markdown("---")
             st.markdown("### ✅ Zatwierdź Zbiorniki RM (liczba i pojemność)")
