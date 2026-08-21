@@ -1164,6 +1164,77 @@ def compute_rm_consumption_for_month(year_idx, month_idx):
     return consumption
 
 
+def compute_rm_drummed_pallets_per_month(year_idx):
+    """
+    JEDNO ŹRÓDŁO PRAWDY dla palet RM w beczkach/IBC/workach [pal/mies] per materiał, danego
+    roku - PRZEPŁYW (ile faktycznie produkujemy/zużywamy miesięcznie), NIE stan magazynowy.
+    Wyklucza materiały skierowane do zbiorników (rm_storage_method_override). Używane przez
+    Zakładkę 4 (Magazynowanie), Zakładkę 5 (Finanse, tabela rampup) i Dashboard - wcześniej ta
+    sama logika była skopiowana osobno w każdym miejscu i z czasem się rozjechała.
+    """
+    rm_year_consumption = compute_rm_consumption_for_year(year_idx)
+    rm_container_assignment = st.session_state.get("rm_container_assignment", {})
+    rm_storage_method_override = st.session_state.get("rm_storage_method_override", {})
+    pallets_per_material = {}
+    for mat, ann_t in rm_year_consumption.items():
+        if ann_t <= 0 or rm_storage_method_override.get(mat) == "Zbiornik (luzem)":
+            continue
+        container_name = rm_container_assignment.get(mat, "Beczka 200 kg (ciecz)")
+        container_cfg = RM_CONTAINER_TYPES.get(container_name)
+        if not container_cfg:
+            continue
+        monthly_kg = (ann_t * 1000.0) / MONTHS_PER_YEAR
+        n_containers = math.ceil(monthly_kg / container_cfg["capacity_kg"]) if container_cfg["capacity_kg"] > 0 else 0
+        pallets_per_material[mat] = math.ceil(n_containers / container_cfg["per_pallet"]) if container_cfg["per_pallet"] > 0 else 0
+    return pallets_per_material
+
+
+def compute_rm_drummed_positions_for_year(year_idx, days_of_stock_val):
+    """
+    JEDNO ŹRÓDŁO PRAWDY dla MIEJSC MAGAZYNOWYCH RM w beczkach [szt] - to INNA wielkość niż
+    'palety/miesiąc' (compute_rm_drummed_pallets_per_month): tu przepływ miesięczny jest
+    rozciągnięty na bufor dni zapasu (days_of_stock), dając liczbę POZYCJI, jakie faktycznie
+    muszą stać w magazynie naraz - zgodnie z formułą kanoniczną z Zakładki 4 (Magazynowanie).
+    """
+    pallets_per_material = compute_rm_drummed_pallets_per_month(year_idx)
+    dni_robocze_miesiac = WORKING_DAYS_YEAR / MONTHS_PER_YEAR
+    total_positions = 0
+    for mat, n_pallets_month in pallets_per_material.items():
+        total_positions += math.ceil((n_pallets_month / dni_robocze_miesiac) * days_of_stock_val) if dni_robocze_miesiac > 0 else 0
+    return total_positions
+
+
+def compute_import_positions_for_year(year_idx_for_calc, import_pallet_mass_kg=None):
+    """
+    JEDNO ŹRÓDŁO PRAWDY dla miejsc paletowych produktów importowanych (jeszcze lub na stałe,
+    z wyłączeniem 'Nigdy (bufor)' - te mają dedykowany zbiornik, nie paletę). Szczytowy zapas =
+    wielkość 1 dostawy + bufor bezpieczeństwa. Używane przez Zakładkę 4 (Logistyka) i Dashboard.
+    """
+    if import_pallet_mass_kg is None:
+        import_pallet_mass_kg = st.session_state.get("import_pallet_mass_kg", 800.0)
+    recipes_df_local = st.session_state.get("recipes_df")
+    total_positions = 0
+    if recipes_df_local is None or recipes_df_local.empty or RECIPE_SOURCING_COL not in recipes_df_local.columns:
+        return total_positions
+    import_rows_df = recipes_df_local[
+        (recipes_df_local[RECIPE_SOURCING_COL] == "Import") &
+        (recipes_df_local.get(RECIPE_IMPORT_TRANSITION_COL, pd.Series(dtype=str)) != "Nigdy (bufor)")
+    ]
+    for _, r in import_rows_df.iterrows():
+        if not is_product_imported_in_year(r.get(RECIPE_SOURCING_COL, "Produkcja własna"),
+                                             r.get(RECIPE_IMPORT_TRANSITION_COL, ""), year_idx_for_calc):
+            continue
+        annual_t_target = float(r.get(RECIPE_ANNUAL_COL, 0) or 0)
+        frac = get_rampup_fraction(r[RECIPE_GROUP_COL], year_idx_for_calc) if year_idx_for_calc != RAMPUP_YEAR_TARGET_SENTINEL else 1.0
+        effective_annual_t = annual_t_target * frac
+        daily_t = effective_annual_t / WORKING_DAYS_YEAR if WORKING_DAYS_YEAR > 0 else 0.0
+        lot_t = float(r.get(RECIPE_IMPORT_LOT_COL, 0) or 0)
+        safety_days = float(r.get(RECIPE_IMPORT_SAFETY_DAYS_COL, 0) or 0)
+        peak_stock_t = lot_t + safety_days * daily_t
+        total_positions += math.ceil((peak_stock_t * 1000.0) / import_pallet_mass_kg) if import_pallet_mass_kg > 0 else 0
+    return total_positions
+
+
 def compute_pdf_report_year_data():
     """
     Zbiera dane per rok symulacji rozruchu (1-5) potrzebne do raportu PDF: tonaż docelowy vs
@@ -1959,6 +2030,37 @@ def get_rampup_fraction(product_family, year_idx):
     return (frac_start + frac_end) / 2.0
 
 
+def check_fleet_staleness_warning():
+    """
+    Flota (confirmed_mixers) to RĘCZNA migawka - zapisywana tylko kiedy użytkownik kliknie
+    'Zatwierdź' w Zakładce 1. Jeśli receptura zostanie potem zmieniona (np. nowy produkt,
+    inna roczna produkcja, zmiana sposobu pozyskania), migawka NIE aktualizuje się sama -
+    a każda inna zakładka (Karta Maszyn, Logistyka, Finanse, Dashboard) i tak czyta ze starej
+    migawki, dając liczby niezgodne z tym, co Zakładka 1 pokazuje na żywo. Ta funkcja wykrywa
+    taką rozbieżność (>1% lub >1 t różnicy w tonażu docelowym) i zwraca gotowy komunikat
+    ostrzegawczy do wyświetlenia (st.error) na początku każdej zależnej zakładki - albo None,
+    jeśli flota jest aktualna.
+    """
+    if not st.session_state.get("confirmed_mixers"):
+        return None
+    try:
+        live_target_t = sum(st.session_state.prod_dict.get(kat, {}).get("roczna", 0)
+                             for kat in st.session_state.get("wybrane_kategorie_snapshot", [])) / 1000.0
+    except Exception:
+        return None
+    confirmed_target_t = sum(m["annual_volume"] for m in st.session_state.confirmed_mixers) / 1000.0
+    if live_target_t <= 0:
+        return None
+    diff_t = abs(live_target_t - confirmed_target_t)
+    if diff_t > max(1.0, confirmed_target_t * 0.01):
+        return (f"⚠️ **FLOTA JEST NIEAKTUALNA** — Zakładka 1 pokazuje obecnie **{live_target_t:,.0f} t/rok** w "
+                f"recepturze, ale zatwierdzona flota (której używa ta zakładka) to **{confirmed_target_t:,.0f} t/rok** "
+                f"— różnica **{diff_t:,.0f} t**. Receptura została zmieniona PO ostatnim zatwierdzeniu floty. "
+                "Wszystkie liczby tutaj (tonaż, utylizacja, koszty, magazyn) są policzone ze STAREJ floty. "
+                "Wróć do **Zakładki 1** i kliknij **'📥 Zatwierdź i wyślij konfigurację'**, żeby zsynchronizować.")
+    return None
+
+
 def sync_recipes_into_fleet_defaults():
     """
     Spina Zakładkę 1 (Receptury) z Zakładką 2 (Flota) NA POZIOMIE GRUPY PRODUKTOWEJ - tak jak
@@ -2128,6 +2230,7 @@ wybrane_kategorie = st.sidebar.multiselect(
     default=_default_lines,
     key="wybrane_kategorie_ms"
 )
+st.session_state["wybrane_kategorie_snapshot"] = wybrane_kategorie
 
 st.sidebar.markdown("---")
 
@@ -2664,6 +2767,9 @@ with tab2:
     if not st.session_state.confirmed_mixers:
         st.warning("⚠️ Brak danych o flocie. Skonfiguruj i zatwierdź flotę w Zakładce 1, aby odblokować ten krok.")
     else:
+        _stale_msg = check_fleet_staleness_warning()
+        if _stale_msg:
+            st.error(_stale_msg)
         summary_combined_rows = []
 
         # --- KROK 1: Inicjalizacja domyślnych parametrów (bez widgetów) dla każdego urządzenia ---
@@ -3650,6 +3756,9 @@ with tab3:
     if not st.session_state.confirmed_mixers:
         st.info("💡 Najpierw zatwierdź konfigurację floty w Zakładce 1.")
     else:
+        _stale_msg = check_fleet_staleness_warning()
+        if _stale_msg:
+            st.error(_stale_msg)
         mixers_fleet = st.session_state.confirmed_mixers
 
         rampup_year_options = ["Docelowa produkcja (100%)"] + [f"Rok {i+1}" for i in range(RAMPUP_YEARS)]
@@ -3895,7 +4004,10 @@ with tab3:
                     "Miejsca magazynowe [szt]": int(miejsca_paletowe_import),
                 })
                 total_positions += miejsca_paletowe_import
-            return rows, total_positions
+            # UWAGA: total_positions liczony powyżej wiersz-po-wierszu MUSI dawać identyczny wynik
+            # co wspólna funkcja compute_import_positions_for_year (używana też w Dashboardzie) -
+            # nadpisujemy nim na wszelki wypadek, żeby te dwa miejsca nigdy nie mogły się rozjechać.
+            return rows, compute_import_positions_for_year(year_idx_for_calc, import_pallet_mass_kg)
 
         import_warehouse_rows_view, total_import_positions = compute_import_positions(effective_year_idx_for_import)
         # Baseline "budynku" (target/100%) uwzględnia TYLKO stały import ("Nigdy") - produkty z
@@ -4312,6 +4424,9 @@ with tab4:
     if not st.session_state.confirmed_mixers:
         st.warning("⚠️ Najpierw zatwierdź flotę w Zakładce 1.")
     else:
+        _stale_msg = check_fleet_staleness_warning()
+        if _stale_msg:
+            st.error(_stale_msg)
         waluta = st.selectbox("Wybierz walutę operacyjną:", ["PLN", "EUR", "USD"])
 
         # ==========================================
@@ -4365,25 +4480,9 @@ with tab4:
                 frac_year_blended = (year_tonnage_t / target_annual_t) if target_annual_t > 0 else 0.0
                 fg_pallets_month_yi = st.session_state.get("total_palety_month_fg_target_report", 0.0) * frac_year_blended
 
-                rm_pallets_month_yi = 0.0
-                rm_year_consumption = compute_rm_consumption_for_year(i)
-                rm_container_assignment = st.session_state.get("rm_container_assignment", {})
-                rm_storage_method_override = st.session_state.get("rm_storage_method_override", {})
-                for mat, ann_t in rm_year_consumption.items():
-                    if ann_t <= 0:
-                        continue
-                    # Tylko materiały faktycznie skierowane do beczek/IBC/worków (nie do zbiorników,
-                    # tank farm) - inaczej ta sama tonaż liczyłaby się podwójnie: raz jako palety
-                    # tutaj, raz jako zbiornik w Zakładce 2.
-                    if rm_storage_method_override.get(mat) == "Zbiornik (luzem)":
-                        continue
-                    container_name = rm_container_assignment.get(mat, "Beczka 200 kg (ciecz)")
-                    container_cfg = RM_CONTAINER_TYPES.get(container_name)
-                    if not container_cfg:
-                        continue
-                    monthly_kg = (ann_t * 1000.0) / MONTHS_PER_YEAR
-                    n_containers = math.ceil(monthly_kg / container_cfg["capacity_kg"]) if container_cfg["capacity_kg"] > 0 else 0
-                    rm_pallets_month_yi += math.ceil(n_containers / container_cfg["per_pallet"]) if container_cfg["per_pallet"] > 0 else 0
+                # Ta sama logika co Zakładka 4/Dashboard - liczona RAZ we wspólnej funkcji, żeby
+                # te trzy miejsca nigdy nie mogły się rozjechać.
+                rm_pallets_month_yi = sum(compute_rm_drummed_pallets_per_month(i).values())
 
                 # Koszt produkcji vs przychód ze sprzedaży, ten sam rok - per grupa produktowa,
                 # tą samą metodą co ROI (Krok 3) niżej: cena sprzedaży i koszty z Kroku 1, każda
@@ -4963,6 +5062,9 @@ with tab5:
     if not st.session_state.confirmed_mixers:
         st.warning("⚠️ Brak danych technicznych. Uruchom konfigurację w Zakładce 1.")
     else:
+        _stale_msg = check_fleet_staleness_warning()
+        if _stale_msg:
+            st.error(_stale_msg)
         days_of_stock = st.number_input("Wymagany zapas bezpieczeństwa surowca [dni]:", min_value=5, value=14)
         st.session_state["days_of_stock_tab5"] = days_of_stock
         max_single_tank_m3 = st.slider(
@@ -5332,6 +5434,9 @@ with tab6:
     if not st.session_state.confirmed_mixers:
         st.warning("⚠️ Najpierw zatwierdź flotę w Zakładce 1.")
     else:
+        _stale_msg = check_fleet_staleness_warning()
+        if _stale_msg:
+            st.error(_stale_msg)
         rodziny_w_flocie = sorted(set(m["product_family"] for m in st.session_state.confirmed_mixers))
         selected_vsm_family = st.selectbox("Wybierz linię produktową do mapowania:", rodziny_w_flocie, key="vsm_family_select")
 
@@ -5680,6 +5785,9 @@ with tab8:
         st.warning("⚠️ Flota nie jest jeszcze zatwierdzona. Zacznij od **Zakładki 1 (Receptury)** lub od razu skonfiguruj "
                    "flotę w **Zakładce 1 (Receptury Produktów i Flota)**.")
     else:
+        _stale_msg = check_fleet_staleness_warning()
+        if _stale_msg:
+            st.error(_stale_msg)
         target_annual_t_dash = sum(m["annual_volume"] for m in st.session_state.confirmed_mixers) / 1000.0
         n_mixers = len(st.session_state.confirmed_mixers)
         groups_active = sorted(set(m["product_family"] for m in st.session_state.confirmed_mixers))
@@ -5752,20 +5860,37 @@ with tab8:
             tanks_by_material_dash2 = {}
             for t in confirmed_rm_tanks_dash2:
                 tanks_by_material_dash2.setdefault(t["material"], []).append(t)
+            rm_tank_tech_details_dash2 = st.session_state.get("rm_tank_tech_details", {})
             year_cols_tanks = st.columns(RAMPUP_YEARS)
             for year_idx, col in enumerate(year_cols_tanks):
                 active_tanks_n, inactive_tanks_n = 0, 0
+                total_material_t_year = 0.0
+                total_refills_year = 0
+                year_consumption = compute_rm_consumption_for_year(year_idx)
                 for material, tanks_this_material in tanks_by_material_dash2.items():
-                    year_consumption = compute_rm_consumption_for_year(year_idx)
-                    is_active = year_consumption.get(material, 0.0) > 0
+                    consumption_t = year_consumption.get(material, 0.0)
+                    is_active = consumption_t > 0
                     if is_active:
                         active_tanks_n += len(tanks_this_material)
+                        total_material_t_year += consumption_t
+                        # Szacowana liczba uzupełnień/rok = roczne zużycie ÷ użyteczna pojemność
+                        # WSZYSTKICH zbiorników tego materiału razem (bufor bezpiecznego napełnienia
+                        # uwzględniony) - przybliżenie do porównania skali, nie dokładny harmonogram dostaw.
+                        total_capacity_m3 = sum(t["capacity_m3"] for t in tanks_this_material)
+                        density_kg_m3 = rm_tank_tech_details_dash2.get(tanks_this_material[0]["tag"], {}).get("density_kg_m3", 900.0)
+                        usable_t = total_capacity_m3 * TANK_SAFETY_FILL * density_kg_m3 / 1000.0
+                        if usable_t > 0:
+                            total_refills_year += math.ceil(consumption_t / usable_t)
                     else:
                         inactive_tanks_n += len(tanks_this_material)
                 with col:
                     st.markdown(f"**Rok {year_idx + 1}**")
                     st.metric("🟢 Aktywne", f"{active_tanks_n} szt.")
                     st.metric("⚪ Nieaktywne", f"{inactive_tanks_n} szt.")
+                    st.metric("📦 Materiał w zbiornikach", f"{total_material_t_year:,.0f} t/rok")
+                    st.metric("🔄 Uzupełnienia (szac.)", f"{total_refills_year}/rok",
+                              help="Szacunkowa liczba dostaw/napełnień rocznie: zużycie ÷ użyteczna pojemność "
+                                   "zbiorników danego surowca — przybliżenie, nie harmonogram dostaw.")
 
         st.markdown("---")
         st.markdown("### 💰 CAPEX i ROI")
@@ -5791,6 +5916,14 @@ with tab8:
 
         st.markdown("---")
         st.markdown("### 🏢 Magazyn — FG / RM (beczki) / Import, osobno per rok")
+        st.warning("⚠️ **Ważne — dwa RÓŻNE modele liczą FG inaczej, celowo:** liczba FG poniżej pochodzi z "
+                   "**symulacji kumulacyjnej** (produkcja minus wysyłki, narastająco miesiąc po miesiącu — "
+                   "Zakładka 4, sekcja 'Symulacja Stanu Magazynowego'). Zakładka 4 ma OSOBNO drugą liczbę "
+                   "('Miejsca paletowe — ten rok') liczoną jako **bufor rurociągowy** (bieżące tempo produkcji × "
+                   "dni zapasu, bez kumulacji w czasie) — to inne pytanie inżynierskie i dlatego wychodzi inna "
+                   "liczba. Obie są celowo różne, nie sprzeczne — ale **wybierz jedną jako wiążącą** do "
+                   "wymiarowania budynku, zanim podejmiesz decyzję inwestycyjną. Powiedz, którą wolisz jako "
+                   "referencyjną, a ujednolicę na niej cały raport.")
         total_wh_target_dash = st.session_state.get("total_miejsca_magazynowe_target_report")
         total_wh_m2_dash = st.session_state.get("total_powierzchnia_m2_report")
         if total_wh_target_dash:
@@ -5807,61 +5940,31 @@ with tab8:
         if not fg_capacity_dash or stock_df_dash is None or stock_df_dash.empty:
             st.info("ℹ️ Odwiedź Zakładkę 4 (Logistyka), sekcję symulacji stanu magazynowego, aby zobaczyć wykorzystanie per rok.")
         else:
+            days_of_stock_dash = st.session_state.get("days_of_stock_tab5", 14)
+
             def _pal_to_m2_dash(pal_count):
                 if not powierzchnia_na_miejsce_dash or not liczba_poziomow_dash:
                     return None
                 floor_slots = math.ceil(pal_count / liczba_poziomow_dash) if liczba_poziomow_dash > 0 else pal_count
                 return floor_slots * powierzchnia_na_miejsce_dash
 
-            def _rm_drummed_positions_for_year(year_idx_calc):
-                """Palety RM (beczki/IBC/worki) dla danego roku - materiały skierowane do beczek,
-                nie do zbiorników (te liczone osobno, jako zbiorniki, nie palety)."""
-                rm_year_consumption = compute_rm_consumption_for_year(year_idx_calc)
-                rm_container_assignment = st.session_state.get("rm_container_assignment", {})
-                rm_storage_method_override = st.session_state.get("rm_storage_method_override", {})
-                positions = 0
-                for mat, ann_t in rm_year_consumption.items():
-                    if ann_t <= 0 or rm_storage_method_override.get(mat) == "Zbiornik (luzem)":
-                        continue
-                    container_name = rm_container_assignment.get(mat, "Beczka 200 kg (ciecz)")
-                    container_cfg = RM_CONTAINER_TYPES.get(container_name)
-                    if not container_cfg:
-                        continue
-                    monthly_kg = (ann_t * 1000.0) / MONTHS_PER_YEAR
-                    n_containers = math.ceil(monthly_kg / container_cfg["capacity_kg"]) if container_cfg["capacity_kg"] > 0 else 0
-                    positions += math.ceil(n_containers / container_cfg["per_pallet"]) if container_cfg["per_pallet"] > 0 else 0
-                return positions
-
-            def _import_positions_for_year(year_idx_calc):
-                """Ta sama logika co compute_import_positions w Zakładce 4 (lokalna tam, więc
-                odtworzona tutaj) - miejsca paletowe produktów jeszcze/na stałe importowanych,
-                z WYŁĄCZENIEM 'Nigdy (bufor)' (te mają własny zbiornik, nie paletę)."""
-                total_positions = 0
-                if recipes_df_dash2 is None or recipes_df_dash2.empty or RECIPE_SOURCING_COL not in recipes_df_dash2.columns:
-                    return total_positions
-                import_rows_df = recipes_df_dash2[
+            def _buffer_import_volume_for_year(year_idx_calc):
+                """Wolumen [t/rok] produktów importowanych NA STAŁE do zbiornika buforowego ('Nigdy
+                bufor') - import trwa ZAWSZE dla tych produktów (nie ma przejścia na produkcję
+                własną), więc to NIE JEST zero w żadnym roku, tylko inna forma (zbiornik, nie paleta)."""
+                if recipes_df_dash2 is None or recipes_df_dash2.empty or RECIPE_IMPORT_TRANSITION_COL not in recipes_df_dash2.columns:
+                    return 0.0, []
+                buffer_rows = recipes_df_dash2[
                     (recipes_df_dash2[RECIPE_SOURCING_COL] == "Import") &
-                    (recipes_df_dash2.get(RECIPE_IMPORT_TRANSITION_COL, pd.Series(dtype=str)) != "Nigdy (bufor)")
+                    (recipes_df_dash2[RECIPE_IMPORT_TRANSITION_COL] == "Nigdy (bufor)")
                 ]
-                for _, r in import_rows_df.iterrows():
-                    if not is_product_imported_in_year(r.get(RECIPE_SOURCING_COL, "Produkcja własna"),
-                                                         r.get(RECIPE_IMPORT_TRANSITION_COL, ""), year_idx_calc):
-                        continue
+                total_t, names = 0.0, []
+                for _, r in buffer_rows.iterrows():
                     annual_t_target = float(r.get(RECIPE_ANNUAL_COL, 0) or 0)
                     frac = get_rampup_fraction(r[RECIPE_GROUP_COL], year_idx_calc)
-                    effective_annual_t = annual_t_target * frac
-                    daily_t = effective_annual_t / WORKING_DAYS_YEAR if WORKING_DAYS_YEAR > 0 else 0.0
-                    lot_t = float(r.get(RECIPE_IMPORT_LOT_COL, 0) or 0)
-                    safety_days = float(r.get(RECIPE_IMPORT_SAFETY_DAYS_COL, 0) or 0)
-                    peak_stock_t = lot_t + safety_days * daily_t
-                    total_positions += math.ceil((peak_stock_t * 1000.0) / import_pallet_mass_kg_dash) if import_pallet_mass_kg_dash > 0 else 0
-                return total_positions
-
-            buffer_products_dash = []
-            if recipes_df_dash2 is not None and not recipes_df_dash2.empty and RECIPE_IMPORT_TRANSITION_COL in recipes_df_dash2.columns:
-                buffer_mask_dash = (recipes_df_dash2[RECIPE_SOURCING_COL] == "Import") & \
-                                    (recipes_df_dash2[RECIPE_IMPORT_TRANSITION_COL] == "Nigdy (bufor)")
-                buffer_products_dash = recipes_df_dash2.loc[buffer_mask_dash, RECIPE_PRODUCT_COL].tolist()
+                    total_t += annual_t_target * frac
+                    names.append(r[RECIPE_PRODUCT_COL])
+                return total_t, names
 
             year_end_indices = [11, 23, 35, 47, 59]
             year_cols_wh = st.columns(RAMPUP_YEARS)
@@ -5870,16 +5973,20 @@ with tab8:
                 if idx >= len(stock_df_dash):
                     continue
                 fg_used_pal = stock_df_dash.iloc[idx]["Stan magazynowy [pal]"]
-                rm_used_pal = _rm_drummed_positions_for_year(year_idx)
-                import_used_pal = _import_positions_for_year(year_idx)
+                # Wspólne funkcje (compute_rm_drummed_positions_for_year, compute_import_positions_for_year)
+                # - te same, których używa Zakładka 4 - żeby te liczby NIGDY nie mogły się rozjechać.
+                rm_used_pal = compute_rm_drummed_positions_for_year(year_idx, days_of_stock_dash)
+                import_used_pal = compute_import_positions_for_year(year_idx, import_pallet_mass_kg_dash)
+                buffer_import_t, buffer_import_names = _buffer_import_volume_for_year(year_idx)
                 with col:
                     st.markdown(f"**Rok {year_idx + 1}**")
-                    st.metric("🏷️ FG", f"{fg_used_pal:,.0f} pal.")
-                    st.metric("🛢️ RM (beczki)", f"{rm_used_pal:,.0f} pal.")
-                    st.metric("📦 Import", f"{import_used_pal:,.0f} pal.")
-                    if buffer_products_dash and import_used_pal == 0 and year_idx == RAMPUP_YEARS - 1:
-                        st.caption(f"ℹ️ {', '.join(buffer_products_dash)} to import na stałe (Nigdy bufor) — "
-                                   "ma własny zbiornik, nie paletę, więc nie liczy się tu jako 'Import'.")
+                    st.metric("🏷️ FG — miejsca magazynowe", f"{fg_used_pal:,.0f} pal.")
+                    st.metric("🛢️ RM (beczki) — miejsca magazynowe", f"{rm_used_pal:,.0f} pal.")
+                    st.metric("📦 Import (palety) — miejsca magazynowe", f"{import_used_pal:,.0f} pal.")
+                    st.metric("🔵 Import (zbiornik bufor.)", f"{buffer_import_t:,.0f} t/rok",
+                              help=(f"{', '.join(buffer_import_names)} — import na stałe, trwa cały czas, "
+                                    "magazynowany w dedykowanym zbiorniku (Zakładka 2), nie na palecie."
+                                    if buffer_import_names else "Brak produktów importowanych na stałe do zbiornika."))
 
         st.markdown("---")
         st.markdown("### ⚡ Energia (Rok 1 vs. Rok 5)")
