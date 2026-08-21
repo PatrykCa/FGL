@@ -807,6 +807,14 @@ def parse_recipe_excel(uploaded_file):
 
     df[RECIPE_SUM_COL] = df[RECIPE_RAW_MATERIALS].sum(axis=1)
     bad_sum_mask = (df[RECIPE_SUM_COL] - RECIPE_TARGET_SUM_KG).abs() > RECIPE_SUM_TOLERANCE_KG
+    # Produkty importowane NA STAŁE ("Nigdy (stały import)" / "Nigdy (bufor)") mają celowo pusty/
+    # zerowy skład - to nie surowce do produkcji, tylko gotowy import, więc nie sprawdzamy dla nich
+    # sumy dozowania i NIE usuwamy tych wierszy (inaczej znikałyby z całej reszty obliczeń, w tym
+    # z sizingu zbiornika buforowego w Zakładce 2).
+    if RECIPE_SOURCING_COL in df.columns and RECIPE_IMPORT_TRANSITION_COL in df.columns:
+        permanent_import_exempt = (df[RECIPE_SOURCING_COL] == "Import") & \
+                                   (df[RECIPE_IMPORT_TRANSITION_COL].isin(["Nigdy (stały import)", "Nigdy (bufor)"]))
+        bad_sum_mask = bad_sum_mask & ~permanent_import_exempt
     if bad_sum_mask.any():
         bad_rows = df.loc[bad_sum_mask, [RECIPE_PRODUCT_COL, RECIPE_SUM_COL]]
         details = ", ".join(f"{r[RECIPE_PRODUCT_COL]} ({r[RECIPE_SUM_COL]:.0f} kg/t)" for _, r in bad_rows.iterrows())
@@ -2204,7 +2212,12 @@ with tab1:
             edited_recipes_df.loc[has_ah, RECIPE_BATCHES_YEAR_COL] * edited_recipes_df.loc[has_ah, RECIPE_CYCLE_COL]
             / edited_recipes_df.loc[has_ah, RECIPE_AVAIL_HOURS_COL] * 100.0)
 
-        bad_sum_live = edited_recipes_df[(edited_recipes_df[RECIPE_SUM_COL] - RECIPE_TARGET_SUM_KG).abs() > RECIPE_SUM_TOLERANCE_KG]
+        bad_sum_live_mask = (edited_recipes_df[RECIPE_SUM_COL] - RECIPE_TARGET_SUM_KG).abs() > RECIPE_SUM_TOLERANCE_KG
+        if RECIPE_SOURCING_COL in edited_recipes_df.columns and RECIPE_IMPORT_TRANSITION_COL in edited_recipes_df.columns:
+            permanent_import_exempt_live = (edited_recipes_df[RECIPE_SOURCING_COL] == "Import") & \
+                                            (edited_recipes_df[RECIPE_IMPORT_TRANSITION_COL].isin(["Nigdy (stały import)", "Nigdy (bufor)"]))
+            bad_sum_live_mask = bad_sum_live_mask & ~permanent_import_exempt_live
+        bad_sum_live = edited_recipes_df[bad_sum_live_mask]
         if not bad_sum_live.empty:
             zle_produkty = ", ".join(f"{p} ({s:.0f} kg/t)" for p, s in zip(bad_sum_live[RECIPE_PRODUCT_COL], bad_sum_live[RECIPE_SUM_COL]))
             st.error(f"❌ Suma dozowania surowców odbiega od 1000 kg/t (± {RECIPE_SUM_TOLERANCE_KG:.0f} kg) dla: "
