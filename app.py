@@ -1869,6 +1869,46 @@ if "rampup_differentiate" not in st.session_state:
     st.session_state.rampup_differentiate = False
 if "rampup_per_line_pct" not in st.session_state:
     st.session_state.rampup_per_line_pct = {}  # dict: linia -> lista % per rok (tylko gdy differentiate=True)
+if "rampup_start_pct" not in st.session_state:
+    # Punkt startowy krzywej PRZED Rokiem 1 (t=0) - domyślnie 0% (start od zera, czysty rozruch).
+    # Parametr celowo elastyczny: w przyszłości można tu wpisać np. 20%, żeby zasymulować
+    # rozruch od fazy z istniejącą bazą klientów/zapasem, zamiast zawsze zaczynać od zera.
+    st.session_state.rampup_start_pct = 0.0
+
+
+def _rampup_control_points(product_family):
+    """Punkty kontrolne krzywej rozruchu w % (indeks 0 = start przed Rokiem 1, indeks i = koniec
+    Roku i), używane do interpolacji liniowej ciągłej w czasie - patrz get_rampup_fraction_continuous."""
+    if st.session_state.get("rampup_differentiate") and product_family in st.session_state.get("rampup_per_line_pct", {}):
+        pct_list = st.session_state.rampup_per_line_pct[product_family]
+    else:
+        pct_list = st.session_state.get("rampup_global_pct", [100.0] * RAMPUP_YEARS)
+    return [st.session_state.get("rampup_start_pct", 0.0)] + list(pct_list)
+
+
+def get_rampup_fraction_continuous(product_family, t_years):
+    """
+    Ułamek (0-1) docelowej produkcji w CIĄGŁYM czasie t_years (0 = start Roku 1, 1 = koniec
+    Roku 1 / start Roku 2, itd.) - interpolacja LINIOWA między punktami kontrolnymi (punkt
+    startowy + wartości Rok 1..N), zamiast skokowej zmiany na granicy lat. Rzeczywistość rzadko
+    jest liniowa "schodkami" - produkcja rośnie płynnie w trakcie roku, nie skacze 1 stycznia.
+    """
+    points = _rampup_control_points(product_family)
+    t_clamped = max(0.0, min(t_years, float(len(points) - 1)))
+    idx_lo = int(t_clamped)
+    idx_hi = min(idx_lo + 1, len(points) - 1)
+    frac_within = t_clamped - idx_lo
+    pct_lo = max(0.0, min(float(points[idx_lo]), 100.0))
+    pct_hi = max(0.0, min(float(points[idx_hi]), 100.0))
+    pct = pct_lo + (pct_hi - pct_lo) * frac_within
+    return pct / 100.0
+
+
+def get_rampup_fraction_month(product_family, year_idx, month_idx):
+    """Ułamek (0-1) w połowie danego miesiąca (month_idx 0-11) danego roku symulacji (year_idx
+    0-4) - do symulacji magazynowej i wykresów min/max/średnia w obrębie roku (Dashboard)."""
+    t_years = year_idx + (month_idx + 0.5) / MONTHS_PER_YEAR
+    return get_rampup_fraction_continuous(product_family, t_years)
 
 
 def get_rampup_fraction(product_family, year_idx):
@@ -1877,14 +1917,21 @@ def get_rampup_fraction(product_family, year_idx):
     linii produktowej. Jedno źródło prawdy używane zarówno w Zakładce 2 (utylizacja floty)
     jak i Zakładce 2 (wykorzystanie magazynu FG+RM) - patrz sync_recipes_into_fleet_defaults
     dla analogicznego wzorca "jedno miejsce prawdy, wiele zakładek czyta".
+
+    Zwraca ŚREDNIĄ z całego roku (nie wartość na koniec roku) - dokładną, bo interpolacja jest
+    liniowa (odcinek pomiędzy dwoma punktami kontrolnymi ma stałe nachylenie, więc średnia
+    odcinka to dokładnie średnia jego dwóch końców, bez potrzeby próbkowania miesiąc po miesiącu).
+    Dzięki temu każde dotychczasowe miejsce wywołania (roczny tonaż/koszt/zużycie surowców)
+    automatycznie odzwierciedla płynny rozruch w trakcie roku, bez zmiany logiki wywołującej.
     """
-    if st.session_state.get("rampup_differentiate") and product_family in st.session_state.get("rampup_per_line_pct", {}):
-        pct_list = st.session_state.rampup_per_line_pct[product_family]
-    else:
-        pct_list = st.session_state.get("rampup_global_pct", [100.0] * RAMPUP_YEARS)
-    if year_idx < 0 or year_idx >= len(pct_list):
+    if year_idx == RAMPUP_YEAR_TARGET_SENTINEL:
         return 1.0
-    return max(0.0, min(float(pct_list[year_idx]), 100.0)) / 100.0
+    points = _rampup_control_points(product_family)
+    if year_idx < 0 or year_idx >= len(points) - 1:
+        return max(0.0, min(float(points[-1]), 100.0)) / 100.0
+    frac_start = get_rampup_fraction_continuous(product_family, float(year_idx))
+    frac_end = get_rampup_fraction_continuous(product_family, float(year_idx + 1))
+    return (frac_start + frac_end) / 2.0
 
 
 def sync_recipes_into_fleet_defaults():
@@ -2070,8 +2117,15 @@ st.sidebar.markdown("---")
 
 st.sidebar.header("📈 KROK 3: Symulacja Rozruchu (5 lat)")
 st.sidebar.caption("Flota i magazyn budowane są od razu pod docelową (100%) produkcję — to poniżej steruje "
-                    "tylko tym, jak WYKORZYSTANIE tej floty i magazynu rośnie w pierwszych 5 latach. Wpływa "
-                    "na wszystkie zakładki na żywo.")
+                    "tylko tym, jak WYKORZYSTANIE tej floty i magazynu rośnie w pierwszych 5 latach. Krzywa jest "
+                    "teraz interpolowana LINIOWO w czasie (płynny wzrost w trakcie roku, nie skok 1 stycznia) — "
+                    "wpływa na wszystkie zakładki na żywo.")
+st.session_state.rampup_start_pct = st.sidebar.slider(
+    "Punkt startowy przed Rokiem 1 [%]", min_value=0.0, max_value=100.0,
+    value=float(st.session_state.rampup_start_pct), step=5.0, key="rampup_start_pct_slider",
+    help="Domyślnie 0% — czysty rozruch od zera 1 stycznia Roku 1. Podnieś, jeśli symulujesz start z "
+         "istniejącej bazy (np. przejęty zakład, istniejący portfel klientów)."
+)
 st.session_state.rampup_differentiate = st.sidebar.checkbox(
     "🔧 Zróżnicuj tempo rozruchu per linia produktowa", value=st.session_state.rampup_differentiate,
     help="Domyślnie jedna wspólna krzywa dla całej fabryki. Włącz, jeśli np. Engine Oils ma ruszyć "
@@ -4097,14 +4151,17 @@ with tab3:
             stock_rows = []
             stock_level = initial_stock_pallets
             for yi in range(RAMPUP_YEARS):
-                year_tonnage_t = sum((m["annual_volume"] / 1000.0) * get_rampup_fraction(m["product_family"], yi)
-                                      for m in mixers_fleet)
-                frac_yi = (year_tonnage_t / target_annual_t_ship) if target_annual_t_ship > 0 else 0.0
-                production_pallets_month_yi = total_palety_month_fg_target * frac_yi
-                shipped_pallets_month_yi = production_pallets_month_yi * shipment_ratio
-
                 for mi in range(1, 13):
-                    stock_level = max(stock_level + production_pallets_month_yi - shipped_pallets_month_yi, 0.0)
+                    # Ułamek MIESIĘCZNY (interpolowany liniowo), nie płaski roczny - dzięki temu
+                    # symulacja magazynu faktycznie rośnie płynnie w trakcie roku (jak w
+                    # rzeczywistości), zamiast robić skok na każdej granicy roku.
+                    month_tonnage_t = sum((m["annual_volume"] / 1000.0) * get_rampup_fraction_month(m["product_family"], yi, mi - 1)
+                                           for m in mixers_fleet)
+                    frac_month = (month_tonnage_t / target_annual_t_ship) if target_annual_t_ship > 0 else 0.0
+                    production_pallets_month = total_palety_month_fg_target * frac_month
+                    shipped_pallets_month = production_pallets_month * shipment_ratio
+
+                    stock_level = max(stock_level + production_pallets_month - shipped_pallets_month, 0.0)
                     wartosc_zapasu = stock_level * avg_kg_per_pallet * avg_selling_value_per_kg
                     stock_rows.append({
                         "Miesiąc": yi * 12 + mi, "Okres": f"Y{yi + 1}-{mi:02d}", "Rok": f"Rok {yi + 1}",
