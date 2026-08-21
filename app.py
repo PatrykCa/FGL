@@ -3913,8 +3913,23 @@ with tab3:
                 st.dataframe(pd.DataFrame(import_warehouse_rows_view), hide_index=True, use_container_width=True)
                 st.metric("📦 Miejsca magazynowe — Import (ten rok)", f"{total_import_positions} szt.")
             else:
-                st.info("ℹ️ Brak produktów importowanych w wybranym roku/widoku (albo brak wgranych receptur z "
-                        "'Sposób Pozyskania' = 'Import' w Zakładce 1).")
+                # Sprawdzamy OSOBNO, czy "brak importu" wynika z tego, że wszystko, co zostało, to
+                # produkty "Nigdy (bufor)" (celowo wykluczone stąd, bo idą do zbiornika w Zakładce 2,
+                # nie na paletę) - inaczej komunikat myląco sugerowałby, że import w ogóle nie trwa.
+                buffer_products_still_importing = []
+                if st.session_state.recipes_df is not None and not st.session_state.recipes_df.empty and RECIPE_IMPORT_TRANSITION_COL in st.session_state.recipes_df.columns:
+                    buffer_mask = (st.session_state.recipes_df[RECIPE_SOURCING_COL] == "Import") & \
+                                  (st.session_state.recipes_df[RECIPE_IMPORT_TRANSITION_COL] == "Nigdy (bufor)")
+                    buffer_products_still_importing = st.session_state.recipes_df.loc[buffer_mask, RECIPE_PRODUCT_COL].tolist()
+
+                if buffer_products_still_importing:
+                    st.info("ℹ️ Brak produktów w buforze paletowym importu w wybranym roku/widoku — ale "
+                            f"**{', '.join(buffer_products_still_importing)}** to import na stałe ('Nigdy (bufor)'), "
+                            "który trwa cały czas i ma własny zbiornik zamiast palety — zobacz sekcję "
+                            "'🔵 Zbiorniki buforowe' w **Zakładce 2**.")
+                else:
+                    st.info("ℹ️ Brak produktów importowanych w wybranym roku/widoku (albo brak wgranych receptur z "
+                            "'Sposób Pozyskania' = 'Import' w Zakładce 1).")
 
             # ============================================================
             # SUROWCE (RM) W BECZKACH/IBC/WORKACH — z Zakładki 4, jeśli policzone
