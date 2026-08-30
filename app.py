@@ -177,6 +177,9 @@ PACKAGING_PER_PALLET_COL = "Sztuk na Palecie"
 PACKAGING_RATE_COL = "Wydajność 1 głowicy [kg/min]"
 PACKAGING_NOZZLES_COL = "Liczba głowic (domyślna)"
 
+QC_SHEET_NAME = "Badania Laboratoryjne"
+QC_SHEET_TEST_NAME_COL = "Nazwa Testu"
+
 RECIPE_GROUP_COL = "Grupa Produktowa"
 RECIPE_PRODUCT_COL = "Produkt"
 RECIPE_ANNUAL_COL = "Roczne Zapotrzebowanie Produktu [tony]"
@@ -952,6 +955,59 @@ def parse_packaging_excel(uploaded_file):
         }
 
     return {"pack_configs": packaging_dict, "filling_defaults": filling_defaults}, errors
+
+
+def parse_qc_tests_excel(uploaded_file):
+    """
+    Wczytuje opcjonalny arkusz 'Badania Laboratoryjne' z tego samego pliku Excel co receptury.
+    Struktura ODWROTNA niż receptura: TESTY jako WIERSZE (kolumna 'Nazwa Testu', dopasowywana do
+    QC_TEST_CATALOG), PRODUKTY jako KOLUMNY (nagłówek = dokładna nazwa produktu z arkusza
+    'Receptury') - "x" w komórce = ten test dotyczy tego produktu. To ten sam układ, co typowe
+    zestawienie laboratoryjne (test/sprzęt/czas w wierszach, produkty w kolumnach obok).
+    Zwraca (dict_produkt_na_liste_testow, lista_bledow). Jeśli arkusz nie istnieje, (None, []).
+    """
+    try:
+        xls = pd.ExcelFile(uploaded_file)
+    except Exception as exc:
+        return None, [f"Nie udało się odczytać pliku Excel (badania laboratoryjne): {exc}"]
+
+    if QC_SHEET_NAME not in xls.sheet_names:
+        return None, []
+
+    try:
+        df = pd.read_excel(xls, sheet_name=QC_SHEET_NAME)
+    except Exception as exc:
+        return None, [f"Nie udało się odczytać arkusza '{QC_SHEET_NAME}': {exc}"]
+
+    if QC_SHEET_TEST_NAME_COL not in df.columns:
+        return None, [f"Arkusz '{QC_SHEET_NAME}' istnieje, ale brakuje kolumny '{QC_SHEET_TEST_NAME_COL}'. Pominięto import badań."]
+
+    df = df[df[QC_SHEET_TEST_NAME_COL].notna()].copy()
+    if df.empty:
+        return None, []
+
+    errors = []
+    unknown_tests = [t for t in df[QC_SHEET_TEST_NAME_COL].astype(str) if t not in QC_TEST_CATALOG]
+    if unknown_tests:
+        errors.append(f"Nieznane testy w arkuszu '{QC_SHEET_NAME}': {', '.join(unknown_tests)} - sprawdź pisownię "
+                       "względem katalogu testów (Zakładka 6, VSM). Wiersze te są ignorowane.")
+        df = df[~df[QC_SHEET_TEST_NAME_COL].astype(str).isin(unknown_tests)]
+
+    # Kolumny produktowe = wszystko poza opisowymi (Nazwa Testu i ewentualne Sprzęt/Czas, jeśli
+    # użytkownik trzyma je też w tym arkuszu dla własnej czytelności - ignorujemy je tutaj, bo
+    # dokładny czas/sprzęt i tak pochodzi z QC_TEST_CATALOG w aplikacji, nie z tego arkusza).
+    descriptive_cols = {QC_SHEET_TEST_NAME_COL, "No.", "Sprzęt", "Equipment Description", "Avr. Time (min)", "Czas [min]"}
+    product_cols = [c for c in df.columns if c not in descriptive_cols]
+
+    tests_by_product = {}
+    for _, row in df.iterrows():
+        test_name = str(row[QC_SHEET_TEST_NAME_COL])
+        for prod_col in product_cols:
+            val = str(row.get(prod_col, "")).strip().lower()
+            if val in ("x", "1", "true", "tak", "yes"):
+                tests_by_product.setdefault(str(prod_col), []).append(test_name)
+
+    return tests_by_product, errors
 
 # Cennik / Standardowa Instalacja (BOM) - osobny, aktualizowalny arkusz per grupa produktowa,
 # z ceną jednostkową komponentu; źródłem treści jest zwykle istniejący P&ID danej instalacji
@@ -1999,6 +2055,11 @@ if "pack_configs" not in st.session_state:
     # w Zakładce 1 są nadpisywane/uzupełniane, a dalej pozostają w pełni edytowalne w apce.
     st.session_state.pack_configs = {k: dict(v) for k, v in PACK_CONFIGS.items()}
 
+if "qc_tests_by_product" not in st.session_state:
+    # dict: nazwa produktu -> lista nazw testów QC (z arkusza 'Badania Laboratoryjne', jeśli
+    # wgrany) - ma pierwszeństwo nad panelem zwolnienia per linia (Zakładka 6, VSM).
+    st.session_state.qc_tests_by_product = {}
+
 if "equipment_df" not in st.session_state:
     st.session_state.equipment_df = None  # DataFrame cennika standardowej instalacji (Zakładka 5)
 
@@ -2436,6 +2497,17 @@ with tab1:
             st.session_state.filling_lines_config.update(packaging_result["filling_defaults"])
             st.success(f"✅ Wczytano/zaktualizowano {len(packaging_result['pack_configs'])} typów opakowań z arkusza '{PACKAGING_SHEET_NAME}'.")
 
+        # Opcjonalny arkusz 'Badania Laboratoryjne' - testy jako wiersze, produkty jako kolumny
+        # (patrz parse_qc_tests_excel). Ma PIERWSZEŃSTWO nad panelem zwolnienia per linia
+        # (Zakładka 6/VSM) wszędzie, gdzie liczba badań QC jest liczona per konkretny produkt.
+        uploaded_recipe_file.seek(0)
+        qc_tests_result, qc_tests_errors = parse_qc_tests_excel(uploaded_recipe_file)
+        for err in qc_tests_errors:
+            st.warning(f"⚠️ {err}")
+        if qc_tests_result is not None:
+            st.session_state.qc_tests_by_product = qc_tests_result
+            st.success(f"✅ Wczytano przypisanie badań laboratoryjnych dla {len(qc_tests_result)} produktów z arkusza '{QC_SHEET_NAME}'.")
+
     st.markdown("---")
 
     if st.session_state.recipes_df is not None and not st.session_state.recipes_df.empty:
@@ -2525,6 +2597,26 @@ with tab1:
         st.caption("Wybierz linię z listy, aby błyskawicznie i płynnie zmienić jej parametry. Wyniki w tabeli poniżej przeliczą się natychmiast.")
 
         selected_family_to_edit = st.selectbox("Wybierz linię produktową do modyfikacji:", wybrane_kategorie)
+
+        # "Roczna produkcja" synchronizuje się z receptury TYLKO przy pierwszym pojawieniu się danej
+        # linii (żeby nie nadpisywać Twoich ręcznych poprawek przy każdej edycji pliku) - ale to
+        # oznacza, że jeśli WGRASZ NOWY plik ze zmienioną roczną produkcją dla linii, która już
+        # istniała, wartość tutaj CICHO zostanie stara. Wykrywamy to i dajemy jawny wybór, zamiast
+        # zostawiać mylącą, nieaktualną liczbę.
+        recipes_df_check = st.session_state.get("recipes_df")
+        if recipes_df_check is not None and not recipes_df_check.empty and RECIPE_GROUP_COL in recipes_df_check.columns:
+            group_rows_check = recipes_df_check[recipes_df_check[RECIPE_GROUP_COL] == selected_family_to_edit]
+            if not group_rows_check.empty:
+                recipe_roczna_kg = float(group_rows_check[RECIPE_ANNUAL_COL].sum()) * 1000.0
+                stored_roczna_kg = float(st.session_state.prod_dict[selected_family_to_edit]["roczna"])
+                if abs(recipe_roczna_kg - stored_roczna_kg) > max(1.0, stored_roczna_kg * 0.01):
+                    st.warning(f"⚠️ **Receptura mówi {recipe_roczna_kg:,.0f} kg/rok** dla '{selected_family_to_edit}', ale "
+                               f"tu wciąż zapisane jest **{stored_roczna_kg:,.0f} kg** — to STARA wartość (być może z "
+                               "poprzedniego pliku, sprzed ręcznej poprawki, albo z domyślnych ustawień). Nie nadpisujemy "
+                               "tego automatycznie, żeby nie stracić Twoich ręcznych zmian.")
+                    if st.button(f"🔄 Użyj wartości z receptury ({recipe_roczna_kg:,.0f} kg) dla '{selected_family_to_edit}'", key=f"sync_roczna_{selected_family_to_edit}"):
+                        st.session_state.prod_dict[selected_family_to_edit]["roczna"] = recipe_roczna_kg
+                        st.rerun()
 
         c_ed1, c_ed2, c_ed3, c_ed4 = st.columns(4)
         with c_ed1:
@@ -2821,6 +2913,21 @@ with tab1:
         with sum_col2: st.metric(label="🔄 Suma szarż floty / miesiąc", value=f"{total_batches_edited} szarż")
         with sum_col3: st.metric(label="📐 Całkowita kubatura floty", value=f"{total_volume_edited:.1f} m³")
 
+        recipes_df_check2 = st.session_state.get("recipes_df")
+        if recipes_df_check2 is not None and not recipes_df_check2.empty and RECIPE_GROUP_COL in recipes_df_check2.columns:
+            mismatched_lines = []
+            for kat in wybrane_kategorie:
+                group_rows_check2 = recipes_df_check2[recipes_df_check2[RECIPE_GROUP_COL] == kat]
+                if group_rows_check2.empty:
+                    continue
+                recipe_roczna_kg2 = float(group_rows_check2[RECIPE_ANNUAL_COL].sum()) * 1000.0
+                stored_roczna_kg2 = float(st.session_state.prod_dict[kat]["roczna"])
+                if abs(recipe_roczna_kg2 - stored_roczna_kg2) > max(1.0, stored_roczna_kg2 * 0.01):
+                    mismatched_lines.append(kat)
+            if mismatched_lines:
+                st.warning(f"⚠️ **Powyższy tonaż może być NIEAKTUALNY** dla: {', '.join(mismatched_lines)} — wybierz każdą z "
+                           "tych linii w Kroku A powyżej, żeby zobaczyć i zsynchronizować dokładną różnicę.")
+
         st.markdown("---")
 
         if st.button("📥 Zatwierdź i wyślij konfigurację do kolejnych kroków", type="primary", use_container_width=True, key="btn_zatwierdz_flote_v3"):
@@ -3065,21 +3172,26 @@ with tab2:
                     else:
                         st.caption("Ten mieszalnik nie ma przypisanego konkretnego produktu z receptury (wspólny/kampanijny zbiornik).")
 
-                    # --- Badania laboratoryjne: PRIORYTET 1 - testy zdefiniowane per KONKRETNY
-                    # produkt w Excelu (kolumny 'QC: {test} [x]', Zakładka 1); PRIORYTET 2
-                    # (fallback) - panel zwolnienia skonfigurowany per LINIA w Zakładce 6 (VSM),
-                    # jeśli receptura nie precyzuje testów dla tego produktu. ---
+                    # --- Badania laboratoryjne: PRIORYTET 1 - arkusz 'Badania Laboratoryjne'
+                    # (testy jako wiersze, produkty jako kolumny, patrz parse_qc_tests_excel);
+                    # PRIORYTET 2 - kolumny 'QC: {test} [x]' wprost w arkuszu Receptury;
+                    # PRIORYTET 3 (fallback) - panel zwolnienia per LINIA w Zakładce 6 (VSM). ---
+                    qc_tests_from_sheet = st.session_state.get("qc_tests_by_product", {}).get(recipe_product_cmp, []) if recipe_product_cmp else []
+
                     qc_tests_from_recipe = []
-                    if recipes_df_cmp is not None and not recipes_df_cmp.empty and recipe_product_cmp:
+                    if not qc_tests_from_sheet and recipes_df_cmp is not None and not recipes_df_cmp.empty and recipe_product_cmp:
                         qc_cols_cmp = [c for c in recipes_df_cmp.columns if c.startswith(QC_COL_PREFIX) and c.endswith(QC_COL_SUFFIX)]
                         match_qc_cmp = recipes_df_cmp[recipes_df_cmp[RECIPE_PRODUCT_COL] == recipe_product_cmp]
                         if qc_cols_cmp and not match_qc_cmp.empty:
                             row_qc_cmp = match_qc_cmp.iloc[0]
                             qc_tests_from_recipe = [c[len(QC_COL_PREFIX):-len(QC_COL_SUFFIX)] for c in qc_cols_cmp if bool(row_qc_cmp.get(c, False))]
 
-                    if qc_tests_from_recipe:
+                    if qc_tests_from_sheet:
+                        n_tests_per_batch = len(qc_tests_from_sheet)
+                        qc_source_label = f"arkusz 'Badania Laboratoryjne': {', '.join(qc_tests_from_sheet)}"
+                    elif qc_tests_from_recipe:
                         n_tests_per_batch = len(qc_tests_from_recipe)
-                        qc_source_label = f"receptura (Zakładka 1): {', '.join(qc_tests_from_recipe)}"
+                        qc_source_label = f"kolumny w recepturze (Zakładka 1): {', '.join(qc_tests_from_recipe)}"
                     else:
                         qc_cfg_cmp = st.session_state.get("vsm_qc_config", {}).get(mixer["product_family"], {
                             "tests": ["Lepkość kinematyczna @40°C (półautomat)", "Barwa ASTM", "Temp. zapłonu - półautomat"]
