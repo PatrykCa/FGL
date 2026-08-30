@@ -52,7 +52,10 @@ PACK_CONFIGS = {
     "20l (Kanister)": {"size_l": 20.0, "per_pallet": 24, "rate_szt_h": 400},
     "60l (Beczka)": {"size_l": 60.0, "per_pallet": 9, "rate_szt_h": 150},
     "200l (Beczka)": {"size_l": 200.0, "per_pallet": 4, "rate_szt_h": 60},
-    "1000l (IBC)": {"size_l": 1000.0, "per_pallet": 1, "rate_szt_h": 15}
+    "1000l (IBC)": {"size_l": 1000.0, "per_pallet": 1, "rate_szt_h": 15},
+    "Cysterna (luzem)": {"size_l": 24000.0, "per_pallet": 0, "rate_szt_h": 1.5},
+    # per_pallet=0 to sentinel: produkt luzem w cysternie NIE jest paletyzowany - nie generuje
+    # miejsc magazynowych/palet, tylko bezpośrednie wysyłki cysterną (patrz logika w Zakładce 4).
 }
 
 AGITATOR_TYPES = {
@@ -107,7 +110,6 @@ QC_TEST_CATALOG = {
     "Tapping Torque Test": {"duration_min": 45, "equipment": "Trybometr (Micro tap)"},
     "Demulgowalność": {"duration_min": 45, "equipment": "Bath demulsibility"},
     "Pour Point": {"duration_min": 30, "equipment": "Aparat Pour Point"},
-    "Foam Tester": {"duration_min": 30, "equipment": "XXX Foam Tester"}
 }
 
 # Prefiks/sufiks kolumn Excela definiujących, KTÓRE testy QC dotyczą KONKRETNEGO produktu (nie
@@ -2113,6 +2115,16 @@ if "confirmed_rm_tanks" not in st.session_state:
 
 if "rm_tank_tech_details" not in st.session_state:
     st.session_state.rm_tank_tech_details = {}  # per RM tank tag: pompa (dedyk./współdz.), DN/długość/wysokość/zawory
+
+if "confirmed_fg_buffer_tanks" not in st.session_state:
+    # Zbiorniki buforowe GOTOWEGO PRODUKTU (nie surowca) - ten sam mechanizm co zbiorniki RM,
+    # tag/recipe_product/pojemność. Służą do (a) uwolnienia mieszalnika zaraz po szarży (produkt
+    # przechodzi do bufora, mieszalnik startuje kolejną szarżę) i (b) bezpośredniego wydania
+    # produktu w cysternie z tego zbiornika, bez pośredniego składowania na paletach.
+    st.session_state.confirmed_fg_buffer_tanks = []
+
+if "fg_buffer_tank_tech_details" not in st.session_state:
+    st.session_state.fg_buffer_tank_tech_details = {}  # ta sama struktura co rm_tank_tech_details
 
 if "rampup_global_pct" not in st.session_state:
     # Domyślna krzywa rozruchu (% docelowej produkcji osiągane w kolejnych latach) - flota i
@@ -4289,15 +4301,28 @@ with tab3:
 
                 q_effective_flow_m3h = min(q_pump_m3h, sekcja_nalewania_m3_h)
                 czas_rozlewu_h = (masa_opakowania_month / (rho_linii * 1000.0)) / q_effective_flow_m3h if q_effective_flow_m3h > 0 else 0.0
-                liczba_palet_month = math.ceil(liczba_sztuk_month / st.session_state.pack_configs[p]["per_pallet"])
-                miejsca_paletowe = math.ceil((liczba_palet_month / dni_robocze_miesiac) * czas_skladowania_dni)
+
+                is_tanker_pack = st.session_state.pack_configs[p]["per_pallet"] == 0
+                if is_tanker_pack:
+                    # Cysterna (luzem): "sztuka" = 1 pełny ładunek cysterny - nie ma palet ani
+                    # miejsc magazynowych (wysyłane bezpośrednio, bez składowania na paletach).
+                    liczba_palet_month = 0
+                    miejsca_paletowe = 0
+                    liczba_palet_month_target = 0
+                    miejsca_paletowe_target = 0
+                    cystern_month = liczba_sztuk_month
+                else:
+                    liczba_palet_month = math.ceil(liczba_sztuk_month / st.session_state.pack_configs[p]["per_pallet"])
+                    miejsca_paletowe = math.ceil((liczba_palet_month / dni_robocze_miesiac) * czas_skladowania_dni)
+                    cystern_month = 0
 
                 # Miejsca magazynowe przy 100% celu (niezależnie od wybranego roku symulacji) -
                 # to jest rozmiar BUDYNKU, który stawia się raz, pod docelową zdolność produkcyjną.
                 masa_opakowania_month_target = target_monthly_mass * (udzial_pct / 100.0)
                 liczba_sztuk_month_target = math.ceil(masa_opakowania_month_target / pack_capacity_kg) if pack_capacity_kg > 0 else 0
-                liczba_palet_month_target = math.ceil(liczba_sztuk_month_target / st.session_state.pack_configs[p]["per_pallet"])
-                miejsca_paletowe_target = math.ceil((liczba_palet_month_target / dni_robocze_miesiac) * czas_skladowania_dni)
+                if not is_tanker_pack:
+                    liczba_palet_month_target = math.ceil(liczba_sztuk_month_target / st.session_state.pack_configs[p]["per_pallet"])
+                    miejsca_paletowe_target = math.ceil((liczba_palet_month_target / dni_robocze_miesiac) * czas_skladowania_dni)
                 fg_positions_target_list.append(miejsca_paletowe_target)
                 fg_pallets_target_list.append(liczba_palet_month_target)
 
@@ -4306,6 +4331,7 @@ with tab3:
                         "Typ": "FG", "Reaktor 🔒": m["tag"], "Linia 🔒": kat, "Opakowanie 📦": p, "Udział": f"{udzial_pct:.1f}%",
                         "Źródło %": split_source,
                         "Opakowań [/mies]": int(liczba_sztuk_month), "Palet [/mies] 🧱": int(liczba_palet_month),
+                        "Cystern [/mies] 🚚": int(cystern_month),
                         "Miejsca magazynowe [szt] 📐": int(miejsca_paletowe), "Czas rozlewu strumienia [h] ⏱️": round(czas_rozlewu_h, 1),
                         "Wąskie gardło": "Pompa" if q_pump_m3h < sekcja_nalewania_m3_h else "Sekcja nalewania",
                         "_masa_kg_miesiac": masa_opakowania_month,
@@ -4475,25 +4501,37 @@ with tab3:
                                    f"(szacunek dla tego typu składowania — {POWIERZCHNIA_NETTO_PALETY_M2:.1f} m² "
                                    f"netto/paletę ÷ (1 − {aisle_pct_preset:.0f}%)).")
                 else:
-                    st.caption("**Własna wartość** — rozbij poniżej na netto powierzchnię palety + osobno % alejek, "
-                               "żeby mieć pełną kontrolę nad tym, ile miejsca faktycznie zajmuje wózek widłowy.")
-                    aw1, aw2 = st.columns(2)
+                    st.caption("**Własna wartość** — rozbij poniżej na wymiary palety + szerokość alejki wózka "
+                               "widłowego, żeby mieć pełną, fizyczną kontrolę nad tym, ile miejsca to zajmuje.")
+                    aw1, aw2, aw3 = st.columns(3)
                     with aw1:
-                        powierzchnia_netto_wlasna = st.number_input(
-                            "Netto powierzchnia 1 palety [m²]:", min_value=0.3, value=POWIERZCHNIA_NETTO_PALETY_M2,
-                            step=0.1, key="powierzchnia_netto_palety_input",
-                            help="Sam ślad palety na podłodze, bez alejek — standardowa paleta EUR to ok. 1,2 m²."
+                        paleta_szerokosc_m = st.number_input(
+                            "Szerokość palety [m]:", min_value=0.5, value=1.2, step=0.1, key="paleta_szerokosc_input",
+                            help="Wymiar palety WZDŁUŻ alejki — standardowa paleta EUR ustawiona dłuższym bokiem "
+                                 "do alejki to ok. 1,2 m."
                         )
                     with aw2:
-                        aisle_pct_wlasna = st.number_input(
-                            "Udział alejek i dróg transportowych [%]:", min_value=0.0, max_value=90.0, value=55.0,
-                            step=5.0, key="aisle_pct_input",
-                            help="Ile procent CAŁKOWITEJ powierzchni magazynu zajmują alejki na wózek widłowy i drogi "
-                                 "transportowe, ponad sam ślad palet. Regały selektywne (wjazd do każdego rzędu) "
-                                 "potrzebują dużo więcej niż składowanie blokowe."
+                        paleta_glebokosc_m = st.number_input(
+                            "Głębokość palety [m]:", min_value=0.5, value=1.0, step=0.1, key="paleta_glebokosc_input",
+                            help="Wymiar palety W GŁĄB regału (prostopadle do alejki) — standardowa paleta EUR to ok. 0,8-1,0 m."
                         )
-                    powierzchnia_na_miejsce = powierzchnia_netto_wlasna / (1.0 - aisle_pct_wlasna / 100.0) if aisle_pct_wlasna < 100 else powierzchnia_netto_wlasna
-                    st.metric("→ Powierzchnia / miejsce paletowe (1 poziom, wynik)", f"{powierzchnia_na_miejsce:.2f} m²")
+                    with aw3:
+                        szerokosc_alejki_m = st.number_input(
+                            "Szerokość alejki wózka widłowego [m]:", min_value=1.5, value=3.5, step=0.1, key="szerokosc_alejki_input",
+                            help="Typowe wartości: ~3,5 m dla wózka czołowego/reach trucka (regały selektywne), "
+                                 "~2,5 m dla wózka wąskoalejkowego (VNA), ~1,5 m minimalnie tam, gdzie wózek nie "
+                                 "musi skręcać (block stacking/drive-in)."
+                        )
+                    # Geometria rzędu regałowego: alejka jest WSPÓLNA dla dwóch rzędów palet po obu
+                    # stronach, więc każda pozycja "zajmuje" połowę szerokości alejki w głąb, na
+                    # całej szerokości palety wzdłuż alejki.
+                    powierzchnia_netto_wlasna = paleta_szerokosc_m * paleta_glebokosc_m
+                    powierzchnia_na_miejsce = paleta_szerokosc_m * (paleta_glebokosc_m + szerokosc_alejki_m / 2.0)
+                    aisle_pct_wlasna = (1.0 - powierzchnia_netto_wlasna / powierzchnia_na_miejsce) * 100.0
+                    st.metric("→ Powierzchnia / miejsce paletowe (1 poziom, wynik)", f"{powierzchnia_na_miejsce:.2f} m²",
+                              help=f"= szerokość palety × (głębokość palety + szerokość alejki ÷ 2) — alejka "
+                                   f"współdzielona z rzędem po drugiej stronie. Odpowiada ~{aisle_pct_wlasna:.0f}% "
+                                   "powierzchni na alejki.")
             with c_wh3:
                 domyslne_poziomy = RACKING_PRESETS_M2[typ_skladowania]["poziomy"]
                 liczba_poziomow = st.number_input(
@@ -4539,6 +4577,21 @@ with tab3:
                                    help=f"W tym stały import (\"Nigdy\"): {total_import_positions_target:,} szt.")
             with m_wh3: st.metric("📐 Powierzchnia magazynu (budowana pod 100%)", f"{total_powierzchnia_m2:,.0f} m²")
             with m_wh4: st.metric("📊 Wykorzystanie magazynu w tym roku", f"{wykorzystanie_magazynu_pct:.0f}%")
+
+            dostepna_powierzchnia_m2 = st.number_input(
+                "🏢 Dostępna powierzchnia magazynowa (istniejący/planowany budynek) [m²] — opcjonalnie:",
+                min_value=0.0, value=0.0, step=50.0, key="dostepna_powierzchnia_input",
+                help="Podaj, jeśli masz już konkretną halę (istniejącą lub zaplanowaną) — porównamy z wyliczonym "
+                     "zapotrzebowaniem powyżej. Zostaw 0, żeby pominąć to porównanie."
+            )
+            if dostepna_powierzchnia_m2 > 0:
+                roznica_m2 = dostepna_powierzchnia_m2 - total_powierzchnia_m2
+                if roznica_m2 >= 0:
+                    st.success(f"✅ Dostępna hala ({dostepna_powierzchnia_m2:,.0f} m²) **wystarcza** — nadwyżka {roznica_m2:,.0f} m² "
+                               f"({roznica_m2 / total_powierzchnia_m2 * 100.0:.0f}% zapasu) względem wyliczonego zapotrzebowania.")
+                else:
+                    st.error(f"❌ Dostępna hala ({dostepna_powierzchnia_m2:,.0f} m²) **NIE wystarcza** — brakuje {abs(roznica_m2):,.0f} m² "
+                             f"({abs(roznica_m2) / total_powierzchnia_m2 * 100.0:.0f}% deficytu) względem wyliczonego zapotrzebowania.")
 
             # Jasna, bezwzględna ilość materiału w magazynie [t] I w paletach - nie tylko liczba
             # miejsc paletowych (które uwzględniają dni zapasu i poziomy składowania i nie mówią
@@ -5679,6 +5732,63 @@ with tab5:
                 st.session_state["confirmed_rm_tanks"] = []
 
             st.markdown("---")
+            st.markdown("### 🛢️ Zbiorniki Buforowe FG (Gotowy Produkt)")
+            st.caption("Dla produktów wysyłanych **cysterną luzem** ('Cysterna (luzem)' w rozbiciu na opakowania, "
+                       "Zakładka 1) — zbiornik buforowy pozwala uwolnić mieszalnik zaraz po szarży (produkt "
+                       "przechodzi do bufora, mieszalnik startuje kolejną szarżę) i jest bezpośrednim źródłem "
+                       "wysyłki cysterną, bez pośredniego składowania na paletach.")
+
+            recipes_df_fgbuf = st.session_state.get("recipes_df")
+            fg_buffer_candidates = []
+            if recipes_df_fgbuf is not None and not recipes_df_fgbuf.empty:
+                tanker_pct_col = recipe_pack_pct_col("Cysterna (luzem)")
+                if tanker_pct_col in recipes_df_fgbuf.columns:
+                    for m in st.session_state.confirmed_mixers:
+                        recipe_product_fgbuf = m.get("recipe_product")
+                        if not recipe_product_fgbuf:
+                            continue
+                        match_fgbuf = recipes_df_fgbuf[recipes_df_fgbuf[RECIPE_PRODUCT_COL] == recipe_product_fgbuf]
+                        if match_fgbuf.empty or float(match_fgbuf.iloc[0].get(tanker_pct_col, 0) or 0) <= 0:
+                            continue
+                        density_fgbuf = st.session_state.active_portfolio.get(m["product_family"], {}).get("density", 0.9)
+                        # Sugestia: ~1,5x masy szarży, żeby zmieścić szarżę + margines na kolejną,
+                        # zanim cysterna zdąży odebrać poprzednią.
+                        suggested_capacity_m3 = round((m["mass_per_batch"] * 1.5 / 1000.0) / density_fgbuf, 1)
+                        fg_buffer_candidates.append({
+                            "recipe_product": recipe_product_fgbuf, "mixer_tag": m["tag"],
+                            "suggested_capacity_m3": suggested_capacity_m3,
+                        })
+
+            if fg_buffer_candidates:
+                fg_buf_editor_rows = [
+                    {"Produkt": c["recipe_product"], "Mieszalnik": c["mixer_tag"],
+                     "Pojemność zbiornika [m³]": c["suggested_capacity_m3"]}
+                    for c in fg_buffer_candidates
+                ]
+                edited_fg_buf_df = st.data_editor(
+                    pd.DataFrame(fg_buf_editor_rows), hide_index=True, use_container_width=True,
+                    disabled=["Produkt", "Mieszalnik"], key="fg_buffer_tank_editor",
+                    column_config={"Pojemność zbiornika [m³]": st.column_config.NumberColumn(min_value=0.5, step=0.5)}
+                )
+                if st.button("📥 Zatwierdź zbiorniki buforowe FG", type="primary", key="btn_confirm_fg_buffer_tanks"):
+                    confirmed_fg_buffer_tanks = []
+                    for idx, row in edited_fg_buf_df.iterrows():
+                        confirmed_fg_buffer_tanks.append({
+                            "tag": f"FGT-{idx + 1}", "recipe_product": row["Produkt"],
+                            "capacity_m3": float(row["Pojemność zbiornika [m³]"]),
+                        })
+                    st.session_state["confirmed_fg_buffer_tanks"] = confirmed_fg_buffer_tanks
+                    st.rerun()
+
+                if st.session_state.get("confirmed_fg_buffer_tanks"):
+                    st.success(f"✅ Zatwierdzone: {len(st.session_state['confirmed_fg_buffer_tanks'])} zbiorników buforowych FG.")
+            else:
+                st.info("ℹ️ Żaden produkt nie ma dziś przypisanej 'Cysterna (luzem)' w rozbiciu na opakowania "
+                        "(Zakładka 1) — nic do zatwierdzenia. Przypisz % do tego opakowania w recepturze, żeby "
+                        "zobaczyć tu kandydatów.")
+                st.session_state["confirmed_fg_buffer_tanks"] = []
+
+            st.markdown("---")
             st.markdown("### 📦 Magazynowanie Surowców w Beczkach/IBC/Workach")
             st.caption("Surowce, które nie trafiają do zbiornika (powyżej), i tak muszą stanąć w magazynie — "
                        "przypisz każdemu typ pojemnika, a aplikacja przeliczy liczbę pojemników/palet/miejsc "
@@ -5806,6 +5916,29 @@ with tab6:
             "mode": "Sekwencyjnie (jeden technik, jedno stanowisko)",
             "custom_durations": {},
         })
+
+        # Ten panel jest per LINIA, ale arkusz 'Badania Laboratoryjne' (Zakładka 1) definiuje testy
+        # per KONKRETNY PRODUKT - jeśli taki plik jest wgrany, sprawdzamy, czy da się z niego
+        # zaproponować spójną listę dla tej linii (a jeśli produkty się różnią, informujemy o tym
+        # wprost, zamiast po cichu ignorować recepturę).
+        qc_tests_by_product_vsm = st.session_state.get("qc_tests_by_product", {})
+        products_in_line = [m["recipe_product"] for m in st.session_state.confirmed_mixers
+                             if m["product_family"] == selected_vsm_family and m.get("recipe_product") in qc_tests_by_product_vsm]
+        if products_in_line:
+            distinct_test_sets = {tuple(sorted(qc_tests_by_product_vsm[p])) for p in products_in_line}
+            if len(distinct_test_sets) == 1:
+                recipe_tests_for_line = list(distinct_test_sets.pop())
+                if sorted(recipe_tests_for_line) != sorted(qc_cfg["tests"]):
+                    st.info(f"📄 Arkusz 'Badania Laboratoryjne' definiuje dla tej linii: **{', '.join(recipe_tests_for_line)}** "
+                            "— różni się od listy poniżej.")
+                    if st.button(f"🔄 Użyj testów z Excela dla '{selected_vsm_family}'", key=f"sync_qc_{selected_vsm_family}"):
+                        qc_cfg["tests"] = recipe_tests_for_line
+                        st.rerun()
+            else:
+                st.warning("⚠️ Arkusz 'Badania Laboratoryjne' definiuje **RÓŻNE** testy dla różnych produktów tej linii "
+                           f"({len(distinct_test_sets)} różnych zestawów) — panel poniżej to tylko uproszczenie "
+                           "per LINIA (jedna wspólna lista). Dokładne, per-produktowe liczby badań QC znajdziesz w "
+                           "widgecie porównawczym (Zakładka 2, Karta Maszyn).")
 
         c_qc1, c_qc2 = st.columns([2, 1])
         with c_qc1:
