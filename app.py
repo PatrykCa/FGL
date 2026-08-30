@@ -1224,6 +1224,21 @@ def compute_fg_buffer_positions_for_year(year_idx, days_of_stock_val):
     return math.ceil((monthly_pallets_year / dni_robocze_miesiac) * days_of_stock_val) if dni_robocze_miesiac > 0 else 0
 
 
+def get_import_volume_fraction(product_family, year_idx_for_calc):
+    """
+    Ułamek (0-1) wolumenu produktu JESZCZE IMPORTOWANEGO w danym roku - JEDNO ŹRÓDŁO PRAWDY,
+    respektujące przełącznik 'import_follows_rampup' (panel boczny). Domyślnie (True) import
+    skaluje się tą samą krzywą rozruchu co produkcja własna (popyt klienta rośnie niezależnie
+    od tego, kto go zaspokaja). Gdy False - import liczony zawsze jako pełny docelowy wolumen
+    (100%), bo w rzeczywistości może mieć własny, niepowiązany harmonogram (np. stały kontrakt).
+    """
+    if year_idx_for_calc == RAMPUP_YEAR_TARGET_SENTINEL:
+        return 1.0
+    if not st.session_state.get("import_follows_rampup", True):
+        return 1.0
+    return get_rampup_fraction(product_family, year_idx_for_calc)
+
+
 def compute_import_positions_for_year(year_idx_for_calc, import_pallet_mass_kg=None):
     """
     JEDNO ŹRÓDŁO PRAWDY dla miejsc paletowych produktów importowanych (jeszcze lub na stałe,
@@ -1245,7 +1260,7 @@ def compute_import_positions_for_year(year_idx_for_calc, import_pallet_mass_kg=N
                                              r.get(RECIPE_IMPORT_TRANSITION_COL, ""), year_idx_for_calc):
             continue
         annual_t_target = float(r.get(RECIPE_ANNUAL_COL, 0) or 0)
-        frac = get_rampup_fraction(r[RECIPE_GROUP_COL], year_idx_for_calc) if year_idx_for_calc != RAMPUP_YEAR_TARGET_SENTINEL else 1.0
+        frac = get_import_volume_fraction(r[RECIPE_GROUP_COL], year_idx_for_calc)
         effective_annual_t = annual_t_target * frac
         daily_t = effective_annual_t / WORKING_DAYS_YEAR if WORKING_DAYS_YEAR > 0 else 0.0
         lot_t = float(r.get(RECIPE_IMPORT_LOT_COL, 0) or 0)
@@ -1990,6 +2005,12 @@ if "rampup_start_pct" not in st.session_state:
     # Parametr celowo elastyczny: w przyszłości można tu wpisać np. 20%, żeby zasymulować
     # rozruch od fazy z istniejącą bazą klientów/zapasem, zamiast zawsze zaczynać od zera.
     st.session_state.rampup_start_pct = 0.0
+if "import_follows_rampup" not in st.session_state:
+    # Domyślnie: wolumen produktu JESZCZE importowanego rośnie tą samą krzywą rozruchu co
+    # produkcja własna (założenie: popyt klienta rośnie niezależnie od tego, kto go zaspokaja).
+    # Jeśli False: import liczony zawsze jako pełny docelowy wolumen (100%), niezależnie od roku -
+    # np. gdy realny kontrakt importowy nie jest powiązany z krzywą rozruchu Twojej fabryki.
+    st.session_state.import_follows_rampup = True
 
 
 def _rampup_control_points(product_family):
@@ -2279,6 +2300,13 @@ st.session_state.rampup_differentiate = st.sidebar.checkbox(
     help="Domyślnie jedna wspólna krzywa dla całej fabryki. Włącz, jeśli np. Engine Oils ma ruszyć "
          "szybciej niż Greases."
 )
+st.session_state.import_follows_rampup = st.sidebar.checkbox(
+    "📦 Import rośnie razem z krzywą rozruchu", value=st.session_state.import_follows_rampup,
+    help="Włączone (domyślnie): wolumen produktu jeszcze importowanego skaluje się tą samą krzywą co "
+         "produkcja własna (założenie: popyt klienta rośnie niezależnie od tego, kto go zaspokaja w danym "
+         "roku). Wyłącz, jeśli Twój import ma WŁASNY harmonogram (np. stały kontrakt niezależny od tempa "
+         "rozruchu fabryki) — wtedy import liczony jest zawsze jako pełny docelowy wolumen, bez skalowania."
+)
 year_labels = [f"Rok {i+1}" for i in range(RAMPUP_YEARS)]
 if not st.session_state.rampup_differentiate:
     for i in range(RAMPUP_YEARS):
@@ -2447,7 +2475,19 @@ st.caption("Ciąg dalszy - dobór mieszalników na bazie receptur wgranych powy�
 with tab1:
     st.header(f"Zintegrowane Zestawienie Parametrów Procesowych")
 
+    if "mixer_fill_factor" not in st.session_state:
+        # Domyślnie 92,5% - realne napełnienie robocze reaktora mieszającego (nie 100% pojemności
+        # nominalnej - potrzeba miejsca na mieszanie, pienienie, zapas bezpieczeństwa). Typowo 90-95%.
+        st.session_state.mixer_fill_factor = 0.925
+
     if wybrane_kategorie:
+        st.session_state.mixer_fill_factor = st.slider(
+            "🧪 Współczynnik napełnienia mieszalnika (robocze % pojemności nominalnej):",
+            min_value=0.70, max_value=1.00, value=float(st.session_state.mixer_fill_factor), step=0.025,
+            help="Reaktor nigdy nie jest napełniany do samej góry — potrzeba miejsca na mieszanie, "
+                 "pienienie i zapas bezpieczeństwa. Typowo 90-95% pojemności nominalnej. Wpływa na masę "
+                 "szarży dla WSZYSTKICH mieszalników, wszędzie w aplikacji."
+        )
         st.markdown("##### 📥 Krok A: Parametryzacja Tonażu, Pojemności Mieszalnika oraz SKUs")
         st.caption("Wybierz linię z listy, aby błyskawicznie i płynnie zmienić jej parametry. Wyniki w tabeli poniżej przeliczą się natychmiast.")
 
@@ -2479,6 +2519,12 @@ with tab1:
                 "Liczba aktywnych SKUs:", min_value=1, value=int(st.session_state.prod_dict[selected_family_to_edit]["skus"]), step=1,
                 key=f"skus_{selected_family_to_edit}"
             )
+        if st.session_state.prod_dict[selected_family_to_edit].get("num_tanks", 1) > 1:
+            st.caption(f"ℹ️ **'Pojemność Mieszalnika (bazowa)' NIE wpływa na już skonfigurowane zbiorniki tej linii** — "
+                       f"{selected_family_to_edit} ma {st.session_state.prod_dict[selected_family_to_edit]['num_tanks']} "
+                       "zbiorniki, każdy z własną pojemnością w sekcji 'Pojemności i Cykle Poszczególnych Zbiorników' "
+                       "poniżej. To pole zadziała dopiero, gdy zwiększysz liczbę zbiorników (jako wartość startowa dla "
+                       "nowego).")
 
         current_skus = st.session_state.prod_dict[selected_family_to_edit]["skus"]
         _tank_members_current = st.session_state.prod_dict[selected_family_to_edit].get("tank_members", [])
@@ -2605,7 +2651,7 @@ with tab1:
                     # zbiornika, zamiast zgadywać jednym uśrednionym cyklem.
                     total_batches, total_hours, mass_per_batch_list = 0, 0.0, []
                     for mem in members:
-                        mass_pb_i = v_tank_user * mem["density"] * 1000.0
+                        mass_pb_i = v_tank_user * mem["density"] * 1000.0 * st.session_state.mixer_fill_factor
                         mass_per_batch_list.append(mass_pb_i)
                         monthly_i = mem["annual_kg"] / MONTHS_PER_YEAR
                         batches_i = math.ceil(monthly_i / mass_pb_i) if mass_pb_i > 0 else 0
@@ -2619,7 +2665,7 @@ with tab1:
                     # wprost z jego własnych danych (gęstość/roczna/cykl), bez zgadywania przez
                     # podział proporcjonalny do pojemności (mamy dokładne dane, więc ich używamy).
                     mem = members[0]
-                    mass_per_batch = v_tank_user * mem["density"] * 1000.0
+                    mass_per_batch = v_tank_user * mem["density"] * 1000.0 * st.session_state.mixer_fill_factor
                     monthly_mass = mem["annual_kg"] / MONTHS_PER_YEAR
                     batches_per_tank = math.ceil(monthly_mass / mass_per_batch) if mass_per_batch > 0 else 0
                     real_utilization = (batches_per_tank * mem["cycle_h"]) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
@@ -2636,7 +2682,7 @@ with tab1:
                     annual_per_tank = m_annual * capacity_share
                     monthly_per_tank = annual_per_tank / MONTHS_PER_YEAR
 
-                    mass_per_batch = v_tank_user * rho_product * 1000.0
+                    mass_per_batch = v_tank_user * rho_product * 1000.0 * st.session_state.mixer_fill_factor
                     batches_per_tank = math.ceil(monthly_per_tank / mass_per_batch) if mass_per_batch > 0 else 0
                     real_utilization = (batches_per_tank * cyc_h) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
 
@@ -2927,12 +2973,96 @@ with tab2:
         if not compare_mixer_tags:
             st.info("ℹ️ Wybierz przynajmniej jeden mieszalnik powyżej, żeby zobaczyć jego szczegóły.")
         else:
+            if "tanker_capacity_t" not in st.session_state:
+                st.session_state.tanker_capacity_t = 24.0  # typowa cysterna drogowa ~24 t
+            st.session_state.tanker_capacity_t = st.number_input(
+                "🚛 Pojemność cysterny (dostawy RM / wysyłki FG) [t]:", min_value=1.0,
+                value=float(st.session_state.tanker_capacity_t), step=1.0, key="tanker_capacity_input",
+                help="Wspólna dla wszystkich porównywanych mieszalników poniżej — typowa cysterna drogowa to ok. 24 t."
+            )
+
             compare_cols = st.columns(len(compare_mixer_tags))
             for col, selected_mixer_tag in zip(compare_cols, compare_mixer_tags):
                 mixer = next(m for m in st.session_state.confirmed_mixers if m["tag"] == selected_mixer_tag)
                 p = st.session_state.mixer_tech_advanced_details[selected_mixer_tag]
                 with col:
                     st.markdown(f"**🔧 {selected_mixer_tag}** ({mixer['product_family']})")
+
+                    batches_month_cmp = mixer["batches_count"]
+                    batches_year_cmp = batches_month_cmp * MONTHS_PER_YEAR
+                    mass_per_batch_t = mixer["mass_per_batch"] / 1000.0
+                    monthly_mass_t = batches_month_cmp * mass_per_batch_t
+                    annual_mass_t = batches_year_cmp * mass_per_batch_t
+
+                    bm1, bm2 = st.columns(2)
+                    with bm1: st.metric("📦 Szarż/miesiąc", f"{batches_month_cmp}")
+                    with bm2: st.metric("📦 Szarż/rok", f"{batches_year_cmp}")
+
+                    # --- Rozbicie na surowce, ten sam uklad co plik uzytkownika: Surowiec | %
+                    # dozowania | Tony/szarze | Zuzycie/miesiac / rok [t]. ---
+                    recipes_df_cmp = st.session_state.get("recipes_df")
+                    recipe_product_cmp = mixer.get("recipe_product")
+                    total_rm_month_t_cmp = 0.0
+                    if recipes_df_cmp is not None and not recipes_df_cmp.empty and recipe_product_cmp:
+                        match_cmp = recipes_df_cmp[recipes_df_cmp[RECIPE_PRODUCT_COL] == recipe_product_cmp]
+                        if not match_cmp.empty:
+                            row_cmp = match_cmp.iloc[0]
+                            material_rows_cmp = []
+                            for mat in RECIPE_RAW_MATERIALS:
+                                dozowanie_kg_t = float(row_cmp.get(mat, 0) or 0)
+                                if dozowanie_kg_t <= 0:
+                                    continue
+                                mat_month_t = dozowanie_kg_t / 1000.0 * monthly_mass_t
+                                total_rm_month_t_cmp += mat_month_t
+                                material_rows_cmp.append({
+                                    "Surowiec": mat.replace(" [kg/t]", ""),
+                                    "% dozowania": round(dozowanie_kg_t / 10.0, 2),
+                                    "t/szarżę": round(dozowanie_kg_t / 1000.0 * mass_per_batch_t, 3),
+                                    "t/miesiąc": round(mat_month_t, 2),
+                                    "t/rok": round(mat_month_t * MONTHS_PER_YEAR, 2),
+                                })
+                            if material_rows_cmp:
+                                st.dataframe(pd.DataFrame(material_rows_cmp), hide_index=True, use_container_width=True)
+                        else:
+                            st.caption(f"⚠️ Nie znaleziono '{recipe_product_cmp}' w recepturze (Zakładka 1).")
+                    else:
+                        st.caption("Ten mieszalnik nie ma przypisanego konkretnego produktu z receptury (wspólny/kampanijny zbiornik).")
+
+                    # --- Badania laboratoryjne: liczba testów w panelu zwolnienia (Zakładka 6/VSM)
+                    # x liczba szarz - zakladamy 1 pelny panel zwolnienia na szarze. ---
+                    qc_cfg_cmp = st.session_state.get("vsm_qc_config", {}).get(mixer["product_family"], {
+                        "tests": ["Lepkość kinematyczna @40°C", "Barwa ASTM", "Temp. zapłonu - tygiel otwarty"]
+                    })
+                    n_tests_per_batch = len(qc_cfg_cmp.get("tests", []))
+                    lab_tests_month = n_tests_per_batch * batches_month_cmp
+                    lab_tests_year = n_tests_per_batch * batches_year_cmp
+                    bl1, bl2 = st.columns(2)
+                    with bl1: st.metric("🧪 Badań QC/miesiąc", f"{lab_tests_month}",
+                                        help=f"{n_tests_per_batch} testów/szarżę (panel zwolnienia, Zakładka 6) × {batches_month_cmp} szarż/mies.")
+                    with bl2: st.metric("🧪 Badań QC/rok", f"{lab_tests_year}")
+
+                    # --- Cysterny: dostawy surowców (RM) i wysyłki produktu (FG), oparte na
+                    # wspolnej pojemnosci cysterny powyzej. ---
+                    rm_tankers_month = math.ceil(total_rm_month_t_cmp / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
+                    rm_tankers_year = math.ceil((total_rm_month_t_cmp * MONTHS_PER_YEAR) / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
+                    fg_tankers_month = math.ceil(monthly_mass_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
+                    fg_tankers_year = math.ceil(annual_mass_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
+
+                    st.markdown("**🚚 Cysterny — dostawy RM**")
+                    bt1, bt2 = st.columns(2)
+                    with bt1: st.metric("Dostawy/miesiąc", f"{rm_tankers_month}")
+                    with bt2: st.metric("Dostawy/rok", f"{rm_tankers_year}")
+                    st.caption("Uproszczenie: łączna masa WSZYSTKICH surowców tego produktu razem, ÷ pojemność "
+                               "cysterny — realnie różne surowce przyjeżdżają osobnymi cysternami, to orientacyjny "
+                               "łączny rząd wielkości ruchu, nie harmonogram dostaw per surowiec.")
+
+                    st.markdown("**🚚 Cysterny — wysyłki FG**")
+                    bt3, bt4 = st.columns(2)
+                    with bt3: st.metric("Wysyłki/miesiąc", f"{fg_tankers_month}")
+                    with bt4: st.metric("Wysyłki/rok", f"{fg_tankers_year}")
+                    st.caption("Dotyczy TYLKO produktu wysyłanego luzem w cysternie — jeśli ten produkt jest "
+                               "pakowany (beczki/kanistry/palety), zignoruj tę metrykę (masz ją w Zakładce 4).")
+
                     p["pump_mode"] = st.selectbox(
                         "Tryb pompy:", ["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"],
                         index=["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"].index(p["pump_mode"]),
@@ -4002,7 +4132,7 @@ with tab3:
                                                      r.get(RECIPE_IMPORT_TRANSITION_COL, ""), year_idx_for_calc):
                     continue
                 annual_t_target = float(r.get(RECIPE_ANNUAL_COL, 0) or 0)
-                frac = get_rampup_fraction(r[RECIPE_GROUP_COL], year_idx_for_calc) if year_idx_for_calc != RAMPUP_YEAR_TARGET_SENTINEL else 1.0
+                frac = get_import_volume_fraction(r[RECIPE_GROUP_COL], year_idx_for_calc)
                 effective_annual_t = annual_t_target * frac
                 daily_t = effective_annual_t / WORKING_DAYS_YEAR if WORKING_DAYS_YEAR > 0 else 0.0
                 freq_days = float(r.get(RECIPE_IMPORT_FREQ_COL, 0) or 0)
@@ -5839,17 +5969,21 @@ with tab8:
             active_n, inactive_n = 0, 0
             utilizations = []  # (tag, %)
             own_tonnage_y, import_tonnage_y = 0.0, 0.0
+            import_breakdown_y = []  # (produkt, t) - do przejrzystości, co dokładnie się sumuje
             for m in st.session_state.confirmed_mixers:
                 recipe_product = m.get("recipe_product")
                 is_imported = False
                 if recipe_product and recipe_product in product_sourcing_lookup_dash:
                     sourcing, transition = product_sourcing_lookup_dash[recipe_product]
                     is_imported = is_product_imported_in_year(sourcing, transition, year_idx)
-                frac = get_rampup_fraction(m["product_family"], year_idx)
                 if is_imported:
                     inactive_n += 1
-                    import_tonnage_y += (m["annual_volume"] / 1000.0) * frac
+                    import_frac = get_import_volume_fraction(m["product_family"], year_idx)
+                    import_t_this = (m["annual_volume"] / 1000.0) * import_frac
+                    import_tonnage_y += import_t_this
+                    import_breakdown_y.append((recipe_product or m["tag"], import_t_this))
                     continue
+                frac = get_rampup_fraction(m["product_family"], year_idx)
                 scaled_monthly_mass = (m["annual_volume"] / MONTHS_PER_YEAR) * frac
                 scaled_batches = math.ceil(scaled_monthly_mass / m["mass_per_batch"]) if m["mass_per_batch"] > 0 else 0
                 # Ta sama logika co Zakładka 1 ("Utylizacja Czasowa") - CZAS pracy (szarże × cykl)
@@ -5878,7 +6012,12 @@ with tab8:
                 else:
                     st.caption("Brak aktywnych mieszalników w tym roku.")
                 st.metric("🏭 Produkcja własna", f"{own_tonnage_y:,.0f} t")
-                st.metric("📦 Import", f"{import_tonnage_y:,.0f} t")
+                if import_breakdown_y:
+                    breakdown_txt = " · ".join(f"{name}: {t:,.0f} t" for name, t in import_breakdown_y)
+                    st.metric("📦 Import", f"{import_tonnage_y:,.0f} t",
+                              help=f"{len(import_breakdown_y)} produkt(ów) jeszcze importowanych w tym roku: {breakdown_txt}")
+                else:
+                    st.metric("📦 Import", f"{import_tonnage_y:,.0f} t")
 
         st.markdown("---")
         st.markdown("### 🛢️ Zbiorniki RM")
@@ -5979,7 +6118,7 @@ with tab8:
                 total_t, names = 0.0, []
                 for _, r in buffer_rows.iterrows():
                     annual_t_target = float(r.get(RECIPE_ANNUAL_COL, 0) or 0)
-                    frac = get_rampup_fraction(r[RECIPE_GROUP_COL], year_idx_calc)
+                    frac = get_import_volume_fraction(r[RECIPE_GROUP_COL], year_idx_calc)
                     total_t += annual_t_target * frac
                     names.append(r[RECIPE_PRODUCT_COL])
                 return total_t, names
@@ -6007,10 +6146,13 @@ with tab8:
                         st.metric("📊 Wykorzystanie (FG+RM+Import)", f"{(total_used / total_wh_target_dash * 100.0):.0f}%")
 
         st.markdown("---")
-        st.markdown("### ⚡ Energia — elektryczna i cieplna, per rok")
-        st.caption("Fizyczne zużycie [kWh], nie koszt — całościowo za rok i na kg wyprodukowanego produktu. "
-                   "Liczone z tych samych wzorów co Karta Maszyn (moc mieszania/pompowania + bilans grzania), "
-                   "skalowane realną liczbą szarż w danym roku.")
+        st.markdown("### ⚡ Energia — CAŁKOWITE zużycie, per rok")
+        st.caption("Fizyczne zużycie [kWh], nie koszt — obejmuje WSZYSTKO: mieszanie/pompowanie, grzanie i "
+                   "chłodzenie produktu, pompy i grzanie zbiorników RM, ORAZ energię pozaprodukcyjną (HVAC, "
+                   "oświetlenie, serwerownia — działa niezależnie od tego, ile akurat produkujesz). Pominięta "
+                   "jest jedynie 'moc szczytowa procesu' z bilansu elektrycznego (Karta Maszyn) — to moc "
+                   "instalowana do doboru transformatora, nie realne zużycie, więc doliczenie jej zawyżałoby "
+                   "wynik i podwajało to, co już liczone jest tu wprost per szarżę.")
         recipes_df_dash3 = st.session_state.get("recipes_df")
         product_sourcing_lookup_dash3 = {}
         if recipes_df_dash3 is not None and not recipes_df_dash3.empty and RECIPE_SOURCING_COL in recipes_df_dash3.columns:
@@ -6020,6 +6162,10 @@ with tab8:
                 )
         calculated_times_dash3 = st.session_state.get("calculated_times", {})
         mixer_tech_dash3 = st.session_state.get("mixer_tech_advanced_details", {})
+        confirmed_rm_tanks_dash3 = st.session_state.get("confirmed_rm_tanks", [])
+        rm_tank_tech_dash3 = st.session_state.get("rm_tank_tech_details", {})
+        facility_demand_kw_dash = st.session_state.get("facility_demand_kw", 0.0)
+        hours_year_dash = AVAILABLE_HOURS_MONTH * MONTHS_PER_YEAR
 
         year_cols_energy = st.columns(RAMPUP_YEARS)
         for year_idx, col in enumerate(year_cols_energy):
@@ -6051,15 +6197,57 @@ with tab8:
                             p_e["utility_type_heat"], p_e["delta_t_medium_grzewcze"], p_e["t_utility_heat_in"])
                         if thermal_e["heating_status"] == "ok":
                             thermal_kwh_year += thermal_e["q_heating_mj"] * 0.2778 * scaled_batches_year
+                        q_cooling_mj_e, _, _, _, cooling_status_e = compute_cooling(
+                            m["mass_per_batch"], p_e["cp_product"], p_e["t_product_out"], p_e["t_discharge_c"],
+                            p_e["t_utility_cool_in"], p_e["k_coeff"], p_e["exchange_area_m2"],
+                            p_e["utility_type_cool"], p_e["delta_t_medium_chlodzace"])
+                        if cooling_status_e == "ok":
+                            # Chłodzenie liczone jako energia ELEKTRYCZNA (agregat/COP), nie cieplna.
+                            electrical_kwh_year += q_cooling_mj_e * 0.2778 * scaled_batches_year
                     except Exception:
                         pass
 
+            # Zbiorniki RM: pompy (elektryczna) i grzanie (cieplna) - TYLKO aktywne w danym roku
+            # (te same warunki co w sekcji '🛢️ Zbiorniki RM' wyżej).
+            year_consumption_rm = compute_rm_consumption_for_year(year_idx)
+            for t in confirmed_rm_tanks_dash3:
+                if year_consumption_rm.get(t["material"], 0.0) <= 0:
+                    continue
+                rd = rm_tank_tech_dash3.get(t["tag"])
+                if not rd:
+                    continue
+                try:
+                    eff_flow = rd["pump_flow_m3h"]
+                    if rd["pump_mode"] == "Współdzielona (kilka zbiorników)" and rd["shared_pump_id"] in st.session_state.get("shared_pumps", {}):
+                        shared_cfg = st.session_state.shared_pumps[rd["shared_pump_id"]]
+                        eff_flow, eff_eff = shared_cfg["flow_m3h"], shared_cfg["efficiency"]
+                    else:
+                        eff_eff = rd["pump_efficiency"]
+                    zeta_sum_rm_e = (rd["count_elbows_90"] * 0.5) + (rd["count_valves"] * 0.2)
+                    _, _, power_kw_rm_e, _ = compute_hydraulics(
+                        eff_flow, rd["pipe_dn"], rd["pipe_length_m"], rd["delta_h_m"],
+                        rd["viscosity_cst"], rd["density_kg_m3"], zeta_sum_rm_e, eff_eff)
+                    electrical_kwh_year += power_kw_rm_e * hours_year_dash
+                    if rd["heated"]:
+                        heating_power_kw_e = compute_tank_heating_power_kw(
+                            t["capacity_m3"], rd["insulation_mm"], rd["target_temp_c"], rd["ambient_temp_c"])
+                        thermal_kwh_year += heating_power_kw_e * hours_year_dash
+                except Exception:
+                    pass
+
+            # Pozaprodukcyjne (HVAC/oświetlenie/serwerownia) - stałe, niezależne od wolumenu produkcji.
+            facility_kwh_year = facility_demand_kw_dash * hours_year_dash
+            electrical_kwh_year += facility_kwh_year
+            total_kwh_year = electrical_kwh_year + thermal_kwh_year
+
             with col:
                 st.markdown(f"**Rok {year_idx + 1}**")
-                st.metric("⚡ Elektryczna — razem", f"{electrical_kwh_year:,.0f} kWh/rok")
+                st.metric("⚡ Elektryczna — razem", f"{electrical_kwh_year:,.0f} kWh/rok",
+                          help=f"W tym pozaprodukcyjne (HVAC/oświetlenie): {facility_kwh_year:,.0f} kWh/rok (stałe).")
                 st.metric("⚡ Elektryczna — na kg", f"{(electrical_kwh_year / produced_kg_year):.3f} kWh/kg" if produced_kg_year > 0 else "—")
                 st.metric("🔥 Cieplna — razem", f"{thermal_kwh_year:,.0f} kWh/rok")
                 st.metric("🔥 Cieplna — na kg", f"{(thermal_kwh_year / produced_kg_year):.3f} kWh/kg" if produced_kg_year > 0 else "—")
+                st.metric("⚡🔥 Razem — na kg", f"{(total_kwh_year / produced_kg_year):.3f} kWh/kg" if produced_kg_year > 0 else "—")
 
         st.markdown("---")
         st.caption("📄 Pełny raport (PDF/Excel) ze wszystkimi tymi liczbami znajdziesz w Zakładce 5, Krok 5.")
