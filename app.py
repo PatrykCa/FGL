@@ -687,6 +687,34 @@ def generate_recipe_template_bytes():
     for col, w in zip("ABCDE", [22, 16, 16, 20, 20]):
         ws_pack.column_dimensions[col].width = w
 
+    # --- Arkusz 'Badania Laboratoryjne' (opcjonalny) - testy jako wiersze (z gotowego katalogu
+    # aplikacji), przykładowe produkty jako kolumny do zaznaczenia "x". Dopisz kolejne kolumny z
+    # DOKŁADNĄ nazwą produktu z arkusza 'Receptury', żeby przypisać im testy. ---
+    ws_qc = wb.create_sheet(QC_SHEET_NAME)
+    example_qc_products = ["Przykład: SAF", "Przykład: MX"]
+    qc_headers = [QC_SHEET_TEST_NAME_COL, "Sprzęt", "Czas [min]"] + example_qc_products
+    for col_idx, h in enumerate(qc_headers, start=1):
+        cell = ws_qc.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = wrap_center
+    ws_qc.row_dimensions[1].height = 32
+
+    qc_row = 2
+    for test_name, test_info in QC_TEST_CATALOG.items():
+        ws_qc.cell(row=qc_row, column=1, value=test_name).fill = computed_fill
+        ws_qc.cell(row=qc_row, column=2, value=test_info["equipment"]).fill = computed_fill
+        ws_qc.cell(row=qc_row, column=3, value=test_info["duration_min"]).fill = computed_fill
+        for pc in range(len(example_qc_products)):
+            ws_qc.cell(row=qc_row, column=4 + pc, value="").fill = input_fill
+        qc_row += 1
+    for col, w in zip("AB", [40, 40]):
+        ws_qc.column_dimensions[col].width = w
+    ws_qc.column_dimensions["C"].width = 12
+    for pc in range(len(example_qc_products)):
+        ws_qc.column_dimensions[get_column_letter(4 + pc)].width = 18
+    ws_qc.freeze_panes = "D2"
+
     bio = io.BytesIO()
     wb.save(bio)
     bio.seek(0)
