@@ -110,6 +110,7 @@ QC_TEST_CATALOG = {
     "Tapping Torque Test": {"duration_min": 45, "equipment": "Trybometr (Micro tap)"},
     "Demulgowalność": {"duration_min": 45, "equipment": "Bath demulsibility"},
     "Pour Point": {"duration_min": 30, "equipment": "Aparat Pour Point"},
+    "Foam Tester": {"duration_min": 30, "equipment": "XXX Foam Tester"},
 }
 
 # Prefiks/sufiks kolumn Excela definiujących, KTÓRE testy QC dotyczą KONKRETNEGO produktu (nie
