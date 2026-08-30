@@ -75,25 +75,45 @@ MEDIA_PROCESOWE = {
 # laboratoryjnej - EDYTOWALNE bezpośrednio w Zakładce 6 (VSM), bo rzeczywisty czas zależy
 # od obciążenia laboratorium i wprawy technika.
 QC_TEST_CATALOG = {
-    "Lepkość kinematyczna @40°C": {"duration_min": 20, "equipment": "Łaźnia wiskozymetryczna (Lauda / Koehler / Cannon)"},
-    "Lepkość kinematyczna @100°C": {"duration_min": 25, "equipment": "Łaźnia wiskozymetryczna 100°C"},
-    "Lepkość dynamiczna": {"duration_min": 10, "equipment": "Wiskozymetr Brookfield"},
-    "Barwa ASTM": {"duration_min": 5, "equipment": "Kolorymetr"},
-    "Temp. zapłonu - tygiel otwarty": {"duration_min": 45, "equipment": "Cleveland Open Cup"},
-    "Temp. zapłonu - tygiel zamknięty": {"duration_min": 30, "equipment": "Koehler Closed Cup"},
-    "Gęstość": {"duration_min": 10, "equipment": "Densimetr Koehler K86200"},
-    "Zawartość wody (Karl Fischer)": {"duration_min": 15, "equipment": "Metrohm / 795 KFT Titrino"},
-    "pH": {"duration_min": 5, "equipment": "pH-metr stołowy"},
-    "Przewodność": {"duration_min": 5, "equipment": "Konduktometr"},
-    "Demulgowalność": {"duration_min": 60, "equipment": "Koehler Water Separability Tester"},
-    "Wskaźnik refrakcji": {"duration_min": 5, "equipment": "Refraktometr cyfrowy Atago"},
-    "XRF": {"duration_min": 15, "equipment": "Spektrometr XRF Bruker"},
-    "Punkt aniliny": {"duration_min": 20, "equipment": "Aniline Point Tester"},
-    "Zawartość ciał stałych": {"duration_min": 30, "equipment": "Wagosuszarka"},
-    "Spektroskopia FTIR": {"duration_min": 10, "equipment": "Spektrometr FT-IR Perkin Elmer"},
-    "Krzywa chłodzenia (Cooling Curve)": {"duration_min": 20, "equipment": "Smart Quench SQ2"},
-    "Zasadowość (Alkalinity)": {"duration_min": 20, "equipment": "Automatyczny tytrator potencjometryczny"},
+    "Lepkość kinematyczna @40°C (łaźnia ręczna)": {"duration_min": 40, "equipment": "Manual Viscosity Bath, 40°C"},
+    "Lepkość kinematyczna @40°C (półautomat)": {"duration_min": 25, "equipment": "Semiautomatic Viscosity Bath, 40°C"},
+    "Lepkość kinematyczna @40°C (automat)": {"duration_min": 15, "equipment": "Automatic Viscometer, 40°C"},
+    "Lepkość kinematyczna @100°C (łaźnia ręczna)": {"duration_min": 60, "equipment": "Manual Viscosity Bath, 100°C"},
+    "Lepkość kinematyczna @100°C (automat)": {"duration_min": 20, "equipment": "Automatic Viscometer, 100°C"},
+    "Lepkość dynamiczna (ASTM D2669)": {"duration_min": 30, "equipment": "Viscosimeter Brookfield (ASTM D2669)"},
+    "Lepkość dynamiczna (ASTM D2983)": {"duration_min": 45, "equipment": "Viscosimeter Brookfield (ASTM D2983)"},
+    "Lepkość dynamiczna @-40°C": {"duration_min": 45, "equipment": "Viscosimeter Brookfield (niska temp.)"},
+    "Krzywa Stribecka": {"duration_min": 60, "equipment": "Reometr (Anton Paar)"},
+    "Barwa ASTM": {"duration_min": 5, "equipment": "Kolorymetr (ASTM D1500)"},
+    "Wielkość cząstek (Particle size)": {"duration_min": 15, "equipment": "Litesizer DLS 500"},
+    "Klasa czystości (Cleanliness code)": {"duration_min": 15, "equipment": "Licznik cząstek (ISO 4406)"},
+    "Gęstość": {"duration_min": 10, "equipment": "Hydrometr / densimetr"},
+    "Wskaźnik refrakcji": {"duration_min": 5, "equipment": "Refraktometr cyfrowy"},
+    "Temp. zapłonu - półautomat": {"duration_min": 45, "equipment": "Semiautomatic (Open/Closed cup)"},
+    "Temp. zapłonu - automat": {"duration_min": 25, "equipment": "Automatic (Open/Closed cup)"},
+    "Krzywa chłodzenia (Cooling Curve)": {"duration_min": 30, "equipment": "Smart Quench SQ2"},
+    "XRF": {"duration_min": 15, "equipment": "Spektrometr XRF (Bruker)"},
+    "Punkt aniliny": {"duration_min": 50, "equipment": "Aniline Point Tester"},
+    "Zawartość ciał stałych": {"duration_min": 20, "equipment": "Wagosuszarka (Ohaus)"},
+    "Przewodność": {"duration_min": 10, "equipment": "Konduktometr"},
+    "Zawartość wody (Karl Fischer)": {"duration_min": 20, "equipment": "Kulometr (Karl Fischer)"},
+    "Spektroskopia FTIR": {"duration_min": 15, "equipment": "Spektrometr FT-IR (Perkin Elmer)"},
+    "pH": {"duration_min": 10, "equipment": "pH-metr stołowy"},
+    "Zasadowość (Alkalinity)": {"duration_min": 25, "equipment": "Automatyczny tytrator potencjometryczny"},
+    "Spektroskopia UV-Vis": {"duration_min": 20, "equipment": "Spektrometr UV/Vis"},
+    "Test korozji": {"duration_min": 1440, "equipment": "Komora klimatyczna (DIN 6270-2) — czas oczekiwania 24h+"},
+    "Pienienie (Foam)": {"duration_min": 30, "equipment": "Cnomo foam tester"},
+    "EP / AW (tarcie i zużycie)": {"duration_min": 90, "equipment": "Aparat Falexa (tarcie i zużycie)"},
+    "Tapping Torque Test": {"duration_min": 45, "equipment": "Trybometr (Micro tap)"},
+    "Demulgowalność": {"duration_min": 45, "equipment": "Bath demulsibility"},
+    "Pour Point": {"duration_min": 30, "equipment": "Aparat Pour Point"},
 }
+
+# Prefiks/sufiks kolumn Excela definiujących, KTÓRE testy QC dotyczą KONKRETNEGO produktu (nie
+# tylko całej linii jak w Zakładce 6/VSM) - ten sam wzorzec co "Opak: {nazwa} [%]" dla opakowań.
+# Kolumna: "QC: {nazwa testu z QC_TEST_CATALOG} [x]", wartość "x"/1/TRUE = test dotyczy produktu.
+QC_COL_PREFIX = "QC: "
+QC_COL_SUFFIX = " [x]"
 
 
 # Lista surowców receptury produktowej (Zakładka 1 / Receptury) - dozowanie w kg na tonę
@@ -791,6 +811,19 @@ def parse_recipe_excel(uploaded_file):
                            f"(produkcja nadal zaliczona), popraw jeśli chcesz z niego korzystać.")
     else:
         df[RECIPE_PACK_SUM_COL] = 0.0
+
+    # Testy QC per KONKRETNY produkt (opcjonalne, dynamiczne - dowolna liczba kolumn
+    # 'QC: {nazwa testu} [x]'), analogicznie do opakowań. Wartość "x"/1/TRUE/"tak" = test dotyczy
+    # tego produktu; jeśli produkt nie ma ŻADNEJ takiej kolumny wypełnionej, panel zwolnienia
+    # nadal można skonfigurować per LINIA w Zakładce 6 (VSM) jako dotychczasowy fallback.
+    qc_cols_found = [c for c in df.columns if c.startswith(QC_COL_PREFIX) and c.endswith(QC_COL_SUFFIX)]
+    unknown_qc_tests = [c for c in qc_cols_found if c[len(QC_COL_PREFIX):-len(QC_COL_SUFFIX)] not in QC_TEST_CATALOG]
+    if unknown_qc_tests:
+        errors.append(f"Nieznane testy QC w kolumnach: {', '.join(unknown_qc_tests)} - sprawdź pisownię względem "
+                       "katalogu testów (Zakładka 6, VSM). Kolumny te są ignorowane.")
+        qc_cols_found = [c for c in qc_cols_found if c not in unknown_qc_tests]
+    for c in qc_cols_found:
+        df[c] = df[c].astype(str).str.strip().str.lower().isin(["x", "1", "true", "tak", "yes"])
 
     unknown_group_mask = ~df[RECIPE_GROUP_COL].astype(str).isin(RECIPE_PRODUCT_GROUPS)
     if unknown_group_mask.any():
@@ -3002,24 +3035,28 @@ with tab2:
                     # dozowania | Tony/szarze | Zuzycie/miesiac / rok [t]. ---
                     recipes_df_cmp = st.session_state.get("recipes_df")
                     recipe_product_cmp = mixer.get("recipe_product")
-                    total_rm_month_t_cmp = 0.0
+                    rm_bulk_month_t_by_material = {}  # tylko materialy luzem (dostawa cysterna)
                     if recipes_df_cmp is not None and not recipes_df_cmp.empty and recipe_product_cmp:
                         match_cmp = recipes_df_cmp[recipes_df_cmp[RECIPE_PRODUCT_COL] == recipe_product_cmp]
                         if not match_cmp.empty:
                             row_cmp = match_cmp.iloc[0]
+                            rm_storage_override_cmp = st.session_state.get("rm_storage_method_override", {})
                             material_rows_cmp = []
                             for mat in RECIPE_RAW_MATERIALS:
                                 dozowanie_kg_t = float(row_cmp.get(mat, 0) or 0)
                                 if dozowanie_kg_t <= 0:
                                     continue
                                 mat_month_t = dozowanie_kg_t / 1000.0 * monthly_mass_t
-                                total_rm_month_t_cmp += mat_month_t
+                                is_bulk_mat = rm_storage_override_cmp.get(mat) == "Zbiornik (luzem)"
+                                if is_bulk_mat:
+                                    rm_bulk_month_t_by_material[mat] = mat_month_t
                                 material_rows_cmp.append({
                                     "Surowiec": mat.replace(" [kg/t]", ""),
                                     "% dozowania": round(dozowanie_kg_t / 10.0, 2),
                                     "t/szarżę": round(dozowanie_kg_t / 1000.0 * mass_per_batch_t, 3),
                                     "t/miesiąc": round(mat_month_t, 2),
                                     "t/rok": round(mat_month_t * MONTHS_PER_YEAR, 2),
+                                    "Dostawa": "🚚 Cysterna (luzem)" if is_bulk_mat else "📦 Beczki/IBC/worki",
                                 })
                             if material_rows_cmp:
                                 st.dataframe(pd.DataFrame(material_rows_cmp), hide_index=True, use_container_width=True)
@@ -3028,33 +3065,59 @@ with tab2:
                     else:
                         st.caption("Ten mieszalnik nie ma przypisanego konkretnego produktu z receptury (wspólny/kampanijny zbiornik).")
 
-                    # --- Badania laboratoryjne: liczba testów w panelu zwolnienia (Zakładka 6/VSM)
-                    # x liczba szarz - zakladamy 1 pelny panel zwolnienia na szarze. ---
-                    qc_cfg_cmp = st.session_state.get("vsm_qc_config", {}).get(mixer["product_family"], {
-                        "tests": ["Lepkość kinematyczna @40°C", "Barwa ASTM", "Temp. zapłonu - tygiel otwarty"]
-                    })
-                    n_tests_per_batch = len(qc_cfg_cmp.get("tests", []))
+                    # --- Badania laboratoryjne: PRIORYTET 1 - testy zdefiniowane per KONKRETNY
+                    # produkt w Excelu (kolumny 'QC: {test} [x]', Zakładka 1); PRIORYTET 2
+                    # (fallback) - panel zwolnienia skonfigurowany per LINIA w Zakładce 6 (VSM),
+                    # jeśli receptura nie precyzuje testów dla tego produktu. ---
+                    qc_tests_from_recipe = []
+                    if recipes_df_cmp is not None and not recipes_df_cmp.empty and recipe_product_cmp:
+                        qc_cols_cmp = [c for c in recipes_df_cmp.columns if c.startswith(QC_COL_PREFIX) and c.endswith(QC_COL_SUFFIX)]
+                        match_qc_cmp = recipes_df_cmp[recipes_df_cmp[RECIPE_PRODUCT_COL] == recipe_product_cmp]
+                        if qc_cols_cmp and not match_qc_cmp.empty:
+                            row_qc_cmp = match_qc_cmp.iloc[0]
+                            qc_tests_from_recipe = [c[len(QC_COL_PREFIX):-len(QC_COL_SUFFIX)] for c in qc_cols_cmp if bool(row_qc_cmp.get(c, False))]
+
+                    if qc_tests_from_recipe:
+                        n_tests_per_batch = len(qc_tests_from_recipe)
+                        qc_source_label = f"receptura (Zakładka 1): {', '.join(qc_tests_from_recipe)}"
+                    else:
+                        qc_cfg_cmp = st.session_state.get("vsm_qc_config", {}).get(mixer["product_family"], {
+                            "tests": ["Lepkość kinematyczna @40°C (półautomat)", "Barwa ASTM", "Temp. zapłonu - półautomat"]
+                        })
+                        n_tests_per_batch = len(qc_cfg_cmp.get("tests", []))
+                        qc_source_label = f"panel zwolnienia linii (Zakładka 6): {n_tests_per_batch} testów"
                     lab_tests_month = n_tests_per_batch * batches_month_cmp
                     lab_tests_year = n_tests_per_batch * batches_year_cmp
                     bl1, bl2 = st.columns(2)
                     with bl1: st.metric("🧪 Badań QC/miesiąc", f"{lab_tests_month}",
-                                        help=f"{n_tests_per_batch} testów/szarżę (panel zwolnienia, Zakładka 6) × {batches_month_cmp} szarż/mies.")
+                                        help=f"{n_tests_per_batch} testów/szarżę ({qc_source_label}) × {batches_month_cmp} szarż/mies.")
                     with bl2: st.metric("🧪 Badań QC/rok", f"{lab_tests_year}")
 
-                    # --- Cysterny: dostawy surowców (RM) i wysyłki produktu (FG), oparte na
-                    # wspolnej pojemnosci cysterny powyzej. ---
-                    rm_tankers_month = math.ceil(total_rm_month_t_cmp / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
-                    rm_tankers_year = math.ceil((total_rm_month_t_cmp * MONTHS_PER_YEAR) / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
+                    # --- Cysterny: dostawy surowców (RM) - ROZBITE PER SUROWIEC (nie łącznie),
+                    # i TYLKO dla materiałów faktycznie dostarczanych luzem cysterną (zbiornik
+                    # dedykowany) - beczkowane/IBC jadą zwykłym transportem, nie cysterną. ---
+                    st.markdown("**🚚 Cysterny — dostawy RM (per surowiec)**")
+                    if rm_bulk_month_t_by_material:
+                        rm_tanker_rows = []
+                        for mat, mat_month_t in rm_bulk_month_t_by_material.items():
+                            tankers_month_mat = math.ceil(mat_month_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
+                            tankers_year_mat = math.ceil((mat_month_t * MONTHS_PER_YEAR) / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
+                            rm_tanker_rows.append({
+                                "Surowiec": mat.replace(" [kg/t]", ""),
+                                "t/miesiąc": round(mat_month_t, 2),
+                                "Cystern/miesiąc": tankers_month_mat,
+                                "Cystern/rok": tankers_year_mat,
+                            })
+                        st.dataframe(pd.DataFrame(rm_tanker_rows), hide_index=True, use_container_width=True)
+                        st.caption("Każdy surowiec liczony osobno (własna cysterna, własny dostawca) — dokładne do "
+                                   "planowania harmonogramu dostaw, nie łączna suma masy.")
+                    else:
+                        st.caption("Brak surowców dostarczanych luzem (cysterną) dla tego produktu — wszystkie w "
+                                   "beczkach/IBC/workach, albo sposób magazynowania nie został jeszcze ustawiony "
+                                   "w Zakładce 2.")
+
                     fg_tankers_month = math.ceil(monthly_mass_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
                     fg_tankers_year = math.ceil(annual_mass_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
-
-                    st.markdown("**🚚 Cysterny — dostawy RM**")
-                    bt1, bt2 = st.columns(2)
-                    with bt1: st.metric("Dostawy/miesiąc", f"{rm_tankers_month}")
-                    with bt2: st.metric("Dostawy/rok", f"{rm_tankers_year}")
-                    st.caption("Uproszczenie: łączna masa WSZYSTKICH surowców tego produktu razem, ÷ pojemność "
-                               "cysterny — realnie różne surowce przyjeżdżają osobnymi cysternami, to orientacyjny "
-                               "łączny rząd wielkości ruchu, nie harmonogram dostaw per surowiec.")
 
                     st.markdown("**🚚 Cysterny — wysyłki FG**")
                     bt3, bt4 = st.columns(2)
@@ -5598,7 +5661,7 @@ with tab6:
         if "vsm_qc_config" not in st.session_state:
             st.session_state.vsm_qc_config = {}
         qc_cfg = st.session_state.vsm_qc_config.setdefault(selected_vsm_family, {
-            "tests": ["Lepkość kinematyczna @40°C", "Barwa ASTM", "Temp. zapłonu - tygiel otwarty"],
+            "tests": ["Lepkość kinematyczna @40°C (półautomat)", "Barwa ASTM", "Temp. zapłonu - półautomat"],
             "mode": "Sekwencyjnie (jeden technik, jedno stanowisko)",
             "custom_durations": {},
         })
