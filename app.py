@@ -2812,6 +2812,7 @@ with tab1:
         real_cycle_reference_rows = []
         tag_counter = 101
         st.session_state.tag_to_recipe_product = {}
+        st.session_state.tag_to_shared_members = {}  # dla zbiorników kampanijnych (>1 produkt): lista {"product","annual_kg","cycle_h","density"}
 
         for kat in wybrane_kategorie:
             m_annual = st.session_state.prod_dict[kat]["roczna"]
@@ -2886,6 +2887,8 @@ with tab1:
                 tag_id = f"MT-{tag_counter}" + (f"-Z{t_idx+1}" if tanks_count > 1 else "")
                 if members is not None and len(members) == 1:
                     st.session_state.tag_to_recipe_product[tag_id] = members[0]["product"]
+                elif members is not None and len(members) > 1:
+                    st.session_state.tag_to_shared_members[tag_id] = members
                 status_txt = "🟢 Optymalna" if real_utilization <= MAX_TANK_UTILIZATION_PCT else "⚠️ Przeciążenie (>85%)"
                 if v_tank_user < MIN_TANK_VOLUME_M3:
                     status_txt = "❌ Poniżej min. fabryki (<5 m³)"
@@ -3032,6 +3035,7 @@ with tab1:
                             "cycle_h": float(row["Cykl Szacowany [h]"]),
                             "annual_volume": int(row["Masa Szarży [kg]"]) * int(row["Szarż / miesiąc (per aparat)"]) * MONTHS_PER_YEAR,
                             "recipe_product": st.session_state.tag_to_recipe_product.get(row["ID Urządzenia"]),
+                            "shared_members": st.session_state.get("tag_to_shared_members", {}).get(row["ID Urządzenia"]),
                         })
 
                     st.session_state.confirmed_mixers = confirmed_mixers_blueprint
@@ -6047,6 +6051,24 @@ with tab6:
                  "TEGO KONKRETNEGO urządzenia, nie uśrednionej linii."
         )
         selected_vsm_mixer = next(m for m in mixers_in_family if m["tag"] == selected_vsm_mixer_tag)
+
+        # --- Zbiornik kampanijny (kilka produktów) - dotąd VSM pokazywał tylko zsumowaną/uśrednioną
+        # wartość dla całego zbiornika, przez co np. dwa produkty o różnej gęstości/cyklu wpadały do
+        # jednej mylącej liczby. Jeśli zbiornik jest współdzielony, wybierz KONKRETNY produkt. ---
+        shared_members_vsm = selected_vsm_mixer.get("shared_members")
+        if shared_members_vsm:
+            product_names_vsm = [mem["product"] for mem in shared_members_vsm]
+            selected_vsm_product_name = st.selectbox(
+                f"🔀 {selected_vsm_mixer_tag} to zbiornik kampanijny ({len(shared_members_vsm)} produktów) — wybierz produkt:",
+                product_names_vsm, key="vsm_shared_product_select"
+            )
+            selected_member = next(mem for mem in shared_members_vsm if mem["product"] == selected_vsm_product_name)
+            mass_per_batch_vsm = selected_vsm_mixer["capacity_m3"] * selected_member["density"] * 1000.0 * st.session_state.mixer_fill_factor
+            monthly_mass_vsm = selected_member["annual_kg"] / MONTHS_PER_YEAR
+            batches_month_this_mixer = math.ceil(monthly_mass_vsm / mass_per_batch_vsm) if mass_per_batch_vsm > 0 else 0
+        else:
+            batches_month_this_mixer = selected_vsm_mixer.get("batches_count", 0)
+
         calc_times_selected = st.session_state.calculated_times.get(selected_vsm_mixer_tag)
 
         if calc_times_selected is None:
@@ -6084,8 +6106,16 @@ with tab6:
         logistics_rows = st.session_state.get("logistics_results", [])
         logistics_rows_this_mixer = [r for r in logistics_rows if r["Reaktor 🔒"] == selected_vsm_mixer_tag]
         filling_h_month_total = sum(r["Czas rozlewu strumienia [h] ⏱️"] for r in logistics_rows_this_mixer)
-        batches_month_this_mixer = selected_vsm_mixer.get("batches_count", 0)
-        filling_h = (filling_h_month_total / batches_month_this_mixer) if batches_month_this_mixer > 0 else 0.0
+        # UWAGA przy zbiorniku kampanijnym: "Czas rozlewu" w Zakładce 4 jest liczony dla CAŁEGO
+        # zbiornika (zsumowanej masy wszystkich współdzielonych produktów, bo receptura per-produkt
+        # nie jest tam rozróżniana dla zbiorników kampanijnych) - dzielimy więc przez łączną liczbę
+        # szarż CAŁEGO zbiornika, nie tylko wybranego produktu, żeby zachować spójność jednostek.
+        batches_month_for_filling = selected_vsm_mixer.get("batches_count", 0) if shared_members_vsm else batches_month_this_mixer
+        filling_h = (filling_h_month_total / batches_month_for_filling) if batches_month_for_filling > 0 else 0.0
+        if shared_members_vsm:
+            st.caption("ℹ️ Czas rozlewu powyżej jest przybliżony dla zbiornika kampanijnego — Zakładka 4 nie rozbija "
+                       "dziś podziału na opakowania per pojedynczy produkt współdzielonego zbiornika, tylko dla "
+                       "całego zbiornika łącznie.")
         if filling_h == 0.0:
             st.info(f"ℹ️ Skonfiguruj podział opakowań w panelu bocznym i odwiedź Zakładkę 3, aby uzyskać rzeczywisty "
                     f"czas rozlewu dla {selected_vsm_mixer_tag}.")
@@ -6292,9 +6322,64 @@ with tab6:
         st.markdown(diagram_html, unsafe_allow_html=True)
 
         st.caption("🟢 Zielone pola = czas dodający wartość (przetwarzanie produktu). 🟠 Pomarańczowe pola = czas "
-                   "niedodający wartości bezpośrednio produktowi (kontrola jakości, magazynowanie) — often konieczny "
+                   "niedodający wartości bezpośrednio produktowi (kontrola jakości, magazynowanie) — często konieczny "
                    "operacyjnie, ale to właśnie tu zwykle leży potencjał skrócenia lead time. **C/O** i **OEE** "
                    "pokazane pod nazwą etapu, gdy dotyczy.")
+
+        # --- WSKAŹNIKI: DZIEŃ / MIESIĄC / ROK - produkcja, laboratorium, logistyka razem, dla
+        # WYBRANEGO wyżej mieszalnika (i konkretnego produktu, jeśli zbiornik kampanijny). ---
+        st.markdown("### 📊 Wskaźniki: Dzień / Miesiąc / Rok")
+        dni_robocze_miesiac_vsm = WORKING_DAYS_YEAR / MONTHS_PER_YEAR
+        batches_year_this = batches_month_this_mixer * MONTHS_PER_YEAR
+        batches_day_this = batches_month_this_mixer / dni_robocze_miesiac_vsm if dni_robocze_miesiac_vsm > 0 else 0.0
+
+        n_tests_per_batch_vsm = len(qc_cfg.get("tests", []))
+        qc_day = n_tests_per_batch_vsm * batches_day_this
+        qc_month = n_tests_per_batch_vsm * batches_month_this_mixer
+        qc_year = n_tests_per_batch_vsm * batches_year_this
+
+        wp1, wp2, wp3 = st.columns(3)
+        with wp1: st.metric("🏭 Szarż — dzień", f"{batches_day_this:.2f}")
+        with wp2: st.metric("🏭 Szarż — miesiąc", f"{batches_month_this_mixer}")
+        with wp3: st.metric("🏭 Szarż — rok", f"{batches_year_this}")
+
+        wq1, wq2, wq3 = st.columns(3)
+        with wq1: st.metric("🧪 Badań QC — dzień", f"{qc_day:.2f}")
+        with wq2: st.metric("🧪 Badań QC — miesiąc", f"{qc_month}")
+        with wq3: st.metric("🧪 Badań QC — rok", f"{qc_year}")
+
+        # Logistyka: dostawy RM (cysterny per surowiec) i wysyłki FG (jeśli "Cysterna (luzem)")
+        # dla konkretnego produktu tego mieszalnika - ta sama logika co widget porównawczy
+        # (Zakładka 2, Karta Maszyn), przeliczona tu na dzień/miesiąc/rok.
+        recipe_product_for_logistics = selected_vsm_product_name if shared_members_vsm else selected_vsm_mixer.get("recipe_product")
+        recipes_df_vsm = st.session_state.get("recipes_df")
+        rm_tankers_month_total, fg_tankers_month = 0, 0
+        if recipes_df_vsm is not None and not recipes_df_vsm.empty and recipe_product_for_logistics:
+            match_vsm = recipes_df_vsm[recipes_df_vsm[RECIPE_PRODUCT_COL] == recipe_product_for_logistics]
+            if not match_vsm.empty:
+                row_vsm = match_vsm.iloc[0]
+                mass_per_batch_for_log = (mass_per_batch_vsm if shared_members_vsm else selected_vsm_mixer["mass_per_batch"])
+                monthly_mass_for_log = mass_per_batch_for_log * batches_month_this_mixer
+                rm_storage_override_vsm = st.session_state.get("rm_storage_method_override", {})
+                for mat in RECIPE_RAW_MATERIALS:
+                    dozowanie_kg_t = float(row_vsm.get(mat, 0) or 0)
+                    if dozowanie_kg_t <= 0 or rm_storage_override_vsm.get(mat) == "Zbiornik (luzem)":
+                        continue
+                    mat_month_t = dozowanie_kg_t / 1000.0 * (monthly_mass_for_log / 1000.0)
+                    rm_tankers_month_total += math.ceil(mat_month_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
+                tanker_col_vsm = recipe_pack_pct_col("Cysterna (luzem)")
+                if tanker_col_vsm in recipes_df_vsm.columns and float(row_vsm.get(tanker_col_vsm, 0) or 0) > 0:
+                    fg_tankers_month = math.ceil((monthly_mass_for_log / 1000.0) / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
+
+        wl1, wl2, wl3 = st.columns(3)
+        with wl1: st.metric("🚚 Cystern RM — dzień", f"{(rm_tankers_month_total / dni_robocze_miesiac_vsm) if dni_robocze_miesiac_vsm > 0 else 0:.2f}")
+        with wl2: st.metric("🚚 Cystern RM — miesiąc", f"{rm_tankers_month_total}")
+        with wl3: st.metric("🚚 Cystern RM — rok", f"{rm_tankers_month_total * MONTHS_PER_YEAR}")
+        if fg_tankers_month > 0:
+            wf1, wf2, wf3 = st.columns(3)
+            with wf1: st.metric("📦 Wysyłek FG (cysterna) — dzień", f"{(fg_tankers_month / dni_robocze_miesiac_vsm) if dni_robocze_miesiac_vsm > 0 else 0:.2f}")
+            with wf2: st.metric("📦 Wysyłek FG (cysterna) — miesiąc", f"{fg_tankers_month}")
+            with wf3: st.metric("📦 Wysyłek FG (cysterna) — rok", f"{fg_tankers_month * MONTHS_PER_YEAR}")
 
         # --- DRABINKA CZASU: pełny rozkład lead time vs. czas przetwarzania ---
         st.markdown("### ⏱️ Drabinka Czasu (Lead Time vs. Czas Przetwarzania)")
