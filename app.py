@@ -1397,7 +1397,7 @@ def compute_filling_time_h(mass_kg, recipe_product, kat, mixer_tag, rho_linii, o
         pack_capacity_kg = st.session_state.pack_configs[p]["size_l"] * rho_linii
         if pack_capacity_kg <= 0:
             continue
-        cfg_fill = st.session_state.filling_lines_config.get(p, {"nozzles": 1, "speed_kg_min": default_filling_speed_kg_min(p)})
+        cfg_fill = st.session_state.filling_lines_config.get(p, default_filling_line_config(p))
         sekcja_nalewania_m3_h = (cfg_fill["nozzles"] * cfg_fill["speed_kg_min"] * 60.0) / (rho_linii * 1000.0)
         q_effective_flow_m3h = min(q_pump_m3h, sekcja_nalewania_m3_h)
         if q_effective_flow_m3h > 0:
@@ -1405,16 +1405,28 @@ def compute_filling_time_h(mass_kg, recipe_product, kat, mixer_tag, rho_linii, o
     return total_h
 
 
-def default_filling_speed_kg_min(pack_name):
+def default_filling_line_config(pack_name):
     """
-    JEDNO ŹRÓDŁO PRAWDY dla domyślnej prędkości napełniania danego opakowania - ramię załadowcze
-    cysterny ma zupełnie inny rząd wielkości przepływu niż dysza do beczek/kanistrów/pudełek.
-    Bez tego rozróżnienia cysterna dziedziczyła domyślne 30 kg/min (dysza do beczki), co dawałoby
-    fizycznie absurdalny czas napełnienia jednej cysterny (~12h zamiast realnych 30-60 min).
+    JEDNO ŹRÓDŁO PRAWDY dla domyślnej konfiguracji linii nalewającej (głowice + prędkość/głowicę) -
+    wcześniej te same domyślne wartości były wpisane osobno w 3 różnych miejscach kodu i ROZJECHAŁY
+    SIĘ (30 vs 60 kg/min dla beczek, 1 vs 4 głowice) - to bezpośrednio powodowało nierealistycznie
+    długie czasy rozlewu (np. 27h) dla dużych mieszalników, gdy akurat trafiał się mniej korzystny
+    z tych dwóch domyślnych. Cysterna ma zupełnie inny rząd wielkości przepływu (ramię załadowcze,
+    nie dysza) - bez tego rozróżnienia dziedziczyłaby domyślne dla beczek, dając fizycznie
+    absurdalny czas napełnienia (~12h zamiast realnych 30-60 min).
     """
     if pack_name in st.session_state.get("pack_configs", {}) and st.session_state.pack_configs[pack_name].get("per_pallet") == 0:
-        return 800.0  # ramię załadowcze cysterny, rząd wielkości ~48 t/h - typowe dla drogowej cysterny
-    return 30.0  # dysza nalewowa do beczek/kanistrów/pudełek
+        return {"nozzles": 1, "speed_kg_min": 800.0}  # ramię załadowcze cysterny, ~48 t/h
+    if "5l" in pack_name.lower() or "1l" in pack_name.lower():
+        return {"nozzles": 4, "speed_kg_min": 15.0}  # mała pakowarka wielogłowicowa (detal/karton)
+    return {"nozzles": 2, "speed_kg_min": 60.0}  # standardowa dysza do beczek/kanistrów/IBC - 2 głowice
+    # jako bardziej realistyczny punkt startowy dla większych partii niż pojedyncza dysza; i tak
+    # zawsze warto zweryfikować/dostosować w Zakładce 4 do rzeczywistej linii nalewającej.
+
+
+def default_filling_speed_kg_min(pack_name):
+    """Zachowane dla zgodności - zwraca tylko prędkość z default_filling_line_config."""
+    return default_filling_line_config(pack_name)["speed_kg_min"]
 
 
 def round_visible(value, min_significant=2, max_decimals=8):
@@ -2362,27 +2374,30 @@ def check_fleet_staleness_warning():
     inna roczna produkcja, zmiana sposobu pozyskania), migawka NIE aktualizuje się sama -
     a każda inna zakładka (Karta Maszyn, Logistyka, Finanse, Dashboard) i tak czyta ze starej
     migawki, dając liczby niezgodne z tym, co Zakładka 1 pokazuje na żywo. Ta funkcja wykrywa
-    taką rozbieżność (>1% lub >1 t różnicy w tonażu docelowym) i zwraca gotowy komunikat
-    ostrzegawczy do wyświetlenia (st.error) na początku każdej zależnej zakładki - albo None,
-    jeśli flota jest aktualna.
+    taką rozbieżność i zwraca gotowy komunikat ostrzegawczy do wyświetlenia (st.error) na
+    początku każdej zależnej zakładki - albo None, jeśli flota jest aktualna.
+
+    WAŻNE: porównuje z LIVE_FLEET_ANNUAL_KG_ROUNDED (ta sama formuła zaokrąglania szarż w górę
+    co przy zatwierdzaniu), NIE z dokładnym tonażem z receptury wprost - flota fizycznie NIE
+    MOŻE dokładnie równać się dokładnemu celowi (nie da się zrobić ułamka szarży), więc
+    porównanie z dokładną wartością dawało fałszywe ostrzeżenie nawet zaraz po zatwierdzeniu.
     """
     if not st.session_state.get("confirmed_mixers"):
         return None
-    try:
-        live_target_t = sum(st.session_state.prod_dict.get(kat, {}).get("roczna", 0)
-                             for kat in st.session_state.get("wybrane_kategorie_snapshot", [])) / 1000.0
-    except Exception:
-        return None
+    if "live_fleet_annual_kg_rounded" not in st.session_state:
+        return None  # Zakładka 1 jeszcze nie wykonała się w tej sesji - nie ma z czym porównać
+    live_target_t = st.session_state["live_fleet_annual_kg_rounded"] / 1000.0
     confirmed_target_t = sum(m["annual_volume"] for m in st.session_state.confirmed_mixers) / 1000.0
     if live_target_t <= 0:
         return None
     diff_t = abs(live_target_t - confirmed_target_t)
     if diff_t > max(1.0, confirmed_target_t * 0.01):
-        return (f"⚠️ **FLOTA JEST NIEAKTUALNA** — Zakładka 1 pokazuje obecnie **{live_target_t:,.0f} t/rok** w "
-                f"recepturze, ale zatwierdzona flota (której używa ta zakładka) to **{confirmed_target_t:,.0f} t/rok** "
-                f"— różnica **{diff_t:,.0f} t**. Receptura została zmieniona PO ostatnim zatwierdzeniu floty. "
-                "Wszystkie liczby tutaj (tonaż, utylizacja, koszty, magazyn) są policzone ze STAREJ floty. "
-                "Wróć do **Zakładki 1** i kliknij **'📥 Zatwierdź i wyślij konfigurację'**, żeby zsynchronizować.")
+        return (f"⚠️ **FLOTA JEST NIEAKTUALNA** — Zakładka 1 pokazuje obecnie **{live_target_t:,.0f} t/rok** "
+                f"(po zaokrągleniu szarż), ale zatwierdzona flota (której używa ta zakładka) to "
+                f"**{confirmed_target_t:,.0f} t/rok** — różnica **{diff_t:,.0f} t**. Receptura została zmieniona PO "
+                "ostatnim zatwierdzeniu floty. Wszystkie liczby tutaj (tonaż, utylizacja, koszty, magazyn) są "
+                "policzone ze STAREJ floty. Wróć do **Zakładki 1** i kliknij **'📥 Zatwierdź i wyślij konfigurację'**, "
+                "żeby zsynchronizować.")
     return None
 
 
@@ -3123,10 +3138,20 @@ with tab1:
             total_annual_production_edited = sum(st.session_state.prod_dict[kat]["roczna"] for kat in wybrane_kategorie)
             total_batches_edited = pd.to_numeric(edited_df["Szarż / miesiąc (per aparat)"], errors="coerce").fillna(0).astype(int).sum()
             total_volume_edited = pd.to_numeric(edited_df["Pojemność [m³]"], errors="coerce").fillna(0.0).astype(float).sum()
+            # Ta sama formuła (masa szarży x szarż/mies x 12) co przy zatwierdzaniu floty - PO
+            # zaokrągleniu liczby szarż w górę do pełnych sztuk. Fleet ZAWSZE wychodzi trochę
+            # WIĘKSZA niż dokładny cel z receptury (nie da się zrobić np. 17,3 szarży) - porównanie
+            # "aktualności" floty musi więc odbywać się względem TEJ (też zaokrąglonej) liczby, nie
+            # względem dokładnego celu, inaczej ostrzeżenie o nieaktualności nigdy by nie znikało,
+            # nawet zaraz po zatwierdzeniu.
+            mass_col_live = pd.to_numeric(edited_df["Masa Szarży [kg]"], errors="coerce").fillna(0.0)
+            batches_col_live = pd.to_numeric(edited_df["Szarż / miesiąc (per aparat)"], errors="coerce").fillna(0).astype(int)
+            st.session_state["live_fleet_annual_kg_rounded"] = float((mass_col_live * batches_col_live * MONTHS_PER_YEAR).sum())
         else:
             total_annual_production_edited = 0
             total_batches_edited = 0
             total_volume_edited = 0.0
+            st.session_state["live_fleet_annual_kg_rounded"] = 0.0
 
         st.markdown("<br>", unsafe_allow_html=True)
         sum_col1, sum_col2, sum_col3 = st.columns(3)
@@ -4337,7 +4362,7 @@ with tab3:
             st.session_state.filling_lines_config = {}
         for p in st.session_state.pack_configs.keys():
             if p not in st.session_state.filling_lines_config:
-                st.session_state.filling_lines_config[p] = {"nozzles": 4, "speed_kg_min": 15.0} if "5l" in p.lower() or "1l" in p.lower() else {"nozzles": 1, "speed_kg_min": 60.0}
+                st.session_state.filling_lines_config[p] = default_filling_line_config(p)
 
         pack_fill_editor_rows = [
             {"Nazwa Opakowania": name, "Pojemność [L]": cfg["size_l"], "Sztuk na Palecie": cfg["per_pallet"],
@@ -4481,7 +4506,7 @@ with tab3:
                 pack_capacity_kg = st.session_state.pack_configs[p]["size_l"] * rho_linii
                 liczba_sztuk_month = math.ceil(masa_opakowania_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
 
-                cfg_fill = st.session_state.filling_lines_config.get(p, {"nozzles": 1, "speed_kg_min": default_filling_speed_kg_min(p)})
+                cfg_fill = st.session_state.filling_lines_config.get(p, default_filling_line_config(p))
                 sekcja_nalewania_m3_h = (cfg_fill["nozzles"] * cfg_fill["speed_kg_min"] * 60.0) / (rho_linii * 1000.0)
 
                 # Rzeczywisty przepływ pompy TEGO KONKRETNEGO mieszalnika z Zakładki 2 (nie
@@ -6257,9 +6282,11 @@ with tab6:
         if filling_h == 0.0:
             st.info(f"ℹ️ Skonfiguruj podział opakowań w panelu bocznym i odwiedź Zakładkę 3, aby uzyskać rzeczywisty "
                     f"czas rozlewu dla {selected_vsm_mixer_tag}.")
-        if filling_h == 0.0:
-            st.info(f"ℹ️ Skonfiguruj podział opakowań w panelu bocznym i odwiedź Zakładkę 3, aby uzyskać rzeczywisty "
-                    f"czas rozlewu dla {selected_vsm_mixer_tag}.")
+        elif filling_h > 8.0:
+            st.warning(f"⚠️ **Czas rozlewu ({filling_h:.1f} h) wygląda długo** dla jednej szarży — sprawdź liczbę "
+                       "głowic nalewających i ich wydajność w **Zakładce 4** (sekcja opakowań) — domyślnie 1-2 "
+                       "głowice mogą być za mało dla dużej szarży. Duży mieszalnik potrzebuje zwykle szybszej "
+                       "linii nalewającej (więcej głowic), żeby nie stał bezczynnie podczas rozlewu.")
 
         # Bufory magazynowe — założenia globalne z Zakładek 3 i 5 (te wejścia nie są dziś różnicowane per rodzina).
         raw_material_buffer_days = st.session_state.get("days_of_stock_tab5", 14)
@@ -6674,8 +6701,10 @@ with tab8:
                     st.markdown(f"**🔧 {tag_cmp}** ({m_cmp['product_family']}, {m_cmp['capacity_m3']:.0f} m³)")
                     ct_cmp = st.session_state.get("calculated_times", {}).get(tag_cmp, {"heating": 1.5, "pumping": 0.75, "cooling_h": 0.5})
                     bt_cmp = st.session_state.get("batch_time_components", {}).get(tag_cmp, {"dosing": 1.0, "homog": 2.0})
-                    qc_cfg_cmp_dash = st.session_state.get("vsm_qc_config", {}).get(m_cmp["product_family"], {"tests": []})
-                    qc_time_h_cmp = sum(QC_TEST_CATALOG.get(t, {}).get("duration_min", 0) for t in qc_cfg_cmp_dash.get("tests", [])) / 60.0
+                    qc_cfg_cmp_dash = st.session_state.get("vsm_qc_config", {}).get(m_cmp["product_family"], {"tests": [], "mode": "Sekwencyjnie (jeden technik, jedno stanowisko)"})
+                    durations_min_cmp = [QC_TEST_CATALOG.get(t, {}).get("duration_min", 0) for t in qc_cfg_cmp_dash.get("tests", [])]
+                    qc_mode_cmp = qc_cfg_cmp_dash.get("mode", "Sekwencyjnie (jeden technik, jedno stanowisko)")
+                    qc_time_h_cmp = (sum(durations_min_cmp) if qc_mode_cmp.startswith("Sekw") else max(durations_min_cmp, default=0)) / 60.0
 
                     rho_cmp = st.session_state.active_portfolio.get(m_cmp["product_family"], {}).get("density", 0.9)
                     filling_h_cmp = compute_filling_time_h(
