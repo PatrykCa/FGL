@@ -2,6 +2,8 @@ import streamlit as st
 import pandas as pd
 import math
 import io
+import json
+import datetime
 
 st.set_page_config(page_title="System Projektowania", layout="wide")
 
@@ -319,6 +321,74 @@ def default_rm_container_for(material_name, info):
     if "worki" in note_lower or "proszek" in note_lower or "pasta" in note_lower:
         return "Worek 25 kg (ciało stałe, na palecie)"
     return "Beczka 200 kg (ciecz)"
+
+
+# Klucze session_state, które użytkownik faktycznie KONFIGURUJE (nie liczy się od nowa za każdym
+# przebiegiem) - to jest zapisywane/wczytywane przy "Zapisz Projekt" / "Wczytaj Projekt". Wartości
+# WYNIKOWE (raporty, PDF/Excel, symulacje) celowo pominięte - przeliczą się same z tych danych.
+PROJECT_SAVE_KEYS = [
+    "active_portfolio", "prod_dict", "confirmed_mixers", "mixer_tech_advanced_details",
+    "tag_to_recipe_product", "tag_to_shared_members", "batch_time_components", "calculated_times",
+    "confirmed_rm_tanks", "rm_tank_tech_details", "rm_storage_method_override", "rm_container_assignment",
+    "confirmed_fg_buffer_tanks", "fg_buffer_tank_tech_details", "shared_pumps",
+    "rampup_global_pct", "rampup_per_line_pct", "rampup_differentiate", "rampup_start_pct", "import_follows_rampup",
+    "group_pricing", "pack_configs", "filling_lines_config", "opakowania_podzial",
+    "qc_tests_by_product", "vsm_qc_config", "vsm_qc_queue_days", "vsm_oee",
+    "tanker_capacity_t", "mixer_fill_factor", "days_of_stock_tab5", "max_single_tank_m3",
+    "czas_skladowania_tab3", "cena_mwh_tab4", "cena_gazu_mwh", "sprawnosc_kotla_frac",
+    "import_pallet_mass_kg", "capex_lump_sum", "boiler_capacity_installed_kw",
+    "typ_kotla", "equipment_install_counts",
+]
+
+
+class _NumpyJsonEncoder(json.JSONEncoder):
+    """Konwertuje typy numpy (int64/float64 z obliczeń pandas) na natywne typy Pythona - inaczej
+    standardowy json.dumps rzuca błąd na tych typach, mimo że 'wyglądają' jak zwykłe liczby."""
+    def default(self, obj):
+        if hasattr(obj, "item"):
+            return obj.item()
+        return super().default(obj)
+
+
+def export_project_bytes():
+    """Buduje plik JSON do pobrania, zawierający cały skonfigurowany stan projektu (receptura,
+    flota, zbiorniki, ceny, rozruch, itd.) - do wczytania później albo w innej sesji/przeglądarce,
+    zamiast uzupełniać wszystko od nowa."""
+    payload = {"_saved_at": datetime.datetime.now().isoformat(), "_app_version": "1.0"}
+    for key in PROJECT_SAVE_KEYS:
+        if key not in st.session_state:
+            continue
+        val = st.session_state[key]
+        if isinstance(val, pd.DataFrame):
+            payload[key] = {"__dataframe__": True, "data": val.to_dict(orient="split")}
+        else:
+            payload[key] = val
+    if "recipes_df" in st.session_state and st.session_state.recipes_df is not None:
+        payload["recipes_df"] = {"__dataframe__": True, "data": st.session_state.recipes_df.to_dict(orient="split")}
+    return json.dumps(payload, cls=_NumpyJsonEncoder, ensure_ascii=False, indent=2).encode("utf-8")
+
+
+def import_project_bytes(uploaded_bytes):
+    """Wczytuje plik JSON zapisany przez export_project_bytes i odtwarza cały stan projektu.
+    Zwraca (sukces: bool, komunikat: str)."""
+    try:
+        payload = json.loads(uploaded_bytes.decode("utf-8"))
+    except Exception as exc:
+        return False, f"Nie udało się odczytać pliku projektu: {exc}"
+
+    restored_keys = []
+    for key, val in payload.items():
+        if key.startswith("_"):
+            continue
+        if isinstance(val, dict) and val.get("__dataframe__"):
+            df_data = val["data"]
+            st.session_state[key] = pd.DataFrame(df_data["data"], columns=df_data["columns"], index=df_data["index"])
+        else:
+            st.session_state[key] = val
+        restored_keys.append(key)
+
+    saved_at = payload.get("_saved_at", "nieznana data")
+    return True, f"Wczytano projekt zapisany {saved_at} — przywrócono {len(restored_keys)} sekcji konfiguracji."
 
 
 def generate_recipe_template_bytes():
@@ -1285,6 +1355,54 @@ def compute_rm_consumption_for_month(year_idx, month_idx):
             dozowanie = float(r.get(mat, 0) or 0)
             consumption[mat] += raw_demand_t_month * (dozowanie / 1000.0)
     return consumption
+
+
+def compute_filling_time_h(mass_kg, recipe_product, kat, mixer_tag, rho_linii, opakowania_podzial=None):
+    """
+    JEDNO ŹRÓDŁO PRAWDY dla czasu rozlewu/napełniania - działa na DOWOLNEJ masie podanej wprost
+    (masa jednej szarży, miesiąca, roku - cokolwiek przekażesz), więc liczy się to samo, niezależnie
+    od tego, gdzie w aplikacji jest wywoływane. Priorytet rozbicia na opakowania: 1) receptura per
+    KONKRETNY produkt (Zakładka 1, kolumny 'Opak: ... [%]'), 2) ręczny podział per LINIA (panel
+    boczny), znormalizowany do 100% w obu przypadkach. Ograniczenie przepływu: MNIEJSZE z (a) pompy
+    TEGO KONKRETNEGO mieszalnika (Zakładka 2) i (b) wydajności linii nalewającej danego opakowania.
+    Zwraca łączny czas [h] rozlewu tej masy, zsumowany po wszystkich typach opakowań z udziałem % > 0.
+    """
+    recipes_df_local = st.session_state.get("recipes_df")
+    pack_pcts = None
+    if recipes_df_local is not None and not recipes_df_local.empty and recipe_product:
+        pack_cols = [c for c in recipes_df_local.columns if c.startswith("Opak: ") and c.endswith(" [%]")]
+        match = recipes_df_local[recipes_df_local[RECIPE_PRODUCT_COL] == recipe_product]
+        if pack_cols and not match.empty:
+            row0 = match.iloc[0]
+            pack_sum = sum(row0.get(c, 0) or 0 for c in pack_cols)
+            if pack_sum > 0.5:
+                pack_pcts = {c[len("Opak: "):-len(" [%]")]: (row0.get(c, 0) or 0) for c in pack_cols if (row0.get(c, 0) or 0) > 0}
+
+    if pack_pcts is None:
+        opakowania_podzial = opakowania_podzial or {}
+        pack_pcts = {p: opakowania_podzial.get(f"pct_{kat}_{p}", 0.0) for p in st.session_state.pack_configs.keys()}
+
+    pack_pcts_sum = sum(pack_pcts.values())
+    if pack_pcts_sum > 0.5 and abs(pack_pcts_sum - 100.0) > 2.0:
+        pack_pcts = {p: v * (100.0 / pack_pcts_sum) for p, v in pack_pcts.items()}
+
+    tech_details = st.session_state.get("mixer_tech_advanced_details", {}).get(mixer_tag, {})
+    q_pump_m3h = tech_details.get("pump_flow_m3h", 15.0)
+
+    total_h = 0.0
+    for p, udzial_pct in pack_pcts.items():
+        if udzial_pct <= 0 or p not in st.session_state.pack_configs:
+            continue
+        mass_this_pack_kg = mass_kg * (udzial_pct / 100.0)
+        pack_capacity_kg = st.session_state.pack_configs[p]["size_l"] * rho_linii
+        if pack_capacity_kg <= 0:
+            continue
+        cfg_fill = st.session_state.filling_lines_config.get(p, {"nozzles": 1, "speed_kg_min": default_filling_speed_kg_min(p)})
+        sekcja_nalewania_m3_h = (cfg_fill["nozzles"] * cfg_fill["speed_kg_min"] * 60.0) / (rho_linii * 1000.0)
+        q_effective_flow_m3h = min(q_pump_m3h, sekcja_nalewania_m3_h)
+        if q_effective_flow_m3h > 0:
+            total_h += (mass_this_pack_kg / (rho_linii * 1000.0)) / q_effective_flow_m3h
+    return total_h
 
 
 def default_filling_speed_kg_min(pack_name):
@@ -2513,6 +2631,34 @@ tab1, tab5, tab2, tab3, tab4, tab6, tab8 = st.tabs([
 # ==========================================
 with tab1:
     st.header("📋 Receptury Produktów: Import z Excela")
+
+    st.markdown("### 💾 Zapisz / Wczytaj Projekt")
+    st.caption("Cała konfiguracja (receptura, flota, zbiorniki, ceny, rozruch, testy QC) w jednym pliku — pobierz go, "
+               "żeby nie uzupełniać wszystkiego od nowa przy następnej sesji, albo żeby zarządzać kilkoma zakładami "
+               "naraz (każdy jako osobny plik projektu).")
+    col_save1, col_save2 = st.columns(2)
+    with col_save1:
+        if st.session_state.get("recipes_df") is not None:
+            st.download_button(
+                "⬇️ Pobierz projekt (.json)", data=export_project_bytes(),
+                file_name=f"projekt_{datetime.date.today().isoformat()}.json", mime="application/json",
+                key="download_project_btn"
+            )
+        else:
+            st.caption("Wgraj/skonfiguruj recepturę poniżej, żeby móc zapisać projekt.")
+    with col_save2:
+        uploaded_project_file = st.file_uploader("⬆️ Wczytaj projekt (.json)", type=["json"], key="upload_project_file")
+        if uploaded_project_file is not None:
+            success, msg = import_project_bytes(uploaded_project_file.getvalue())
+            if success:
+                st.success(f"✅ {msg}")
+                st.rerun()
+            else:
+                st.error(f"❌ {msg}")
+    st.caption("⚠️ Obejmuje receptury, flotę, zbiorniki, ceny, ustawienia rozruchu i testów QC — **nie** obejmuje "
+               "wygenerowanych raportów PDF/Excel (te przeliczą się same z wczytanej konfiguracji).")
+    st.markdown("---")
+
     st.caption("Wgraj plik Excel z listą produktów (przypisanych do grupy produktowej), rocznym zapotrzebowaniem "
                "i dozowaniem surowców [kg/t] (bazy olejowe, dodatki, pakiety, zagęszczacze, smary stałe, woda DEMI, "
                "biocyd). Dane z tej zakładki zasilają dodatkowo wymiarowanie silosów **per surowiec** w Zakładce 4 "
@@ -6097,25 +6243,20 @@ with tab6:
         t_dosing = st.session_state.batch_time_components[selected_vsm_mixer_tag]["dosing"]
         t_homog = st.session_state.batch_time_components[selected_vsm_mixer_tag]["homog"]
 
-        # Czas rozlewu — TYLKO dla tego konkretnego mieszalnika (nie sumowany po całej linii).
-        # UWAGA: "Czas rozlewu strumienia [h]" w Zakładce 4 to czas napełnienia CAŁEJ MIESIĘCZNEJ
-        # produkcji tego opakowania (nie jednej szarży) - w łańcuchu VSM (cykl JEDNEJ szarży)
-        # trzeba to przeliczyć na czas PRZYPADAJĄCY NA JEDNĄ SZARŻĘ, dzieląc przez liczbę szarż/
-        # miesiąc (czas rozlewu jest liniowo proporcjonalny do masy, więc to przeliczenie jest
-        # dokładne, nie przybliżone).
-        logistics_rows = st.session_state.get("logistics_results", [])
-        logistics_rows_this_mixer = [r for r in logistics_rows if r["Reaktor 🔒"] == selected_vsm_mixer_tag]
-        filling_h_month_total = sum(r["Czas rozlewu strumienia [h] ⏱️"] for r in logistics_rows_this_mixer)
-        # UWAGA przy zbiorniku kampanijnym: "Czas rozlewu" w Zakładce 4 jest liczony dla CAŁEGO
-        # zbiornika (zsumowanej masy wszystkich współdzielonych produktów, bo receptura per-produkt
-        # nie jest tam rozróżniana dla zbiorników kampanijnych) - dzielimy więc przez łączną liczbę
-        # szarż CAŁEGO zbiornika, nie tylko wybranego produktu, żeby zachować spójność jednostek.
-        batches_month_for_filling = selected_vsm_mixer.get("batches_count", 0) if shared_members_vsm else batches_month_this_mixer
-        filling_h = (filling_h_month_total / batches_month_for_filling) if batches_month_for_filling > 0 else 0.0
-        if shared_members_vsm:
-            st.caption("ℹ️ Czas rozlewu powyżej jest przybliżony dla zbiornika kampanijnego — Zakładka 4 nie rozbija "
-                       "dziś podziału na opakowania per pojedynczy produkt współdzielonego zbiornika, tylko dla "
-                       "całego zbiornika łącznie.")
+        # Czas rozlewu — liczony WPROST z masy JEDNEJ SZARŻY (nie z miesięcznej wartości dzielonej
+        # przez liczbę szarż) - prostsze, bardziej przejrzyste i niezależne od tego, czy Zakładka 4
+        # była już odwiedzona. Miesiąc/rok pokazane niżej wynikają z tej samej wartości, pomnożonej
+        # przez liczbę szarż - w tym kierunku, nie odwrotnie.
+        recipe_product_for_logistics = selected_vsm_product_name if shared_members_vsm else selected_vsm_mixer.get("recipe_product")
+        mass_per_batch_for_filling = mass_per_batch_vsm if shared_members_vsm else selected_vsm_mixer["mass_per_batch"]
+        rho_linii_vsm = st.session_state.active_portfolio[selected_vsm_family]["density"]
+        filling_h = compute_filling_time_h(
+            mass_per_batch_for_filling, recipe_product_for_logistics, selected_vsm_family,
+            selected_vsm_mixer_tag, rho_linii_vsm, opakowania_podzial=st.session_state.get("opakowania_podzial", {})
+        )
+        if filling_h == 0.0:
+            st.info(f"ℹ️ Skonfiguruj podział opakowań w panelu bocznym i odwiedź Zakładkę 3, aby uzyskać rzeczywisty "
+                    f"czas rozlewu dla {selected_vsm_mixer_tag}.")
         if filling_h == 0.0:
             st.info(f"ℹ️ Skonfiguruj podział opakowań w panelu bocznym i odwiedź Zakładkę 3, aby uzyskać rzeczywisty "
                     f"czas rozlewu dla {selected_vsm_mixer_tag}.")
@@ -6343,6 +6484,13 @@ with tab6:
         with wp2: st.metric("🏭 Szarż — miesiąc", f"{batches_month_this_mixer}")
         with wp3: st.metric("🏭 Szarż — rok", f"{batches_year_this}")
 
+        wr1, wr2, wr3 = st.columns(3)
+        with wr1: st.metric("🚿 Rozlew — na szarżę", f"{filling_h:.2f} h")
+        with wr2: st.metric("🚿 Rozlew — miesiąc", f"{filling_h * batches_month_this_mixer:.1f} h",
+                             help=f"{filling_h:.2f} h/szarżę × {batches_month_this_mixer} szarż/mies.")
+        with wr3: st.metric("🚿 Rozlew — rok", f"{filling_h * batches_year_this:.0f} h",
+                             help=f"{filling_h:.2f} h/szarżę × {batches_year_this} szarż/rok")
+
         wq1, wq2, wq3 = st.columns(3)
         with wq1: st.metric("🧪 Badań QC — dzień", f"{qc_day:.2f}")
         with wq2: st.metric("🧪 Badań QC — miesiąc", f"{qc_month}")
@@ -6351,7 +6499,6 @@ with tab6:
         # Logistyka: dostawy RM (cysterny per surowiec) i wysyłki FG (jeśli "Cysterna (luzem)")
         # dla konkretnego produktu tego mieszalnika - ta sama logika co widget porównawczy
         # (Zakładka 2, Karta Maszyn), przeliczona tu na dzień/miesiąc/rok.
-        recipe_product_for_logistics = selected_vsm_product_name if shared_members_vsm else selected_vsm_mixer.get("recipe_product")
         recipes_df_vsm = st.session_state.get("recipes_df")
         rm_tankers_month_total, fg_tankers_month = 0, 0
         if recipes_df_vsm is not None and not recipes_df_vsm.empty and recipe_product_for_logistics:
@@ -6505,8 +6652,47 @@ with tab8:
                     st.metric("📦 Import", f"{import_tonnage_y:,.0f} t")
 
         st.markdown("---")
-        st.markdown("### 🛢️ Zbiorniki RM")
-        confirmed_rm_tanks_dash2 = st.session_state.get("confirmed_rm_tanks", [])
+        st.markdown("### 🗺️ Porównanie VSM (Mapa Strumienia Wartości)")
+        st.caption("Porównaj 2-3 mieszalniki obok siebie — np. 31 m³ vs 120 m³ — żeby zobaczyć, jak bardzo różnią "
+                   "się ich rzeczywiste czasy cyklu, nie tylko pojemność.")
+        all_mixer_tags_vsm_cmp = [m["tag"] for m in st.session_state.confirmed_mixers]
+        compare_vsm_tags = st.multiselect(
+            "Wybierz mieszalniki (max 3):", all_mixer_tags_vsm_cmp,
+            default=all_mixer_tags_vsm_cmp[:min(2, len(all_mixer_tags_vsm_cmp))], key="vsm_dashboard_compare_select"
+        )
+        if len(compare_vsm_tags) > 3:
+            st.warning("⚠️ Wybierz maksymalnie 3 — pokazuję pierwsze 3 z wybranych.")
+            compare_vsm_tags = compare_vsm_tags[:3]
+
+        if not compare_vsm_tags:
+            st.info("ℹ️ Wybierz przynajmniej jeden mieszalnik powyżej, żeby zobaczyć jego mapę strumienia wartości.")
+        else:
+            vsm_cmp_cols = st.columns(len(compare_vsm_tags))
+            for col, tag_cmp in zip(vsm_cmp_cols, compare_vsm_tags):
+                m_cmp = next(m for m in st.session_state.confirmed_mixers if m["tag"] == tag_cmp)
+                with col:
+                    st.markdown(f"**🔧 {tag_cmp}** ({m_cmp['product_family']}, {m_cmp['capacity_m3']:.0f} m³)")
+                    ct_cmp = st.session_state.get("calculated_times", {}).get(tag_cmp, {"heating": 1.5, "pumping": 0.75, "cooling_h": 0.5})
+                    bt_cmp = st.session_state.get("batch_time_components", {}).get(tag_cmp, {"dosing": 1.0, "homog": 2.0})
+                    qc_cfg_cmp_dash = st.session_state.get("vsm_qc_config", {}).get(m_cmp["product_family"], {"tests": []})
+                    qc_time_h_cmp = sum(QC_TEST_CATALOG.get(t, {}).get("duration_min", 0) for t in qc_cfg_cmp_dash.get("tests", [])) / 60.0
+
+                    rho_cmp = st.session_state.active_portfolio.get(m_cmp["product_family"], {}).get("density", 0.9)
+                    filling_h_cmp = compute_filling_time_h(
+                        m_cmp["mass_per_batch"], m_cmp.get("recipe_product"), m_cmp["product_family"], tag_cmp,
+                        rho_cmp, opakowania_podzial=st.session_state.get("opakowania_podzial", {})
+                    )
+
+                    steps_cmp = [
+                        ("Dozowanie", bt_cmp["dosing"]), ("Grzanie", ct_cmp["heating"]), ("Homogenizacja", bt_cmp["homog"]),
+                        ("Zwolnienie QC", qc_time_h_cmp), ("Pompowanie", ct_cmp["pumping"]),
+                        ("Chłodzenie", ct_cmp.get("cooling_h", 0.0)), ("Rozlew", filling_h_cmp),
+                    ]
+                    total_cycle_h_cmp = sum(v for _, v in steps_cmp)
+                    st.dataframe(pd.DataFrame(steps_cmp, columns=["Etap", "Czas [h]"]).round(2), hide_index=True, use_container_width=True)
+                    st.metric("⏱️ Łączny cykl (bez buforów magazynowych)", f"{total_cycle_h_cmp:.1f} h")
+
+
         if not confirmed_rm_tanks_dash2:
             st.info("ℹ️ Brak zatwierdzonych zbiorników RM — odwiedź Zakładkę 2 (Magazynowanie), sekcję "
                     "'✅ Zatwierdź Zbiorniki RM'.")
