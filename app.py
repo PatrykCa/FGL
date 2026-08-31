@@ -1037,7 +1037,9 @@ def parse_qc_tests_excel(uploaded_file):
         for prod_col in product_cols:
             val = str(row.get(prod_col, "")).strip().lower()
             if val in ("x", "1", "true", "tak", "yes"):
-                tests_by_product.setdefault(str(prod_col), []).append(test_name)
+                existing = tests_by_product.setdefault(str(prod_col), [])
+                if test_name not in existing:  # unikaj podwójnego liczenia tego samego testu,
+                    existing.append(test_name)  # jeśli pojawia się na więcej niż jednym wierszu
 
     return tests_by_product, errors
 
@@ -1283,6 +1285,34 @@ def compute_rm_consumption_for_month(year_idx, month_idx):
             dozowanie = float(r.get(mat, 0) or 0)
             consumption[mat] += raw_demand_t_month * (dozowanie / 1000.0)
     return consumption
+
+
+def default_filling_speed_kg_min(pack_name):
+    """
+    JEDNO ŹRÓDŁO PRAWDY dla domyślnej prędkości napełniania danego opakowania - ramię załadowcze
+    cysterny ma zupełnie inny rząd wielkości przepływu niż dysza do beczek/kanistrów/pudełek.
+    Bez tego rozróżnienia cysterna dziedziczyła domyślne 30 kg/min (dysza do beczki), co dawałoby
+    fizycznie absurdalny czas napełnienia jednej cysterny (~12h zamiast realnych 30-60 min).
+    """
+    if pack_name in st.session_state.get("pack_configs", {}) and st.session_state.pack_configs[pack_name].get("per_pallet") == 0:
+        return 800.0  # ramię załadowcze cysterny, rząd wielkości ~48 t/h - typowe dla drogowej cysterny
+    return 30.0  # dysza nalewowa do beczek/kanistrów/pudełek
+
+
+def round_visible(value, min_significant=2, max_decimals=8):
+    """
+    JEDNO ŹRÓDŁO PRAWDY dla zaokrąglania małych ilości (dozowanie surowców, tony/szarżę,
+    zużycie) tak, żeby ŚLADOWE dodatki (barwniki, zapachy, biocydy, przeciwpienne - często
+    0,0001-0,01 kg/t) NIGDY nie znikały jako '0' przy stałym zaokrągleniu do 2-3 miejsc po
+    przecinku. Dla wartości >= 1 zaokrągla zwyczajnie do 2 miejsc (czytelność); dla mniejszych
+    dobiera tyle miejsc po przecinku, żeby zachować min_significant cyfr znaczących.
+    """
+    if value == 0:
+        return 0.0
+    if abs(value) >= 1:
+        return round(value, 2)
+    decimals = min_significant - int(math.floor(math.log10(abs(value)))) - 1
+    return round(value, min(max(decimals, 2), max_decimals))
 
 
 def compute_rm_drummed_pallets_per_month(year_idx):
@@ -3201,10 +3231,10 @@ with tab2:
                                     rm_bulk_month_t_by_material[mat] = mat_month_t
                                 material_rows_cmp.append({
                                     "Surowiec": mat.replace(" [kg/t]", ""),
-                                    "% dozowania": round(dozowanie_kg_t / 10.0, 2),
-                                    "t/szarżę": round(dozowanie_kg_t / 1000.0 * mass_per_batch_t, 3),
-                                    "t/miesiąc": round(mat_month_t, 2),
-                                    "t/rok": round(mat_month_t * MONTHS_PER_YEAR, 2),
+                                    "% dozowania": round_visible(dozowanie_kg_t / 10.0),
+                                    "t/szarżę": round_visible(dozowanie_kg_t / 1000.0 * mass_per_batch_t),
+                                    "t/miesiąc": round_visible(mat_month_t),
+                                    "t/rok": round_visible(mat_month_t * MONTHS_PER_YEAR),
                                     "Dostawa": "🚚 Cysterna (luzem)" if is_bulk_mat else "📦 Beczki/IBC/worki",
                                 })
                             if material_rows_cmp:
@@ -3229,23 +3259,32 @@ with tab2:
                             qc_tests_from_recipe = [c[len(QC_COL_PREFIX):-len(QC_COL_SUFFIX)] for c in qc_cols_cmp if bool(row_qc_cmp.get(c, False))]
 
                     if qc_tests_from_sheet:
-                        n_tests_per_batch = len(qc_tests_from_sheet)
+                        qc_tests_used = qc_tests_from_sheet
                         qc_source_label = f"arkusz 'Badania Laboratoryjne': {', '.join(qc_tests_from_sheet)}"
                     elif qc_tests_from_recipe:
-                        n_tests_per_batch = len(qc_tests_from_recipe)
+                        qc_tests_used = qc_tests_from_recipe
                         qc_source_label = f"kolumny w recepturze (Zakładka 1): {', '.join(qc_tests_from_recipe)}"
                     else:
                         qc_cfg_cmp = st.session_state.get("vsm_qc_config", {}).get(mixer["product_family"], {
                             "tests": ["Lepkość kinematyczna @40°C (półautomat)", "Barwa ASTM", "Temp. zapłonu - półautomat"]
                         })
-                        n_tests_per_batch = len(qc_cfg_cmp.get("tests", []))
-                        qc_source_label = f"panel zwolnienia linii (Zakładka 6): {n_tests_per_batch} testów"
+                        qc_tests_used = qc_cfg_cmp.get("tests", [])
+                        qc_source_label = f"panel zwolnienia linii (Zakładka 6): {len(qc_tests_used)} testów"
+                    n_tests_per_batch = len(qc_tests_used)
+                    time_min_per_batch = sum(QC_TEST_CATALOG.get(t, {}).get("duration_min", 0) for t in qc_tests_used)
                     lab_tests_month = n_tests_per_batch * batches_month_cmp
                     lab_tests_year = n_tests_per_batch * batches_year_cmp
+                    time_h_month = (time_min_per_batch * batches_month_cmp) / 60.0
+                    time_h_year = (time_min_per_batch * batches_year_cmp) / 60.0
                     bl1, bl2 = st.columns(2)
                     with bl1: st.metric("🧪 Badań QC/miesiąc", f"{lab_tests_month}",
                                         help=f"{n_tests_per_batch} testów/szarżę ({qc_source_label}) × {batches_month_cmp} szarż/mies.")
                     with bl2: st.metric("🧪 Badań QC/rok", f"{lab_tests_year}")
+                    bl3, bl4 = st.columns(2)
+                    with bl3: st.metric("⏱️ Czas QC/miesiąc", f"{time_h_month:,.1f} h",
+                                        help=f"{time_min_per_batch:.0f} min/szarżę (suma czasów wszystkich testów) × {batches_month_cmp} szarż/mies. "
+                                             "Zakłada testy WYKONYWANE SEKWENCYJNIE (jeden po drugim) - jeśli część robicie równolegle, realny czas będzie krótszy.")
+                    with bl4: st.metric("⏱️ Czas QC/rok", f"{time_h_year:,.0f} h")
 
                     # --- Cysterny: dostawy surowców (RM) - ROZBITE PER SUROWIEC (nie łącznie),
                     # i TYLKO dla materiałów faktycznie dostarczanych luzem cysterną (zbiornik
@@ -3258,7 +3297,7 @@ with tab2:
                             tankers_year_mat = math.ceil((mat_month_t * MONTHS_PER_YEAR) / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
                             rm_tanker_rows.append({
                                 "Surowiec": mat.replace(" [kg/t]", ""),
-                                "t/miesiąc": round(mat_month_t, 2),
+                                "t/miesiąc": round_visible(mat_month_t),
                                 "Cystern/miesiąc": tankers_month_mat,
                                 "Cystern/rok": tankers_year_mat,
                             })
@@ -4153,7 +4192,7 @@ with tab3:
         pack_fill_editor_rows = [
             {"Nazwa Opakowania": name, "Pojemność [L]": cfg["size_l"], "Sztuk na Palecie": cfg["per_pallet"],
              "Głowice nalewaka [szt]": int(st.session_state.filling_lines_config.get(name, {"nozzles": 1})["nozzles"]),
-             "Wydajność 1 głowicy [kg/min]": float(st.session_state.filling_lines_config.get(name, {"speed_kg_min": 30.0})["speed_kg_min"])}
+             "Wydajność 1 głowicy [kg/min]": float(st.session_state.filling_lines_config.get(name, {"speed_kg_min": default_filling_speed_kg_min(name)})["speed_kg_min"])}
             for name, cfg in st.session_state.pack_configs.items()
         ]
         edited_pack_fill_df = st.data_editor(
@@ -4292,7 +4331,7 @@ with tab3:
                 pack_capacity_kg = st.session_state.pack_configs[p]["size_l"] * rho_linii
                 liczba_sztuk_month = math.ceil(masa_opakowania_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
 
-                cfg_fill = st.session_state.filling_lines_config.get(p, {"nozzles": 1, "speed_kg_min": 30.0})
+                cfg_fill = st.session_state.filling_lines_config.get(p, {"nozzles": 1, "speed_kg_min": default_filling_speed_kg_min(p)})
                 sekcja_nalewania_m3_h = (cfg_fill["nozzles"] * cfg_fill["speed_kg_min"] * 60.0) / (rho_linii * 1000.0)
 
                 # Rzeczywisty przepływ pompy TEGO KONKRETNEGO mieszalnika z Zakładki 2 (nie
@@ -5912,23 +5951,31 @@ with tab6:
 
         if "vsm_qc_config" not in st.session_state:
             st.session_state.vsm_qc_config = {}
-        qc_cfg = st.session_state.vsm_qc_config.setdefault(selected_vsm_family, {
-            "tests": ["Lepkość kinematyczna @40°C (półautomat)", "Barwa ASTM", "Temp. zapłonu - półautomat"],
-            "mode": "Sekwencyjnie (jeden technik, jedno stanowisko)",
-            "custom_durations": {},
-        })
 
-        # Ten panel jest per LINIA, ale arkusz 'Badania Laboratoryjne' (Zakładka 1) definiuje testy
-        # per KONKRETNY PRODUKT - jeśli taki plik jest wgrany, sprawdzamy, czy da się z niego
-        # zaproponować spójną listę dla tej linii (a jeśli produkty się różnią, informujemy o tym
-        # wprost, zamiast po cichu ignorować recepturę).
+        # Testy per KONKRETNY produkt (arkusz 'Badania Laboratoryjne', Zakładka 1) - sprawdzamy PRZED
+        # ustawieniem domyślnej konfiguracji per linia, żeby przy PIERWSZYM pojawieniu się tej linii
+        # w panelu od razu użyć testów z Excela (jeśli spójne dla wszystkich jej produktów), zamiast
+        # ogólnego, generycznego fallbacku. Ta sama filozofia co "roczna produkcja" w Zakładce 1:
+        # synchronizacja z recepturą TYLKO przy pierwszym pojawieniu się - późniejsze ręczne zmiany
+        # tutaj nie są nadpisywane automatycznie.
         qc_tests_by_product_vsm = st.session_state.get("qc_tests_by_product", {})
         products_in_line = [m["recipe_product"] for m in st.session_state.confirmed_mixers
                              if m["product_family"] == selected_vsm_family and m.get("recipe_product") in qc_tests_by_product_vsm]
+        distinct_test_sets = {tuple(sorted(qc_tests_by_product_vsm[p])) for p in products_in_line} if products_in_line else set()
+        recipe_tests_for_line = list(distinct_test_sets.pop()) if len(distinct_test_sets) == 1 else None
+
+        if selected_vsm_family not in st.session_state.vsm_qc_config and recipe_tests_for_line:
+            initial_tests = recipe_tests_for_line
+        else:
+            initial_tests = ["Lepkość kinematyczna @40°C (półautomat)", "Barwa ASTM", "Temp. zapłonu - półautomat"]
+        qc_cfg = st.session_state.vsm_qc_config.setdefault(selected_vsm_family, {
+            "tests": initial_tests, "mode": "Sekwencyjnie (jeden technik, jedno stanowisko)", "custom_durations": {},
+        })
+
+        # Jeśli lista już istnieje (linia była wcześniej konfigurowana) i różni się od tego, co mówi
+        # Excel - informujemy i dajemy przycisk, zamiast po cichu nadpisywać ręczne zmiany.
         if products_in_line:
-            distinct_test_sets = {tuple(sorted(qc_tests_by_product_vsm[p])) for p in products_in_line}
-            if len(distinct_test_sets) == 1:
-                recipe_tests_for_line = list(distinct_test_sets.pop())
+            if recipe_tests_for_line is not None:
                 if sorted(recipe_tests_for_line) != sorted(qc_cfg["tests"]):
                     st.info(f"📄 Arkusz 'Badania Laboratoryjne' definiuje dla tej linii: **{', '.join(recipe_tests_for_line)}** "
                             "— różni się od listy poniżej.")
@@ -5989,19 +6036,27 @@ with tab6:
 
         st.markdown("---")
 
-        # --- CZASY PROCESOWE DLA WYBRANEJ RODZINY (średnia z floty tej linii, z Zakładki 2) ---
+        # --- CZASY PROCESOWE: PER KONKRETNY MIESZALNIK, nie uśrednione po całej linii - inaczej
+        # mieszalnik 31 m³ i 120 m³ (różny cykl, różna moc, różny czas rozlewu) wpadałyby do jednej
+        # wspólnej, mylącej liczby. ---
         mixers_in_family = [m for m in st.session_state.confirmed_mixers if m["product_family"] == selected_vsm_family]
-        calc_times_family = [st.session_state.calculated_times.get(m["tag"]) for m in mixers_in_family]
-        calc_times_family = [c for c in calc_times_family if c is not None]
+        mixer_tags_in_family = [m["tag"] for m in mixers_in_family]
+        selected_vsm_mixer_tag = st.selectbox(
+            "Wybierz mieszalnik do mapowania (w obrębie linii):", mixer_tags_in_family, key="vsm_mixer_select",
+            help="Każdy mieszalnik ma własny cykl, moc i czas rozlewu — mapa strumienia wartości poniżej dotyczy "
+                 "TEGO KONKRETNEGO urządzenia, nie uśrednionej linii."
+        )
+        selected_vsm_mixer = next(m for m in mixers_in_family if m["tag"] == selected_vsm_mixer_tag)
+        calc_times_selected = st.session_state.calculated_times.get(selected_vsm_mixer_tag)
 
-        if not calc_times_family:
-            st.info("ℹ️ Skonfiguruj hydraulikę i bilans cieplny dla tej linii w Zakładce 2, aby uzyskać rzeczywiste czasy "
-                    "grzania/pompowania/chłodzenia (poniżej użyto bezpiecznych wartości domyślnych).")
+        if calc_times_selected is None:
+            st.info(f"ℹ️ Skonfiguruj hydraulikę i bilans cieplny dla {selected_vsm_mixer_tag} w Zakładce 2, aby uzyskać "
+                    "rzeczywiste czasy grzania/pompowania/chłodzenia (poniżej użyto bezpiecznych wartości domyślnych).")
             heating_h, pumping_h, cooling_h = 1.5, 0.75, 0.5
         else:
-            heating_h = sum(c["heating"] for c in calc_times_family) / len(calc_times_family)
-            pumping_h = sum(c["pumping"] for c in calc_times_family) / len(calc_times_family)
-            cooling_h = sum(c.get("cooling_h", 0.0) for c in calc_times_family) / len(calc_times_family)
+            heating_h = calc_times_selected["heating"]
+            pumping_h = calc_times_selected["pumping"]
+            cooling_h = calc_times_selected.get("cooling_h", 0.0)
 
         # --- DOZOWANIE / HOMOGENIZACJA: konfiguracja per urządzenie, przeniesiona tu z Zakładki 6 ---
         # (dawniej wpisywana w Zakładce 2 i odczytywana przez klucz widgetu — jeśli nikt nie odwiedził
@@ -6011,22 +6066,29 @@ with tab6:
         for mixer in mixers_in_family:
             tag = mixer["tag"]
             defaults_bt = st.session_state.batch_time_components.setdefault(tag, {"dosing": 1.0, "homog": 2.0})
-            with st.expander(f"⏱️ Składniki czasu operacyjnego dla: {tag}", expanded=(len(mixers_in_family) == 1)):
+            with st.expander(f"⏱️ Składniki czasu operacyjnego dla: {tag}", expanded=(tag == selected_vsm_mixer_tag)):
                 defaults_bt["dosing"] = st.number_input(
                     "Dozowanie surowców [h]:", min_value=0.1, value=float(defaults_bt["dosing"]), key=f"vsm_tdos_{tag}")
                 defaults_bt["homog"] = st.number_input(
                     "Homogenizacja właściwa [h]:", min_value=0.1, value=float(defaults_bt["homog"]), key=f"vsm_thom_{tag}")
 
-        dosing_vals = [st.session_state.batch_time_components[m["tag"]]["dosing"] for m in mixers_in_family]
-        homog_vals = [st.session_state.batch_time_components[m["tag"]]["homog"] for m in mixers_in_family]
-        t_dosing = sum(dosing_vals) / len(dosing_vals)
-        t_homog = sum(homog_vals) / len(homog_vals)
+        t_dosing = st.session_state.batch_time_components[selected_vsm_mixer_tag]["dosing"]
+        t_homog = st.session_state.batch_time_components[selected_vsm_mixer_tag]["homog"]
 
-        # Czas rozlewu — suma po opakowaniach dla tej rodziny, z Zakładki 3.
+        # Czas rozlewu — TYLKO dla tego konkretnego mieszalnika (nie sumowany po całej linii).
+        # UWAGA: "Czas rozlewu strumienia [h]" w Zakładce 4 to czas napełnienia CAŁEJ MIESIĘCZNEJ
+        # produkcji tego opakowania (nie jednej szarży) - w łańcuchu VSM (cykl JEDNEJ szarży)
+        # trzeba to przeliczyć na czas PRZYPADAJĄCY NA JEDNĄ SZARŻĘ, dzieląc przez liczbę szarż/
+        # miesiąc (czas rozlewu jest liniowo proporcjonalny do masy, więc to przeliczenie jest
+        # dokładne, nie przybliżone).
         logistics_rows = st.session_state.get("logistics_results", [])
-        filling_h = sum(r["Czas rozlewu strumienia [h] ⏱️"] for r in logistics_rows if r["Linia 🔒"] == selected_vsm_family)
+        logistics_rows_this_mixer = [r for r in logistics_rows if r["Reaktor 🔒"] == selected_vsm_mixer_tag]
+        filling_h_month_total = sum(r["Czas rozlewu strumienia [h] ⏱️"] for r in logistics_rows_this_mixer)
+        batches_month_this_mixer = selected_vsm_mixer.get("batches_count", 0)
+        filling_h = (filling_h_month_total / batches_month_this_mixer) if batches_month_this_mixer > 0 else 0.0
         if filling_h == 0.0:
-            st.info("ℹ️ Skonfiguruj podział opakowań w panelu bocznym i odwiedź Zakładkę 3, aby uzyskać rzeczywisty czas rozlewu dla tej rodziny.")
+            st.info(f"ℹ️ Skonfiguruj podział opakowań w panelu bocznym i odwiedź Zakładkę 3, aby uzyskać rzeczywisty "
+                    f"czas rozlewu dla {selected_vsm_mixer_tag}.")
 
         # Bufory magazynowe — założenia globalne z Zakładek 3 i 5 (te wejścia nie są dziś różnicowane per rodzina).
         raw_material_buffer_days = st.session_state.get("days_of_stock_tab5", 14)
