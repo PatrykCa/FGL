@@ -186,6 +186,13 @@ PACKAGING_NOZZLES_COL = "Liczba głowic (domyślna)"
 QC_SHEET_NAME = "Badania Laboratoryjne"
 QC_SHEET_TEST_NAME_COL = "Nazwa Testu"
 
+DIRECT_RM_SHEET_NAME = "Zużycie Surowców (bez recept.)"
+DIRECT_RM_GROUP_COL = "Grupa Produktowa"
+DIRECT_RM_MATERIAL_COL = "Nazwa Surowca (dowolna, np. z dostawcą)"
+DIRECT_RM_CATEGORY_COL = "Kategoria (opcjonalnie, do raportów zbiorczych)"
+DIRECT_RM_ANNUAL_COL = "Roczne Zużycie Docelowe [tony]"
+DIRECT_RM_TANK_ID_COL = "ID Zbiornika (opcjonalnie - te samo ID = wspólny zbiornik)"
+
 RECIPE_GROUP_COL = "Grupa Produktowa"
 RECIPE_PRODUCT_COL = "Produkt"
 RECIPE_ANNUAL_COL = "Roczne Zapotrzebowanie Produktu [tony]"
@@ -333,7 +340,7 @@ PROJECT_SAVE_KEYS = [
     "confirmed_fg_buffer_tanks", "fg_buffer_tank_tech_details", "shared_pumps",
     "rampup_global_pct", "rampup_per_line_pct", "rampup_differentiate", "rampup_start_pct", "import_follows_rampup",
     "group_pricing", "pack_configs", "filling_lines_config", "opakowania_podzial",
-    "qc_tests_by_product", "vsm_qc_config", "vsm_qc_queue_days", "vsm_oee",
+    "qc_tests_by_product", "vsm_qc_config", "vsm_qc_queue_days", "vsm_oee", "direct_raw_materials",
     "tanker_capacity_t", "mixer_fill_factor", "days_of_stock_tab5", "max_single_tank_m3",
     "czas_skladowania_tab3", "cena_mwh_tab4", "cena_gazu_mwh", "sprawnosc_kotla_frac",
     "import_pallet_mass_kg", "capex_lump_sum", "boiler_capacity_installed_kw",
@@ -789,6 +796,32 @@ def generate_recipe_template_bytes():
         ws_qc.column_dimensions[get_column_letter(4 + pc)].width = 18
     ws_qc.freeze_panes = "D2"
 
+    # --- Arkusz 'Zużycie Surowców (bez receptury)' (opcjonalny) - dla surowców, których roczne
+    # zużycie znasz wprost, bez ujawniania pełnej receptury (ochrona know-how). ---
+    ws_direct_rm = wb.create_sheet(DIRECT_RM_SHEET_NAME)
+    direct_rm_headers = [DIRECT_RM_GROUP_COL, DIRECT_RM_MATERIAL_COL, DIRECT_RM_CATEGORY_COL, DIRECT_RM_ANNUAL_COL, DIRECT_RM_TANK_ID_COL]
+    for col_idx, h in enumerate(direct_rm_headers, start=1):
+        cell = ws_direct_rm.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = wrap_center
+    ws_direct_rm.row_dimensions[1].height = 32
+    # Przykład: dwaj dostawcy tej samej bazy - osobne pozycje (własne śledzenie zużycia), ale
+    # WSPÓLNE ID Zbiornika (rotacja dostawców w tym samym fizycznym zbiorniku R-01).
+    example_direct_rm = [
+        ("Hydraulic Oils", "Baza Grupy I - Dostawca A", "Base Oil Group I", 700.0, "R-01"),
+        ("Hydraulic Oils", "Baza Grupy I - Dostawca B", "Base Oil Group I", 500.0, "R-01"),
+        ("Engine Oils", "Base Oil Group III", "Base Oil Group III", 800.0, ""),
+    ]
+    for row_idx, (grp, mat, cat, val, tank_id) in enumerate(example_direct_rm, start=2):
+        ws_direct_rm.cell(row=row_idx, column=1, value=grp).fill = input_fill
+        ws_direct_rm.cell(row=row_idx, column=2, value=mat).fill = input_fill
+        ws_direct_rm.cell(row=row_idx, column=3, value=cat).fill = input_fill
+        ws_direct_rm.cell(row=row_idx, column=4, value=val).fill = input_fill
+        ws_direct_rm.cell(row=row_idx, column=5, value=tank_id).fill = input_fill
+    for col, w in zip("ABCDE", [22, 32, 26, 20, 30]):
+        ws_direct_rm.column_dimensions[col].width = w
+
     bio = io.BytesIO()
     wb.save(bio)
     bio.seek(0)
@@ -1113,6 +1146,98 @@ def parse_qc_tests_excel(uploaded_file):
 
     return tests_by_product, errors
 
+
+def parse_direct_raw_materials_excel(uploaded_file):
+    """
+    Wczytuje opcjonalny arkusz 'Zużycie Surowców (bez receptury)' - dla surowców, których roczne
+    zużycie znasz wprost (np. "zużywamy X ton Bazy Grupy I od Dostawcy A rocznie"), ale NIE
+    chcesz/możesz ujawnić pełnej receptury produktu z uwagi na ochronę know-how.
+
+    Nazwa Surowca jest DOWOLNA (np. "Baza Grupy I - Dostawca A", "Baza Grupy I - Dostawca B" jako
+    dwie ODRĘBNE pozycje - własne zbiorniki/cysterny/zużycie) - nie musi pasować do sztywnej listy
+    kategorii z Zakładki 1. Kategoria (opcjonalna) łączy to z jedną z tych kategorii WYŁĄCZNIE do
+    raportów zbiorczych - sam dobór zbiornika działa na konkretnej nazwie, nie na kategorii.
+
+    ID Zbiornika (opcjonalne) - TA SAMA konwencja co w recepturze (ID Zbiornika): te samo ID w
+    kilku wierszach = te surowce mają dzielić JEDEN fizyczny zbiornik (np. rotacja dostawców w
+    tym samym zbiorniku), zamiast dostawać osobne zbiorniki każdy.
+
+    Ochrona przed literówką: przy wielu dostawcach łatwo o "Baza I - Dostawca A" i "Baza I -
+    dostawca a " (inna wielkość liter/spacje) wpisane przez pomyłkę jako DWIE różne pozycje,
+    zamiast jednej - wykrywamy to (znormalizowane porównanie: małe litery + pojedyncze spacje) i
+    ostrzegamy, zamiast po cichu liczyć je jako dwa osobne, niezamierzone surowce.
+
+    Zwraca (lista_wpisów, lista_błędów), gdzie wpis to dict {"group","material","category",
+    "tank_id","annual_t"}. Jeśli arkusz nie istnieje, ([], []).
+    """
+    try:
+        xls = pd.ExcelFile(uploaded_file)
+    except Exception as exc:
+        return [], [f"Nie udało się odczytać pliku Excel (zużycie surowców bez receptury): {exc}"]
+
+    if DIRECT_RM_SHEET_NAME not in xls.sheet_names:
+        return [], []
+
+    try:
+        df = pd.read_excel(xls, sheet_name=DIRECT_RM_SHEET_NAME)
+    except Exception as exc:
+        return [], [f"Nie udało się odczytać arkusza '{DIRECT_RM_SHEET_NAME}': {exc}"]
+
+    required_cols = {DIRECT_RM_GROUP_COL, DIRECT_RM_MATERIAL_COL, DIRECT_RM_ANNUAL_COL}
+    missing_cols = required_cols - set(df.columns)
+    if missing_cols:
+        return [], [f"Arkusz '{DIRECT_RM_SHEET_NAME}' istnieje, ale brakuje kolumn: {', '.join(missing_cols)}. Pominięto import."]
+
+    df = df[df[DIRECT_RM_MATERIAL_COL].notna()].copy()
+    if df.empty:
+        return [], []
+
+    errors = []
+    known_categories = {m.replace(" [kg/t]", "") for m in RECIPE_RAW_MATERIALS}
+    entries = []
+    seen_normalized = {}  # znormalizowana nazwa -> oryginalna nazwa (pierwsze wystąpienie)
+
+    def _normalize(name):
+        return " ".join(name.lower().split())
+
+    for _, row in df.iterrows():
+        material_raw = str(row[DIRECT_RM_MATERIAL_COL]).strip()
+        if not material_raw:
+            continue
+
+        norm = _normalize(material_raw)
+        if norm in seen_normalized and seen_normalized[norm] != material_raw:
+            errors.append(f"⚠️ Podobne nazwy surowca w arkuszu '{DIRECT_RM_SHEET_NAME}': '{material_raw}' i "
+                           f"'{seen_normalized[norm]}' różnią się tylko wielkością liter/spacjami - to prawdopodobnie "
+                           "literówka, nie dwa różne surowce. Ujednolić pisownię, żeby nie liczyły się osobno.")
+        else:
+            seen_normalized[norm] = material_raw
+
+        group_raw = str(row.get(DIRECT_RM_GROUP_COL, "")).strip()
+        if group_raw not in RECIPE_PRODUCT_GROUPS:
+            errors.append(f"Nieznana grupa produktowa '{group_raw}' dla surowca '{material_raw}' w arkuszu "
+                           f"'{DIRECT_RM_SHEET_NAME}' - sprawdź pisownię. Wiersz pominięty.")
+            continue
+
+        category_val = row.get(DIRECT_RM_CATEGORY_COL, "")
+        category_raw = "" if pd.isna(category_val) else str(category_val).strip()
+        if category_raw and category_raw not in known_categories:
+            errors.append(f"Nieznana kategoria '{category_raw}' dla surowca '{material_raw}' - sprawdź pisownię "
+                           "względem listy kategorii (Zakładka 1). Wiersz zaimportowany, ale bez kategorii "
+                           "(nie trafi do zbiorczych raportów per kategoria).")
+            category_raw = ""
+
+        tank_id_val = row.get(DIRECT_RM_TANK_ID_COL, "")
+        tank_id_raw = "" if pd.isna(tank_id_val) else str(tank_id_val).strip()
+
+        annual_t = float(row.get(DIRECT_RM_ANNUAL_COL, 0) or 0)
+        if annual_t <= 0:
+            continue
+        entries.append({"group": group_raw, "material": material_raw, "category": category_raw,
+                         "tank_id": tank_id_raw, "annual_t": annual_t})
+
+    return entries, errors
+
 # Cennik / Standardowa Instalacja (BOM) - osobny, aktualizowalny arkusz per grupa produktowa,
 # z ceną jednostkową komponentu; źródłem treści jest zwykle istniejący P&ID danej instalacji
 # standardowej (użytkownik przepisuje stamtąd listę urządzeń, nie generujemy P&ID w apce).
@@ -1314,21 +1439,30 @@ def compute_rm_consumption_for_year(year_idx):
     """
     recipes_df_local = st.session_state.get("recipes_df")
     consumption = {mat: 0.0 for mat in RECIPE_RAW_MATERIALS}
-    if recipes_df_local is None or recipes_df_local.empty:
-        return consumption
-    has_sourcing = RECIPE_SOURCING_COL in recipes_df_local.columns
-    for _, r in recipes_df_local.iterrows():
-        if has_sourcing:
-            is_imp = is_product_imported_in_year(r.get(RECIPE_SOURCING_COL, "Produkcja własna"),
-                                                  r.get(RECIPE_IMPORT_TRANSITION_COL, ""), year_idx)
-            if is_imp:
-                continue
-        frac = get_rampup_fraction(r[RECIPE_GROUP_COL], year_idx) if year_idx != RAMPUP_YEAR_TARGET_SENTINEL else 1.0
-        raw_demand_t_target = float(r.get(RECIPE_RAW_DEMAND_COL, 0) or 0)
-        raw_demand_t_year = raw_demand_t_target * frac
-        for mat in RECIPE_RAW_MATERIALS:
-            dozowanie = float(r.get(mat, 0) or 0)
-            consumption[mat] += raw_demand_t_year * (dozowanie / 1000.0)
+    has_recipe = recipes_df_local is not None and not recipes_df_local.empty
+    if has_recipe:
+        has_sourcing = RECIPE_SOURCING_COL in recipes_df_local.columns
+        for _, r in recipes_df_local.iterrows():
+            if has_sourcing:
+                is_imp = is_product_imported_in_year(r.get(RECIPE_SOURCING_COL, "Produkcja własna"),
+                                                      r.get(RECIPE_IMPORT_TRANSITION_COL, ""), year_idx)
+                if is_imp:
+                    continue
+            frac = get_rampup_fraction(r[RECIPE_GROUP_COL], year_idx) if year_idx != RAMPUP_YEAR_TARGET_SENTINEL else 1.0
+            raw_demand_t_target = float(r.get(RECIPE_RAW_DEMAND_COL, 0) or 0)
+            raw_demand_t_year = raw_demand_t_target * frac
+            for mat in RECIPE_RAW_MATERIALS:
+                dozowanie = float(r.get(mat, 0) or 0)
+                consumption[mat] += raw_demand_t_year * (dozowanie / 1000.0)
+
+    # Surowce zadeklarowane WPROST (bez pełnej receptury - ochrona know-how), z arkusza
+    # 'Zużycie Surowców (bez receptury)' - dolicza się do zużycia z receptur powyżej (jeśli w
+    # ogóle jakaś receptura jest wgrana - działa też SAMODZIELNIE, bez żadnej receptury), skalowane
+    # tą samą krzywą rozruchu co linia, do której surowiec jest przypisany.
+    for entry in st.session_state.get("direct_raw_materials", []):
+        frac_direct = get_rampup_fraction(entry["group"], year_idx) if year_idx != RAMPUP_YEAR_TARGET_SENTINEL else 1.0
+        consumption[entry["material"]] = consumption.get(entry["material"], 0.0) + entry["annual_t"] * frac_direct
+
     return consumption
 
 
@@ -1339,22 +1473,53 @@ def compute_rm_consumption_for_month(year_idx, month_idx):
     is_product_imported_in_year), tylko skalowanie w obrębie roku jest miesięczne."""
     recipes_df_local = st.session_state.get("recipes_df")
     consumption = {mat: 0.0 for mat in RECIPE_RAW_MATERIALS}
-    if recipes_df_local is None or recipes_df_local.empty:
-        return consumption
-    has_sourcing = RECIPE_SOURCING_COL in recipes_df_local.columns
-    for _, r in recipes_df_local.iterrows():
-        if has_sourcing:
-            is_imp = is_product_imported_in_year(r.get(RECIPE_SOURCING_COL, "Produkcja własna"),
-                                                  r.get(RECIPE_IMPORT_TRANSITION_COL, ""), year_idx)
-            if is_imp:
-                continue
-        frac = get_rampup_fraction_month(r[RECIPE_GROUP_COL], year_idx, month_idx)
-        raw_demand_t_target_month = float(r.get(RECIPE_RAW_DEMAND_COL, 0) or 0) / MONTHS_PER_YEAR
-        raw_demand_t_month = raw_demand_t_target_month * frac
-        for mat in RECIPE_RAW_MATERIALS:
-            dozowanie = float(r.get(mat, 0) or 0)
-            consumption[mat] += raw_demand_t_month * (dozowanie / 1000.0)
+    has_recipe = recipes_df_local is not None and not recipes_df_local.empty
+    if has_recipe:
+        has_sourcing = RECIPE_SOURCING_COL in recipes_df_local.columns
+        for _, r in recipes_df_local.iterrows():
+            if has_sourcing:
+                is_imp = is_product_imported_in_year(r.get(RECIPE_SOURCING_COL, "Produkcja własna"),
+                                                      r.get(RECIPE_IMPORT_TRANSITION_COL, ""), year_idx)
+                if is_imp:
+                    continue
+            frac = get_rampup_fraction_month(r[RECIPE_GROUP_COL], year_idx, month_idx)
+            raw_demand_t_target_month = float(r.get(RECIPE_RAW_DEMAND_COL, 0) or 0) / MONTHS_PER_YEAR
+            raw_demand_t_month = raw_demand_t_target_month * frac
+            for mat in RECIPE_RAW_MATERIALS:
+                dozowanie = float(r.get(mat, 0) or 0)
+                consumption[mat] += raw_demand_t_month * (dozowanie / 1000.0)
+
+    for entry in st.session_state.get("direct_raw_materials", []):
+        frac_direct_month = get_rampup_fraction_month(entry["group"], year_idx, month_idx)
+        consumption[entry["material"]] = consumption.get(entry["material"], 0.0) + (entry["annual_t"] / MONTHS_PER_YEAR) * frac_direct_month
+
     return consumption
+
+
+def collapse_shared_tank_materials(consumption_dict):
+    """
+    Zwija pozycje z arkusza 'Zużycie Surowców (bez receptury)', które mają WSPÓLNE ID Zbiornika
+    (ta sama konwencja co ID Zbiornika w recepturze - te samo ID = współdzielony fizyczny
+    zbiornik), w JEDNĄ pozycję o zsumowanym zużyciu - zamiast każdej z osobna dostawać własną
+    rekomendację zbiornika. Bezpieczne posunięcie: działa na zwykłym dict {surowiec: t/rok} PRZED
+    wejściem do istniejącej pętli doboru zbiorników, więc sama pętla nie wymaga żadnych zmian.
+    Materiały bez ID Zbiornika (albo spoza tego arkusza) przechodzą bez zmian.
+    """
+    tank_groups = {}  # tank_id -> lista nazw materiałów z tym ID
+    for entry in st.session_state.get("direct_raw_materials", []):
+        if entry.get("tank_id"):
+            tank_groups.setdefault(entry["tank_id"], []).append(entry["material"])
+
+    collapsed = dict(consumption_dict)
+    for tank_id, materials in tank_groups.items():
+        materials_present = [m for m in materials if m in collapsed]
+        if len(materials_present) < 2:
+            continue  # tylko 1 materiał z tym ID w danych - nic do zwinięcia
+        combined_t = sum(collapsed.pop(m) for m in materials_present)
+        combined_name = f"🔗 Zbiornik {tank_id}: {' + '.join(materials_present)}"
+        collapsed[combined_name] = combined_t
+
+    return collapsed
 
 
 def compute_filling_time_h(mass_kg, recipe_product, kat, mixer_tag, rho_linii, opakowania_podzial=None):
@@ -2239,6 +2404,12 @@ if "qc_tests_by_product" not in st.session_state:
     # wgrany) - ma pierwszeństwo nad panelem zwolnienia per linia (Zakładka 6, VSM).
     st.session_state.qc_tests_by_product = {}
 
+if "direct_raw_materials" not in st.session_state:
+    # lista dictów {"group","material","annual_t"} - surowce zadeklarowane wprost (bez pełnej
+    # receptury), z arkusza 'Zużycie Surowców (bez receptury)', jeśli wgrany. Dolicza się do
+    # zużycia liczonego z receptur, nie zastępuje go.
+    st.session_state.direct_raw_materials = []
+
 if "equipment_df" not in st.session_state:
     st.session_state.equipment_df = None  # DataFrame cennika standardowej instalacji (Zakładka 5)
 
@@ -2728,6 +2899,18 @@ with tab1:
             st.session_state.qc_tests_by_product = qc_tests_result
             st.success(f"✅ Wczytano przypisanie badań laboratoryjnych dla {len(qc_tests_result)} produktów z arkusza '{QC_SHEET_NAME}'.")
 
+        # Opcjonalny arkusz 'Zużycie Surowców (bez receptury)' - dla surowców, których zużycie
+        # znasz wprost, bez potrzeby ujawniania pełnej receptury (ochrona know-how). Dolicza się
+        # do zużycia wynikającego z pełnych receptur, nie zastępuje go.
+        uploaded_recipe_file.seek(0)
+        direct_rm_entries, direct_rm_errors = parse_direct_raw_materials_excel(uploaded_recipe_file)
+        for err in direct_rm_errors:
+            st.warning(f"⚠️ {err}")
+        st.session_state.direct_raw_materials = direct_rm_entries
+        if direct_rm_entries:
+            st.success(f"✅ Wczytano {len(direct_rm_entries)} bezpośrednich deklaracji zużycia surowców (bez receptury) "
+                       f"z arkusza '{DIRECT_RM_SHEET_NAME}'.")
+
     st.markdown("---")
 
     if st.session_state.recipes_df is not None and not st.session_state.recipes_df.empty:
@@ -2958,7 +3141,7 @@ with tab1:
 
         final_fleet_rows = []
         real_cycle_reference_rows = []
-        tag_counter = 101
+        tag_counter = 1
         st.session_state.tag_to_recipe_product = {}
         st.session_state.tag_to_shared_members = {}  # dla zbiorników kampanijnych (>1 produkt): lista {"product","annual_kg","cycle_h","density"}
 
@@ -5717,7 +5900,7 @@ with tab5:
         st.markdown("---")
         st.markdown("### 🏢 Wymiarowanie Silosów Magazynowych")
 
-        recipe_consumption_target = compute_rm_consumption_for_year(RAMPUP_YEAR_TARGET_SENTINEL)
+        recipe_consumption_target = collapse_shared_tank_materials(compute_rm_consumption_for_year(RAMPUP_YEAR_TARGET_SENTINEL))
         has_recipe_consumption = any(v > 0 for v in recipe_consumption_target.values())
 
         if has_recipe_consumption:
@@ -5733,7 +5916,7 @@ with tab5:
             selected_rm_year_idx = None if selected_rm_year_label.startswith("Docelowa") else int(selected_rm_year_label.split(" ")[1]) - 1
             effective_rm_year_idx = selected_rm_year_idx if selected_rm_year_idx is not None else RAMPUP_YEAR_TARGET_SENTINEL
             recipe_consumption = (recipe_consumption_target if selected_rm_year_idx is None
-                                   else compute_rm_consumption_for_year(selected_rm_year_idx))
+                                   else collapse_shared_tank_materials(compute_rm_consumption_for_year(selected_rm_year_idx)))
 
             st.caption("Liczone **per pojedynczy surowiec** (np. osobno Base Oil II i Base Oil III) na podstawie "
                        "receptur wgranych w **Zakładce 1**. Dla każdego surowca sprawdzane jest też (a) czy fizycznie/"
@@ -5944,7 +6127,7 @@ with tab5:
                         cap_confirmed = float(row["Pojemność 1 zbiornika [m³]"])
                         for t_idx in range(n_tanks_confirmed):
                             confirmed_rm_tanks.append({
-                                "tag": f"RMT-{tag_counter}" + (f"-{t_idx+1}" if n_tanks_confirmed > 1 else ""),
+                                "tag": f"T-RM-{tag_counter}" + (f"-{t_idx+1}" if n_tanks_confirmed > 1 else ""),
                                 "material": material_name, "capacity_m3": cap_confirmed,
                             })
                         tag_counter += 1
@@ -6007,7 +6190,7 @@ with tab5:
                     confirmed_fg_buffer_tanks = []
                     for idx, row in edited_fg_buf_df.iterrows():
                         confirmed_fg_buffer_tanks.append({
-                            "tag": f"FGT-{idx + 1}", "recipe_product": row["Produkt"],
+                            "tag": f"T-FG-{idx + 1}", "recipe_product": row["Produkt"],
                             "capacity_m3": float(row["Pojemność zbiornika [m³]"]),
                         })
                     st.session_state["confirmed_fg_buffer_tanks"] = confirmed_fg_buffer_tanks
