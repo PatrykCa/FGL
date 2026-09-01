@@ -80,39 +80,38 @@ MEDIA_PROCESOWE = {
 # laboratoryjnej - EDYTOWALNE bezpośrednio w Zakładce 6 (VSM), bo rzeczywisty czas zależy
 # od obciążenia laboratorium i wprawy technika.
 QC_TEST_CATALOG = {
-    "Lepkość kinematyczna @40°C (łaźnia ręczna)": {"duration_min": 40, "equipment": "Manual Viscosity Bath, 40°C"},
-    "Lepkość kinematyczna @40°C (półautomat)": {"duration_min": 25, "equipment": "Semiautomatic Viscosity Bath, 40°C"},
-    "Lepkość kinematyczna @40°C (automat)": {"duration_min": 15, "equipment": "Automatic Viscometer, 40°C"},
-    "Lepkość kinematyczna @100°C (łaźnia ręczna)": {"duration_min": 60, "equipment": "Manual Viscosity Bath, 100°C"},
-    "Lepkość kinematyczna @100°C (automat)": {"duration_min": 20, "equipment": "Automatic Viscometer, 100°C"},
-    "Lepkość dynamiczna (ASTM D2669)": {"duration_min": 30, "equipment": "Viscosimeter Brookfield (ASTM D2669)"},
-    "Lepkość dynamiczna (ASTM D2983)": {"duration_min": 45, "equipment": "Viscosimeter Brookfield (ASTM D2983)"},
-    "Lepkość dynamiczna @-40°C": {"duration_min": 45, "equipment": "Viscosimeter Brookfield (niska temp.)"},
-    "Krzywa Stribecka": {"duration_min": 60, "equipment": "Reometr (Anton Paar)"},
-    "Barwa ASTM": {"duration_min": 5, "equipment": "Kolorymetr (ASTM D1500)"},
-    "Wielkość cząstek (Particle size)": {"duration_min": 15, "equipment": "Litesizer DLS 500"},
-    "Klasa czystości (Cleanliness code)": {"duration_min": 15, "equipment": "Licznik cząstek (ISO 4406)"},
-    "Gęstość": {"duration_min": 10, "equipment": "Hydrometr / densimetr"},
-    "Wskaźnik refrakcji": {"duration_min": 5, "equipment": "Refraktometr cyfrowy"},
-    "Temp. zapłonu - półautomat": {"duration_min": 45, "equipment": "Semiautomatic (Open/Closed cup)"},
-    "Temp. zapłonu - automat": {"duration_min": 25, "equipment": "Automatic (Open/Closed cup)"},
-    "Krzywa chłodzenia (Cooling Curve)": {"duration_min": 30, "equipment": "Smart Quench SQ2"},
-    "XRF": {"duration_min": 15, "equipment": "Spektrometr XRF (Bruker)"},
-    "Punkt aniliny": {"duration_min": 50, "equipment": "Aniline Point Tester"},
-    "Zawartość ciał stałych": {"duration_min": 20, "equipment": "Wagosuszarka (Ohaus)"},
-    "Przewodność": {"duration_min": 10, "equipment": "Konduktometr"},
-    "Zawartość wody (Karl Fischer)": {"duration_min": 20, "equipment": "Kulometr (Karl Fischer)"},
-    "Spektroskopia FTIR": {"duration_min": 15, "equipment": "Spektrometr FT-IR (Perkin Elmer)"},
-    "pH": {"duration_min": 10, "equipment": "pH-metr stołowy"},
-    "Zasadowość (Alkalinity)": {"duration_min": 25, "equipment": "Automatyczny tytrator potencjometryczny"},
-    "Spektroskopia UV-Vis": {"duration_min": 20, "equipment": "Spektrometr UV/Vis"},
-    "Test korozji": {"duration_min": 1440, "equipment": "Komora klimatyczna (DIN 6270-2) — czas oczekiwania 24h+"},
-    "Pienienie (Foam)": {"duration_min": 30, "equipment": "Cnomo foam tester"},
-    "EP / AW (tarcie i zużycie)": {"duration_min": 90, "equipment": "Aparat Falexa (tarcie i zużycie)"},
-    "Tapping Torque Test": {"duration_min": 45, "equipment": "Trybometr (Micro tap)"},
-    "Demulgowalność": {"duration_min": 45, "equipment": "Bath demulsibility"},
-    "Pour Point": {"duration_min": 30, "equipment": "Aparat Pour Point"},
-    "Foam Tester": {"duration_min": 30, "equipment": "XXX Foam Tester"},
+    "Lepkość kinematyczna @40°C (łaźnia ręczna)": {"duration_min": 40, "equipment": "Manual Viscosity Bath, 40°C", "count": 1},
+    "Lepkość kinematyczna @40°C (półautomat)": {"duration_min": 25, "equipment": "Semiautomatic Viscosity Bath, 40°C", "count": 1},
+    "Lepkość kinematyczna @40°C (automat)": {"duration_min": 15, "equipment": "Automatic Viscometer, 40°C", "count": 1},
+    "Lepkość kinematyczna @100°C (łaźnia ręczna)": {"duration_min": 60, "equipment": "Manual Viscosity Bath, 100°C", "count": 1},
+    "Lepkość kinematyczna @100°C (automat)": {"duration_min": 20, "equipment": "Automatic Viscometer, 100°C", "count": 1},
+    "Lepkość dynamiczna (ASTM D2669)": {"duration_min": 30, "equipment": "Viscosimeter Brookfield (ASTM D2669)", "count": 1},
+    "Lepkość dynamiczna (ASTM D2983)": {"duration_min": 45, "equipment": "Viscosimeter Brookfield (ASTM D2983)", "count": 1},
+    "Lepkość dynamiczna @-40°C": {"duration_min": 45, "equipment": "Viscosimeter Brookfield (niska temp.)", "count": 1},
+    "Krzywa Stribecka": {"duration_min": 60, "equipment": "Reometr (Anton Paar)", "count": 1},
+    "Barwa ASTM": {"duration_min": 5, "equipment": "Kolorymetr (ASTM D1500)", "count": 1},
+    "Wielkość cząstek (Particle size)": {"duration_min": 15, "equipment": "Litesizer DLS 500", "count": 1},
+    "Klasa czystości (Cleanliness code)": {"duration_min": 15, "equipment": "Licznik cząstek (ISO 4406)", "count": 1},
+    "Gęstość": {"duration_min": 10, "equipment": "Hydrometr / densimetr", "count": 1},
+    "Wskaźnik refrakcji": {"duration_min": 5, "equipment": "Refraktometr cyfrowy", "count": 1},
+    "Temp. zapłonu - półautomat": {"duration_min": 45, "equipment": "Semiautomatic (Open/Closed cup)", "count": 1},
+    "Temp. zapłonu - automat": {"duration_min": 25, "equipment": "Automatic (Open/Closed cup)", "count": 1},
+    "Krzywa chłodzenia (Cooling Curve)": {"duration_min": 30, "equipment": "Smart Quench SQ2", "count": 1},
+    "XRF": {"duration_min": 15, "equipment": "Spektrometr XRF (Bruker)", "count": 1},
+    "Punkt aniliny": {"duration_min": 50, "equipment": "Aniline Point Tester", "count": 1},
+    "Zawartość ciał stałych": {"duration_min": 20, "equipment": "Wagosuszarka (Ohaus)", "count": 1},
+    "Przewodność": {"duration_min": 10, "equipment": "Konduktometr", "count": 1},
+    "Zawartość wody (Karl Fischer)": {"duration_min": 20, "equipment": "Kulometr (Karl Fischer)", "count": 1},
+    "Spektroskopia FTIR": {"duration_min": 15, "equipment": "Spektrometr FT-IR (Perkin Elmer)", "count": 1},
+    "pH": {"duration_min": 10, "equipment": "pH-metr stołowy", "count": 1},
+    "Zasadowość (Alkalinity)": {"duration_min": 25, "equipment": "Automatyczny tytrator potencjometryczny", "count": 1},
+    "Spektroskopia UV-Vis": {"duration_min": 20, "equipment": "Spektrometr UV/Vis", "count": 1},
+    "Test korozji": {"duration_min": 1440, "equipment": "Komora klimatyczna (DIN 6270-2) — czas oczekiwania 24h+", "count": 1},
+    "Pienienie (Foam)": {"duration_min": 30, "equipment": "Cnomo foam tester", "count": 1},
+    "EP / AW (tarcie i zużycie)": {"duration_min": 90, "equipment": "Aparat Falexa (tarcie i zużycie)", "count": 1},
+    "Tapping Torque Test": {"duration_min": 45, "equipment": "Trybometr (Micro tap)", "count": 1},
+    "Demulgowalność": {"duration_min": 45, "equipment": "Bath demulsibility", "count": 1},
+    "Pour Point": {"duration_min": 30, "equipment": "Aparat Pour Point", "count": 1},
 }
 
 # Prefiks/sufiks kolumn Excela definiujących, KTÓRE testy QC dotyczą KONKRETNEGO produktu (nie
@@ -341,6 +340,7 @@ PROJECT_SAVE_KEYS = [
     "rampup_global_pct", "rampup_per_line_pct", "rampup_differentiate", "rampup_start_pct", "import_follows_rampup",
     "group_pricing", "pack_configs", "filling_lines_config", "opakowania_podzial",
     "qc_tests_by_product", "vsm_qc_config", "vsm_qc_queue_days", "vsm_oee", "direct_raw_materials",
+    "qc_equipment_count_override",
     "tanker_capacity_t", "mixer_fill_factor", "days_of_stock_tab5", "max_single_tank_m3",
     "czas_skladowania_tab3", "cena_mwh_tab4", "cena_gazu_mwh", "sprawnosc_kotla_frac",
     "import_pallet_mass_kg", "capex_lump_sum", "boiler_capacity_installed_kw",
@@ -1522,6 +1522,38 @@ def collapse_shared_tank_materials(consumption_dict):
     return collapsed
 
 
+def get_qc_tests_for_mixer(mixer):
+    """
+    JEDNO ŹRÓDŁO PRAWDY dla ustalenia, które testy QC dotyczą danego mieszalnika (i jego
+    konkretnego produktu, jeśli przypisany) - PRIORYTET 1: arkusz 'Badania Laboratoryjne' per
+    KONKRETNY PRODUKT; PRIORYTET 2: kolumny 'QC: {test} [x]' wprost w recepturze; PRIORYTET 3
+    (fallback): panel zwolnienia per LINIA (Zakładka 6/VSM). Wcześniej ta sama logika była
+    duplikowana osobno w widgecie porównawczym (Karta Maszyn) i na Dashboardzie.
+    Zwraca (lista_nazw_testów, etykieta_źródła).
+    """
+    recipe_product = mixer.get("recipe_product")
+    recipes_df_local = st.session_state.get("recipes_df")
+
+    qc_tests_from_sheet = st.session_state.get("qc_tests_by_product", {}).get(recipe_product, []) if recipe_product else []
+    if qc_tests_from_sheet:
+        return qc_tests_from_sheet, f"arkusz 'Badania Laboratoryjne': {', '.join(qc_tests_from_sheet)}"
+
+    if recipes_df_local is not None and not recipes_df_local.empty and recipe_product:
+        qc_cols = [c for c in recipes_df_local.columns if c.startswith(QC_COL_PREFIX) and c.endswith(QC_COL_SUFFIX)]
+        match = recipes_df_local[recipes_df_local[RECIPE_PRODUCT_COL] == recipe_product]
+        if qc_cols and not match.empty:
+            row0 = match.iloc[0]
+            qc_tests_from_recipe = [c[len(QC_COL_PREFIX):-len(QC_COL_SUFFIX)] for c in qc_cols if bool(row0.get(c, False))]
+            if qc_tests_from_recipe:
+                return qc_tests_from_recipe, f"kolumny w recepturze (Zakładka 1): {', '.join(qc_tests_from_recipe)}"
+
+    qc_cfg = st.session_state.get("vsm_qc_config", {}).get(mixer["product_family"], {
+        "tests": ["Lepkość kinematyczna @40°C (półautomat)", "Barwa ASTM", "Temp. zapłonu - półautomat"]
+    })
+    qc_tests_used = qc_cfg.get("tests", [])
+    return qc_tests_used, f"panel zwolnienia linii (Zakładka 6): {len(qc_tests_used)} testów"
+
+
 def compute_filling_time_h(mass_kg, recipe_product, kat, mixer_tag, rho_linii, opakowania_podzial=None):
     """
     JEDNO ŹRÓDŁO PRAWDY dla czasu rozlewu/napełniania - działa na DOWOLNEJ masie podanej wprost
@@ -2409,6 +2441,12 @@ if "direct_raw_materials" not in st.session_state:
     # receptury), z arkusza 'Zużycie Surowców (bez receptury)', jeśli wgrany. Dolicza się do
     # zużycia liczonego z receptur, nie zastępuje go.
     st.session_state.direct_raw_materials = []
+
+if "qc_equipment_count_override" not in st.session_state:
+    # dict: nazwa aparatu -> liczba fizycznych sztuk w laboratorium (domyślnie 1 z katalogu,
+    # ale niektóre testy mogą mieć 2+ identycznych aparatów - to bezpośrednio podwaja
+    # przepustowość tego konkretnego testu w całym zakładzie, nie tylko dla jednej szarży).
+    st.session_state.qc_equipment_count_override = {}
 
 if "equipment_df" not in st.session_state:
     st.session_state.equipment_df = None  # DataFrame cennika standardowej instalacji (Zakładka 5)
@@ -3606,28 +3644,7 @@ with tab2:
                     # (testy jako wiersze, produkty jako kolumny, patrz parse_qc_tests_excel);
                     # PRIORYTET 2 - kolumny 'QC: {test} [x]' wprost w arkuszu Receptury;
                     # PRIORYTET 3 (fallback) - panel zwolnienia per LINIA w Zakładce 6 (VSM). ---
-                    qc_tests_from_sheet = st.session_state.get("qc_tests_by_product", {}).get(recipe_product_cmp, []) if recipe_product_cmp else []
-
-                    qc_tests_from_recipe = []
-                    if not qc_tests_from_sheet and recipes_df_cmp is not None and not recipes_df_cmp.empty and recipe_product_cmp:
-                        qc_cols_cmp = [c for c in recipes_df_cmp.columns if c.startswith(QC_COL_PREFIX) and c.endswith(QC_COL_SUFFIX)]
-                        match_qc_cmp = recipes_df_cmp[recipes_df_cmp[RECIPE_PRODUCT_COL] == recipe_product_cmp]
-                        if qc_cols_cmp and not match_qc_cmp.empty:
-                            row_qc_cmp = match_qc_cmp.iloc[0]
-                            qc_tests_from_recipe = [c[len(QC_COL_PREFIX):-len(QC_COL_SUFFIX)] for c in qc_cols_cmp if bool(row_qc_cmp.get(c, False))]
-
-                    if qc_tests_from_sheet:
-                        qc_tests_used = qc_tests_from_sheet
-                        qc_source_label = f"arkusz 'Badania Laboratoryjne': {', '.join(qc_tests_from_sheet)}"
-                    elif qc_tests_from_recipe:
-                        qc_tests_used = qc_tests_from_recipe
-                        qc_source_label = f"kolumny w recepturze (Zakładka 1): {', '.join(qc_tests_from_recipe)}"
-                    else:
-                        qc_cfg_cmp = st.session_state.get("vsm_qc_config", {}).get(mixer["product_family"], {
-                            "tests": ["Lepkość kinematyczna @40°C (półautomat)", "Barwa ASTM", "Temp. zapłonu - półautomat"]
-                        })
-                        qc_tests_used = qc_cfg_cmp.get("tests", [])
-                        qc_source_label = f"panel zwolnienia linii (Zakładka 6): {len(qc_tests_used)} testów"
+                    qc_tests_used, qc_source_label = get_qc_tests_for_mixer(mixer)
                     n_tests_per_batch = len(qc_tests_used)
                     time_min_per_batch = sum(QC_TEST_CATALOG.get(t, {}).get("duration_min", 0) for t in qc_tests_used)
                     lab_tests_month = n_tests_per_batch * batches_month_cmp
@@ -6756,6 +6773,59 @@ with tab6:
             with wf2: st.metric("📦 Wysyłek FG (cysterna) — miesiąc", f"{fg_tankers_month}")
             with wf3: st.metric("📦 Wysyłek FG (cysterna) — rok", f"{fg_tankers_month * MONTHS_PER_YEAR}")
 
+        # --- POJEMNOŚĆ LABORATORIUM: obciążenie każdego aparatu w CAŁYM ZAKŁADZIE (nie tylko dla
+        # wybranego mieszalnika) - niektóre testy mogą mieć WIĘCEJ NIŻ JEDEN identyczny aparat w
+        # laboratorium (np. 2 aparaty do pienienia), co bezpośrednio podwaja przepustowość tego
+        # konkretnego testu na cały zakład, nie tylko dla jednej szarży/mieszalnika. ---
+        st.markdown("---")
+        st.markdown("### 🔬 Pojemność Laboratorium (cały zakład)")
+        st.caption("Zużycie czasu każdego aparatu, zsumowane po WSZYSTKICH mieszalnikach i produktach na raz — "
+                   "jeśli laboratorium ma więcej niż 1 sztukę danego aparatu, wpisz to poniżej: bezpośrednio "
+                   "podwaja (lub więcej) przepustowość tego konkretnego testu w całym zakładzie.")
+
+        equipment_demand_min_month = {}  # nazwa aparatu -> suma [min/mies] potrzebna w calym zakladzie
+        equipment_test_names = {}  # nazwa aparatu -> zbior nazw testow ktore go uzywaja (do etykiety)
+        for m_lab in st.session_state.confirmed_mixers:
+            tests_lab, _ = get_qc_tests_for_mixer(m_lab)
+            batches_month_lab = m_lab.get("batches_count", 0)
+            for t_name in tests_lab:
+                t_info = QC_TEST_CATALOG.get(t_name)
+                if not t_info:
+                    continue
+                equip_name = t_info["equipment"]
+                equipment_demand_min_month[equip_name] = equipment_demand_min_month.get(equip_name, 0.0) + t_info["duration_min"] * batches_month_lab
+                equipment_test_names.setdefault(equip_name, set()).add(t_name)
+
+        if not equipment_demand_min_month:
+            st.info("ℹ️ Brak jeszcze skonfigurowanych badań QC dla żadnego mieszalnika.")
+        else:
+            lab_rows = []
+            for equip_name, demand_min in sorted(equipment_demand_min_month.items(), key=lambda x: -x[1]):
+                count = st.session_state.qc_equipment_count_override.get(equip_name, 1)
+                available_min_month = count * WORKING_DAYS_YEAR / MONTHS_PER_YEAR * 8 * 60  # 1 zmiana laboratoryjna, 8h/dzień
+                utilization_pct = (demand_min / available_min_month * 100.0) if available_min_month > 0 else 0.0
+                lab_rows.append({
+                    "Aparat": equip_name, "Używany do": ", ".join(sorted(equipment_test_names[equip_name])),
+                    "Liczba sztuk": count, "Zapotrzebowanie [h/mies]": round(demand_min / 60.0, 1),
+                    "Wykorzystanie [%]": round(utilization_pct, 0),
+                })
+            lab_df = pd.DataFrame(lab_rows)
+            edited_lab_df = st.data_editor(
+                lab_df, hide_index=True, use_container_width=True, key="lab_capacity_editor",
+                disabled=["Aparat", "Używany do", "Zapotrzebowanie [h/mies]", "Wykorzystanie [%]"],
+                column_config={"Liczba sztuk": st.column_config.NumberColumn(min_value=1, step=1)}
+            )
+            for _, row_lab in edited_lab_df.iterrows():
+                st.session_state.qc_equipment_count_override[row_lab["Aparat"]] = int(row_lab["Liczba sztuk"])
+
+            bottleneck_rows = edited_lab_df[edited_lab_df["Wykorzystanie [%]"] > 85]
+            if not bottleneck_rows.empty:
+                st.warning("⚠️ **Możliwe wąskie gardło laboratorium** (wykorzystanie >85%, przyjmując 1 zmianę, 8h/dzień): "
+                           f"{', '.join(bottleneck_rows['Aparat'].tolist())}. Rozważ dodatkowy aparat, drugą zmianę "
+                           "w laboratorium, albo sprawdź, czy któryś test naprawdę musi być wykonywany tak często.")
+            st.caption("Wykorzystanie liczone przy założeniu 1 zmiany laboratoryjnej (8h/dzień roboczy) na aparat — "
+                       "zmień 'Liczba sztuk', jeśli laboratorium ma więcej fizycznych egzemplarzy danego aparatu.")
+
         # --- DRABINKA CZASU: pełny rozkład lead time vs. czas przetwarzania ---
         st.markdown("### ⏱️ Drabinka Czasu (Lead Time vs. Czas Przetwarzania)")
         ladder_rows = [{"Etap": lead_start_wait[0], "Waiting [dni]": round(lead_start_wait[1] / 24.0, 2),
@@ -6902,9 +6972,9 @@ with tab8:
                     st.markdown(f"**🔧 {tag_cmp}** ({m_cmp['product_family']}, {m_cmp['capacity_m3']:.0f} m³)")
                     ct_cmp = st.session_state.get("calculated_times", {}).get(tag_cmp, {"heating": 1.5, "pumping": 0.75, "cooling_h": 0.5})
                     bt_cmp = st.session_state.get("batch_time_components", {}).get(tag_cmp, {"dosing": 1.0, "homog": 2.0})
-                    qc_cfg_cmp_dash = st.session_state.get("vsm_qc_config", {}).get(m_cmp["product_family"], {"tests": [], "mode": "Sekwencyjnie (jeden technik, jedno stanowisko)"})
-                    durations_min_cmp = [QC_TEST_CATALOG.get(t, {}).get("duration_min", 0) for t in qc_cfg_cmp_dash.get("tests", [])]
-                    qc_mode_cmp = qc_cfg_cmp_dash.get("mode", "Sekwencyjnie (jeden technik, jedno stanowisko)")
+                    qc_tests_cmp_dash, _ = get_qc_tests_for_mixer(m_cmp)
+                    durations_min_cmp = [QC_TEST_CATALOG.get(t, {}).get("duration_min", 0) for t in qc_tests_cmp_dash]
+                    qc_mode_cmp = st.session_state.get("vsm_qc_config", {}).get(m_cmp["product_family"], {}).get("mode", "Sekwencyjnie (jeden technik, jedno stanowisko)")
                     qc_time_h_cmp = (sum(durations_min_cmp) if qc_mode_cmp.startswith("Sekw") else max(durations_min_cmp, default=0)) / 60.0
 
                     rho_cmp = st.session_state.active_portfolio.get(m_cmp["product_family"], {}).get("density", 0.9)
