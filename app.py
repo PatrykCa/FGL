@@ -192,6 +192,14 @@ DIRECT_RM_CATEGORY_COL = "Kategoria (opcjonalnie, do raportów zbiorczych)"
 DIRECT_RM_ANNUAL_COL = "Roczne Zużycie Docelowe [tony]"
 DIRECT_RM_TANK_ID_COL = "ID Zbiornika (opcjonalnie - te samo ID = wspólny zbiornik)"
 
+SUPPLIER_SPLIT_SHEET_NAME = "Rozbicie Dostawców Surowców"
+SUPPLIER_SPLIT_GROUP_COL = "Grupa Produktowa (opcjonalnie - puste = cały zakład)"
+SUPPLIER_SPLIT_CATEGORY_COL = "Kategoria API"
+SUPPLIER_SPLIT_SUPPLIER_COL = "Konkretna Baza/Dostawca"
+SUPPLIER_SPLIT_PCT_COL = "Udział w tej kategorii [%]"
+SUPPLIER_SPLIT_TECH_COL = "Technologia (opcjonalnie)"
+SUPPLIER_SPLIT_TANK_ID_COL = "ID Zbiornika (opcjonalnie - te samo ID = wspólny zbiornik)"
+
 RECIPE_GROUP_COL = "Grupa Produktowa"
 RECIPE_PRODUCT_COL = "Produkt"
 RECIPE_ANNUAL_COL = "Roczne Zapotrzebowanie Produktu [tony]"
@@ -340,7 +348,7 @@ PROJECT_SAVE_KEYS = [
     "rampup_global_pct", "rampup_per_line_pct", "rampup_differentiate", "rampup_start_pct", "import_follows_rampup",
     "group_pricing", "pack_configs", "filling_lines_config", "opakowania_podzial",
     "qc_tests_by_product", "vsm_qc_config", "vsm_qc_queue_days", "vsm_oee", "direct_raw_materials",
-    "qc_equipment_count_override",
+    "qc_equipment_count_override", "supplier_splits",
     "tanker_capacity_t", "mixer_fill_factor", "days_of_stock_tab5", "max_single_tank_m3",
     "czas_skladowania_tab3", "cena_mwh_tab4", "cena_gazu_mwh", "sprawnosc_kotla_frac",
     "import_pallet_mass_kg", "capex_lump_sum", "boiler_capacity_installed_kw",
@@ -822,6 +830,34 @@ def generate_recipe_template_bytes():
     for col, w in zip("ABCDE", [22, 32, 26, 20, 30]):
         ws_direct_rm.column_dimensions[col].width = w
 
+    # --- Arkusz 'Rozbicie Dostawców Surowców' (opcjonalny) - dzieli CAŁKOWITE zużycie jednej
+    # kategorii (np. Base Oil Group II, policzone z pełnych receptur) na kilku konkretnych
+    # dostawców/baz, żeby pokazać kilka mniejszych zbiorników zamiast jednego dużego. ---
+    ws_supplier = wb.create_sheet(SUPPLIER_SPLIT_SHEET_NAME)
+    supplier_headers = [SUPPLIER_SPLIT_GROUP_COL, SUPPLIER_SPLIT_CATEGORY_COL, SUPPLIER_SPLIT_SUPPLIER_COL,
+                         SUPPLIER_SPLIT_PCT_COL, SUPPLIER_SPLIT_TECH_COL, SUPPLIER_SPLIT_TANK_ID_COL]
+    for col_idx, h in enumerate(supplier_headers, start=1):
+        cell = ws_supplier.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = wrap_center
+    ws_supplier.row_dimensions[1].height = 32
+    # Przykład: rozbicie "całego zakładu" (puste pole grupy) dla Base Oil Group II - 60/40 na
+    # dwóch dostawców, sumujące się do 100%.
+    example_supplier = [
+        ("", "Base Oil Group II", "PRIMA 230N", 60.0, "Hydrokraking", ""),
+        ("", "Base Oil Group II", "Dostawca B", 40.0, "", ""),
+    ]
+    for row_idx, (grp, cat, sup, pct, tech, tank_id) in enumerate(example_supplier, start=2):
+        ws_supplier.cell(row=row_idx, column=1, value=grp).fill = input_fill
+        ws_supplier.cell(row=row_idx, column=2, value=cat).fill = input_fill
+        ws_supplier.cell(row=row_idx, column=3, value=sup).fill = input_fill
+        ws_supplier.cell(row=row_idx, column=4, value=pct).fill = input_fill
+        ws_supplier.cell(row=row_idx, column=5, value=tech).fill = input_fill
+        ws_supplier.cell(row=row_idx, column=6, value=tank_id).fill = input_fill
+    for col, w in zip("ABCDEF", [26, 22, 26, 18, 22, 30]):
+        ws_supplier.column_dimensions[col].width = w
+
     bio = io.BytesIO()
     wb.save(bio)
     bio.seek(0)
@@ -1238,6 +1274,89 @@ def parse_direct_raw_materials_excel(uploaded_file):
 
     return entries, errors
 
+
+def parse_supplier_split_excel(uploaded_file):
+    """
+    Wczytuje opcjonalny arkusz 'Rozbicie Dostawców Surowców' - dla kategorii surowca (np. 'Base
+    Oil Group II'), której CAŁKOWITE zużycie jest już policzone (z pełnych receptur i/lub z
+    arkusza 'Zużycie Surowców bez receptury'), ale w rzeczywistości pochodzi z KILKU różnych
+    konkretnych baz/dostawców - i chcesz to zobaczyć jako kilka mniejszych zbiorników zamiast
+    jednego dużego.
+
+    Rozbicie jest na poziomie KATEGORII (nie pojedynczego produktu) - jedna wspólna mieszanka
+    dostawców stosowana do całego zużycia tej kategorii w całym zakładzie, chyba że w kolumnie
+    'Grupa Produktowa' wskażesz konkretną linię - wtedy rozbicie dotyczy TYLKO zużycia tej
+    kategorii pochodzącego z tamtej linii (reszta zakładu, jeśli też korzysta z tej kategorii,
+    zostaje nierozbita, jako jedna pozycja). Zostaw puste, żeby rozbicie objęło cały zakład -
+    to najszybsza droga do przetestowania wariantu (zmieniasz 2-3 liczby, nie dziesiątki wierszy).
+
+    Zwraca (lista_wpisów, lista_błędów). Wpis: {"group" (lub "" dla całego zakładu), "category",
+    "supplier", "pct", "tech", "tank_id"}.
+    """
+    try:
+        xls = pd.ExcelFile(uploaded_file)
+    except Exception as exc:
+        return [], [f"Nie udało się odczytać pliku Excel (rozbicie dostawców surowców): {exc}"]
+
+    if SUPPLIER_SPLIT_SHEET_NAME not in xls.sheet_names:
+        return [], []
+
+    try:
+        df = pd.read_excel(xls, sheet_name=SUPPLIER_SPLIT_SHEET_NAME)
+    except Exception as exc:
+        return [], [f"Nie udało się odczytać arkusza '{SUPPLIER_SPLIT_SHEET_NAME}': {exc}"]
+
+    required_cols = {SUPPLIER_SPLIT_CATEGORY_COL, SUPPLIER_SPLIT_SUPPLIER_COL, SUPPLIER_SPLIT_PCT_COL}
+    missing_cols = required_cols - set(df.columns)
+    if missing_cols:
+        return [], [f"Arkusz '{SUPPLIER_SPLIT_SHEET_NAME}' istnieje, ale brakuje kolumn: {', '.join(missing_cols)}. Pominięto import."]
+
+    df = df[df[SUPPLIER_SPLIT_SUPPLIER_COL].notna()].copy()
+    if df.empty:
+        return [], []
+
+    def _clean(val):
+        return "" if pd.isna(val) else str(val).strip()
+
+    errors = []
+    known_categories = {m.replace(" [kg/t]", "") for m in RECIPE_RAW_MATERIALS}
+    raw_entries = []
+    for _, row in df.iterrows():
+        category_raw = _clean(row.get(SUPPLIER_SPLIT_CATEGORY_COL, ""))
+        if category_raw not in known_categories:
+            errors.append(f"Nieznana kategoria API '{category_raw}' w arkuszu '{SUPPLIER_SPLIT_SHEET_NAME}' - sprawdź "
+                           "pisownię względem listy surowców (Zakładka 1). Wiersz pominięty.")
+            continue
+        group_raw = _clean(row.get(SUPPLIER_SPLIT_GROUP_COL, ""))
+        if group_raw and group_raw not in RECIPE_PRODUCT_GROUPS:
+            errors.append(f"Nieznana grupa produktowa '{group_raw}' w arkuszu '{SUPPLIER_SPLIT_SHEET_NAME}' - sprawdź "
+                           "pisownię. Wiersz pominięty.")
+            continue
+        supplier_raw = _clean(row.get(SUPPLIER_SPLIT_SUPPLIER_COL, ""))
+        if not supplier_raw:
+            continue
+        pct_raw = float(row.get(SUPPLIER_SPLIT_PCT_COL, 0) or 0)
+        if pct_raw <= 0:
+            continue
+        raw_entries.append({
+            "group": group_raw, "category": category_raw, "supplier": supplier_raw, "pct": pct_raw,
+            "tech": _clean(row.get(SUPPLIER_SPLIT_TECH_COL, "")), "tank_id": _clean(row.get(SUPPLIER_SPLIT_TANK_ID_COL, "")),
+        })
+
+    # Walidacja sumy % w obrębie każdej kombinacji (grupa, kategoria) - jeśli nie sumuje się do
+    # ~100%, rozbicie dawałoby błędne (za małe lub za duże) zużycie per dostawca.
+    sums = {}
+    for e in raw_entries:
+        key = (e["group"], e["category"])
+        sums[key] = sums.get(key, 0.0) + e["pct"]
+    for (grp, cat), total_pct in sums.items():
+        if abs(total_pct - 100.0) > 1.0:
+            scope_txt = f"linii '{grp}'" if grp else "całego zakładu"
+            errors.append(f"⚠️ Rozbicie dostawców dla '{cat}' ({scope_txt}) sumuje się do {total_pct:.0f}%, nie 100% - "
+                           "popraw udziały, inaczej zużycie per dostawca będzie błędnie przeskalowane.")
+
+    return raw_entries, errors
+
 # Cennik / Standardowa Instalacja (BOM) - osobny, aktualizowalny arkusz per grupa produktowa,
 # z ceną jednostkową komponentu; źródłem treści jest zwykle istniejący P&ID danej instalacji
 # standardowej (użytkownik przepisuje stamtąd listę urządzeń, nie generujemy P&ID w apce).
@@ -1496,19 +1615,100 @@ def compute_rm_consumption_for_month(year_idx, month_idx):
     return consumption
 
 
+def compute_rm_category_consumption_by_group(year_idx, category_full_name):
+    """
+    Zużycie JEDNEJ konkretnej kategorii surowca (np. 'Base Oil Group II [kg/t]'), rozbite PER
+    GRUPA PRODUKTOWA - potrzebne, żeby rozbicie dostawców zawężone do konkretnej linii
+    (SUPPLIER_SPLIT_GROUP_COL) mogło zadziałać na WŁAŚCIWEJ części całkowitego zużycia tej
+    kategorii, nie na całości. Uwzględnia pełne receptury ORAZ pasujące wpisy z arkusza
+    'Zużycie Surowców (bez receptury)'.
+    """
+    result = {}
+    recipes_df_local = st.session_state.get("recipes_df")
+    if recipes_df_local is not None and not recipes_df_local.empty and category_full_name in recipes_df_local.columns:
+        has_sourcing = RECIPE_SOURCING_COL in recipes_df_local.columns
+        for _, r in recipes_df_local.iterrows():
+            if has_sourcing:
+                is_imp = is_product_imported_in_year(r.get(RECIPE_SOURCING_COL, "Produkcja własna"),
+                                                      r.get(RECIPE_IMPORT_TRANSITION_COL, ""), year_idx)
+                if is_imp:
+                    continue
+            frac = get_rampup_fraction(r[RECIPE_GROUP_COL], year_idx) if year_idx != RAMPUP_YEAR_TARGET_SENTINEL else 1.0
+            raw_demand_t_year = float(r.get(RECIPE_RAW_DEMAND_COL, 0) or 0) * frac
+            dozowanie = float(r.get(category_full_name, 0) or 0)
+            result[r[RECIPE_GROUP_COL]] = result.get(r[RECIPE_GROUP_COL], 0.0) + raw_demand_t_year * (dozowanie / 1000.0)
+
+    category_short = category_full_name.replace(" [kg/t]", "")
+    for entry in st.session_state.get("direct_raw_materials", []):
+        if entry.get("category") == category_short:
+            frac_direct = get_rampup_fraction(entry["group"], year_idx) if year_idx != RAMPUP_YEAR_TARGET_SENTINEL else 1.0
+            result[entry["group"]] = result.get(entry["group"], 0.0) + entry["annual_t"] * frac_direct
+
+    return result
+
+
+def apply_supplier_splits(consumption_dict, year_idx):
+    """
+    Rozbija pozycje kategorii (np. 'Base Oil Group II [kg/t]'), dla których zdefiniowano
+    'Rozbicie Dostawców Surowców', na osobne pozycje per konkretny dostawca - każda dostaje
+    WŁASNĄ kandydaturę na zbiornik zamiast jednej dużej, wspólnej. Rozbicie per LINIA (jeśli
+    wskazana) dotyczy TYLKO zużycia tej kategorii z tamtej linii - reszta zakładu zostaje
+    nierozbita. Rozbicie "całego zakładu" (puste pole grupy) dotyczy całości kategorii.
+    Bezpieczny krok POST-PROCESSING na zwykłym dict {surowiec: t/rok}, analogicznie do
+    collapse_shared_tank_materials - nie zmienia istniejącej logiki liczącej zużycie.
+    """
+    splits_by_category = {}
+    for s in st.session_state.get("supplier_splits", []):
+        splits_by_category.setdefault(s["category"], []).append(s)
+    if not splits_by_category:
+        return consumption_dict
+
+    result = dict(consumption_dict)
+    for category_short, splits in splits_by_category.items():
+        category_full = category_short + " [kg/t]"
+        total_category_t = result.get(category_full, 0.0)
+        if total_category_t <= 0:
+            continue
+
+        group_specific = [s for s in splits if s["group"]]
+        plant_wide = [s for s in splits if not s["group"]]
+
+        if group_specific:
+            by_group = compute_rm_category_consumption_by_group(year_idx, category_full)
+            remaining_t = total_category_t
+            for s in group_specific:
+                group_t = by_group.get(s["group"], 0.0)
+                supplier_t = group_t * (s["pct"] / 100.0)
+                supplier_key = f"{category_short} - {s['supplier']}"
+                result[supplier_key] = result.get(supplier_key, 0.0) + supplier_t
+                remaining_t -= supplier_t
+            result[category_full] = max(remaining_t, 0.0)
+        elif plant_wide:
+            del result[category_full]
+            for s in plant_wide:
+                supplier_key = f"{category_short} - {s['supplier']}"
+                result[supplier_key] = result.get(supplier_key, 0.0) + total_category_t * (s["pct"] / 100.0)
+
+    return result
+
+
 def collapse_shared_tank_materials(consumption_dict):
     """
-    Zwija pozycje z arkusza 'Zużycie Surowców (bez receptury)', które mają WSPÓLNE ID Zbiornika
-    (ta sama konwencja co ID Zbiornika w recepturze - te samo ID = współdzielony fizyczny
-    zbiornik), w JEDNĄ pozycję o zsumowanym zużyciu - zamiast każdej z osobna dostawać własną
-    rekomendację zbiornika. Bezpieczne posunięcie: działa na zwykłym dict {surowiec: t/rok} PRZED
-    wejściem do istniejącej pętli doboru zbiorników, więc sama pętla nie wymaga żadnych zmian.
-    Materiały bez ID Zbiornika (albo spoza tego arkusza) przechodzą bez zmian.
+    Zwija pozycje z arkusza 'Zużycie Surowców (bez receptury)' LUB z 'Rozbicie Dostawców
+    Surowców', które mają WSPÓLNE ID Zbiornika (ta sama konwencja co ID Zbiornika w recepturze -
+    te samo ID = współdzielony fizyczny zbiornik), w JEDNĄ pozycję o zsumowanym zużyciu - zamiast
+    każdej z osobna dostawać własną rekomendację zbiornika. Bezpieczne posunięcie: działa na
+    zwykłym dict {surowiec: t/rok} PRZED wejściem do istniejącej pętli doboru zbiorników, więc
+    sama pętla nie wymaga żadnych zmian. Materiały bez ID Zbiornika (albo spoza tych arkuszy)
+    przechodzą bez zmian.
     """
     tank_groups = {}  # tank_id -> lista nazw materiałów z tym ID
     for entry in st.session_state.get("direct_raw_materials", []):
         if entry.get("tank_id"):
             tank_groups.setdefault(entry["tank_id"], []).append(entry["material"])
+    for s in st.session_state.get("supplier_splits", []):
+        if s.get("tank_id"):
+            tank_groups.setdefault(s["tank_id"], []).append(f"{s['category']} - {s['supplier']}")
 
     collapsed = dict(consumption_dict)
     for tank_id, materials in tank_groups.items():
@@ -2448,6 +2648,12 @@ if "qc_equipment_count_override" not in st.session_state:
     # przepustowość tego konkretnego testu w całym zakładzie, nie tylko dla jednej szarży).
     st.session_state.qc_equipment_count_override = {}
 
+if "supplier_splits" not in st.session_state:
+    # lista dictów {"group","category","supplier","pct","tech","tank_id"} - rozbicie kategorii
+    # surowca na konkretnych dostawców/bazy, z arkusza 'Rozbicie Dostawców Surowców', jeśli
+    # wgrany. Pozwala pokazać kilka mniejszych zbiorników zamiast jednego dużego per kategoria.
+    st.session_state.supplier_splits = []
+
 if "equipment_df" not in st.session_state:
     st.session_state.equipment_df = None  # DataFrame cennika standardowej instalacji (Zakładka 5)
 
@@ -2948,6 +3154,18 @@ with tab1:
         if direct_rm_entries:
             st.success(f"✅ Wczytano {len(direct_rm_entries)} bezpośrednich deklaracji zużycia surowców (bez receptury) "
                        f"z arkusza '{DIRECT_RM_SHEET_NAME}'.")
+
+        # Opcjonalny arkusz 'Rozbicie Dostawców Surowców' - dzieli zużycie kategorii surowca
+        # (np. Base Oil Group II) na kilku konkretnych dostawców/baz, żeby pokazać kilka
+        # mniejszych zbiorników zamiast jednego dużego, wspólnego.
+        uploaded_recipe_file.seek(0)
+        supplier_split_entries, supplier_split_errors = parse_supplier_split_excel(uploaded_recipe_file)
+        for err in supplier_split_errors:
+            st.warning(f"⚠️ {err}")
+        st.session_state.supplier_splits = supplier_split_entries
+        if supplier_split_entries:
+            st.success(f"✅ Wczytano rozbicie dostawców dla {len(set(e['category'] for e in supplier_split_entries))} "
+                       f"kategorii surowców z arkusza '{SUPPLIER_SPLIT_SHEET_NAME}'.")
 
     st.markdown("---")
 
@@ -5917,7 +6135,8 @@ with tab5:
         st.markdown("---")
         st.markdown("### 🏢 Wymiarowanie Silosów Magazynowych")
 
-        recipe_consumption_target = collapse_shared_tank_materials(compute_rm_consumption_for_year(RAMPUP_YEAR_TARGET_SENTINEL))
+        recipe_consumption_target = collapse_shared_tank_materials(apply_supplier_splits(
+            compute_rm_consumption_for_year(RAMPUP_YEAR_TARGET_SENTINEL), RAMPUP_YEAR_TARGET_SENTINEL))
         has_recipe_consumption = any(v > 0 for v in recipe_consumption_target.values())
 
         if has_recipe_consumption:
@@ -5933,7 +6152,8 @@ with tab5:
             selected_rm_year_idx = None if selected_rm_year_label.startswith("Docelowa") else int(selected_rm_year_label.split(" ")[1]) - 1
             effective_rm_year_idx = selected_rm_year_idx if selected_rm_year_idx is not None else RAMPUP_YEAR_TARGET_SENTINEL
             recipe_consumption = (recipe_consumption_target if selected_rm_year_idx is None
-                                   else collapse_shared_tank_materials(compute_rm_consumption_for_year(selected_rm_year_idx)))
+                                   else collapse_shared_tank_materials(apply_supplier_splits(
+                                       compute_rm_consumption_for_year(selected_rm_year_idx), selected_rm_year_idx)))
 
             st.caption("Liczone **per pojedynczy surowiec** (np. osobno Base Oil II i Base Oil III) na podstawie "
                        "receptur wgranych w **Zakładce 1**. Dla każdego surowca sprawdzane jest też (a) czy fizycznie/"
