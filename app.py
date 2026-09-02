@@ -1277,6 +1277,26 @@ def parse_qc_tests_excel(uploaded_file):
     return tests_by_product, new_tests, errors
 
 
+def match_category_fuzzy(category_raw, known_categories):
+    """
+    Dopasowuje wpisaną kategorię do znanej listy kategorii (RECIPE_RAW_MATERIALS), tolerując
+    typowe skróty ("Base Oil Gr II" -> "Base Oil Group II") i różnice w wielkości liter/spacjach -
+    żeby nie generować ostrzeżenia za każdym razem, kiedy ktoś napisze "Gr" zamiast "Group".
+    Zwraca dopasowaną PEŁNĄ nazwę kategorii, albo None jeśli żadna nie pasuje nawet po tolerancji.
+    """
+
+    def _norm(s):
+        return " ".join(s.lower().replace(" gr ", " group ").replace(" gr.", " group").split())
+
+    if category_raw in known_categories:
+        return category_raw
+    norm_input = _norm(category_raw)
+    for known in known_categories:
+        if _norm(known) == norm_input:
+            return known
+    return None
+
+
 def parse_direct_raw_materials_excel(uploaded_file):
     """
     Wczytuje opcjonalny arkusz 'Zużycie Surowców (bez receptury)' - dla surowców, których roczne
@@ -1332,6 +1352,7 @@ def parse_direct_raw_materials_excel(uploaded_file):
     known_categories = {m.replace(" [kg/t]", "") for m in RECIPE_RAW_MATERIALS}
     entries = []
     seen_normalized = {}  # znormalizowana nazwa -> oryginalna nazwa (pierwsze wystąpienie)
+    unknown_categories = {}  # kategoria -> lista surowców z nia (do JEDNEGO zbiorczego ostrzeżenia)
 
     def _normalize(name):
         return " ".join(name.lower().split())
@@ -1361,11 +1382,13 @@ def parse_direct_raw_materials_excel(uploaded_file):
 
         category_val = row.get(DIRECT_RM_CATEGORY_COL, "")
         category_raw = "" if pd.isna(category_val) else str(category_val).strip()
-        if category_raw and category_raw not in known_categories:
-            errors.append(f"Nieznana kategoria '{category_raw}' dla surowca '{material_raw}' - sprawdź pisownię "
-                           "względem listy kategorii (Zakładka 1). Wiersz zaimportowany, ale bez kategorii "
-                           "(nie trafi do zbiorczych raportów per kategoria).")
-            category_raw = ""
+        if category_raw:
+            matched_category = match_category_fuzzy(category_raw, known_categories)
+            if matched_category:
+                category_raw = matched_category
+            else:
+                unknown_categories.setdefault(category_raw, []).append(material_raw)
+                category_raw = ""
 
         tank_id_val = row.get(DIRECT_RM_TANK_ID_COL, "")
         tank_id_raw = "" if pd.isna(tank_id_val) else str(tank_id_val).strip()
@@ -1375,6 +1398,11 @@ def parse_direct_raw_materials_excel(uploaded_file):
             continue
         entries.append({"group": group_raw, "material": material_raw, "category": category_raw,
                          "tank_id": tank_id_raw, "annual_t": annual_t})
+
+    if unknown_categories:
+        details = "; ".join(f"'{cat}' ({', '.join(mats)})" for cat, mats in unknown_categories.items())
+        errors.append(f"⚠️ Nierozpoznane kategorie (sprawdź pisownię względem listy w Zakładce 1) - wiersze "
+                       f"zaimportowane, ale bez kategorii (nie trafią do zbiorczych raportów per kategoria): {details}.")
 
     return entries, errors
 
@@ -1426,9 +1454,10 @@ def parse_supplier_split_excel(uploaded_file):
     known_categories = {m.replace(" [kg/t]", "") for m in RECIPE_RAW_MATERIALS}
     raw_entries = []
     for _, row in df.iterrows():
-        category_raw = _clean(row.get(SUPPLIER_SPLIT_CATEGORY_COL, ""))
-        if category_raw not in known_categories:
-            errors.append(f"Nieznana kategoria API '{category_raw}' w arkuszu '{SUPPLIER_SPLIT_SHEET_NAME}' - sprawdź "
+        category_raw_input = _clean(row.get(SUPPLIER_SPLIT_CATEGORY_COL, ""))
+        category_raw = match_category_fuzzy(category_raw_input, known_categories)
+        if category_raw is None:
+            errors.append(f"Nieznana kategoria API '{category_raw_input}' w arkuszu '{SUPPLIER_SPLIT_SHEET_NAME}' - sprawdź "
                            "pisownię względem listy surowców (Zakładka 1). Wiersz pominięty.")
             continue
         group_raw = _clean(row.get(SUPPLIER_SPLIT_GROUP_COL, ""))
