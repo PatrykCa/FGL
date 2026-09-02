@@ -3283,12 +3283,19 @@ with tab1:
     with col_save2:
         uploaded_project_file = st.file_uploader("⬆️ Wczytaj projekt (.json)", type=["json"], key="upload_project_file")
         if uploaded_project_file is not None:
-            success, msg = import_project_bytes(uploaded_project_file.getvalue())
-            if success:
-                st.success(f"✅ {msg}")
-                st.rerun()
-            else:
-                st.error(f"❌ {msg}")
+            # Streamlit ZACHOWUJE wgrany plik między odświeżeniami strony - bez tego sprawdzenia,
+            # wywołanie st.rerun() poniżej powodowałoby wczytywanie TEGO SAMEGO pliku w nieskończonej
+            # pętli przy każdym kolejnym przebiegu skryptu (wyglądałoby to jak "nic się nie dzieje" -
+            # strona migocze/nie stabilizuje się, bo cały czas na nowo importuje i odświeża).
+            file_sig = (uploaded_project_file.name, uploaded_project_file.size)
+            if st.session_state.get("_last_loaded_project_sig") != file_sig:
+                success, msg = import_project_bytes(uploaded_project_file.getvalue())
+                st.session_state["_last_loaded_project_sig"] = file_sig
+                if success:
+                    st.success(f"✅ {msg}")
+                    st.rerun()
+                else:
+                    st.error(f"❌ {msg}")
     st.caption("⚠️ Obejmuje receptury, flotę, zbiorniki, ceny, ustawienia rozruchu i testów QC — **nie** obejmuje "
                "wygenerowanych raportów PDF/Excel (te przeliczą się same z wczytanej konfiguracji).")
     st.markdown("---")
@@ -3942,6 +3949,8 @@ with tab2:
                 "t_utility_heat_in": 95.0,
                 "t_utility_cool_in": 12.0,
                 "k_coeff": 350.0,
+                "wymaga_chlodzenia": True,
+                "transfer_do_bufora": False,
                 "agitator_type": "Turbinowe (Rushton)",
                 "agitator_rpm": 90.0,
                 "agitator_diameter_m": _default_impeller_d_m,
@@ -3984,6 +3993,8 @@ with tab2:
                 "❄️ Medium chłodzące": p["utility_type_cool"], "❄️ Temp. wody chłodz. [°C]": p["t_utility_cool_in"],
                 "❄️ k chłodzenia [W/m²K]": p["k_coeff"], "❄️ Przepływ medium chłodz. [m³/h]": p["flow_cool_value"],
                 "🔧 DN wężownicy [mm]": p["coil_pipe_dn_mm"],
+                "❄️ Wymaga chłodzenia": p["wymaga_chlodzenia"],
+                "🪣 Transfer do bufora (zamiast rozlewu)": p["transfer_do_bufora"],
                 "🔥 Powierzchnia wymiany [m²]": p["exchange_area_m2"], "🔥 Temp. pocz. [°C]": p["t_product_in"],
                 "🔥 Temp. procesu [°C]": p["t_product_out"], "🔥 Temp. rozlewu [°C]": p["t_discharge_c"],
                 "🔧 MTBF reaktora [h]": p["reactor_mtbf_h"], "🔧 MTTR reaktora [h]": p["reactor_mttr_h"],
@@ -3996,6 +4007,12 @@ with tab2:
                 "🌀 Typ mieszadła": st.column_config.SelectboxColumn(options=list(AGITATOR_TYPES.keys())),
                 "🔥 Medium grzewcze": st.column_config.SelectboxColumn(options=list(MEDIA_PROCESOWE.keys())),
                 "❄️ Medium chłodzące": st.column_config.SelectboxColumn(options=list(MEDIA_PROCESOWE.keys())),
+                "❄️ Wymaga chłodzenia": st.column_config.CheckboxColumn(
+                    help="Odznacz dla produktów rozlewanych na gorąco (np. niektóre smary/woski) - pomija cały bilans chłodzenia."),
+                "🪣 Transfer do bufora (zamiast rozlewu)": st.column_config.CheckboxColumn(
+                    help="Zaznacz, żeby mieszalnik zwalniał się szybkim transferem pompą do zbiornika buforowego, "
+                         "zamiast czekać na pełny czas rozlewu na opakowania. Sam rozlew nadal się liczy - w "
+                         "Zakładce 4, jako obciążenie linii rozlewu, niezależnie od cyklu mieszalnika."),
             }
         )
         _mixer_field_map = {
@@ -4009,6 +4026,8 @@ with tab2:
             "❄️ Medium chłodzące": "utility_type_cool", "❄️ Temp. wody chłodz. [°C]": "t_utility_cool_in",
             "❄️ k chłodzenia [W/m²K]": "k_coeff", "❄️ Przepływ medium chłodz. [m³/h]": "flow_cool_value",
             "🔧 DN wężownicy [mm]": "coil_pipe_dn_mm",
+            "❄️ Wymaga chłodzenia": "wymaga_chlodzenia",
+            "🪣 Transfer do bufora (zamiast rozlewu)": "transfer_do_bufora",
             "🔥 Powierzchnia wymiany [m²]": "exchange_area_m2", "🔥 Temp. pocz. [°C]": "t_product_in",
             "🔥 Temp. procesu [°C]": "t_product_out", "🔥 Temp. rozlewu [°C]": "t_discharge_c",
             "🔧 MTBF reaktora [h]": "reactor_mtbf_h", "🔧 MTTR reaktora [h]": "reactor_mttr_h",
@@ -4097,6 +4116,10 @@ with tab2:
                             with st.container(height=220):
                                 if material_rows_cmp:
                                     st.dataframe(pd.DataFrame(material_rows_cmp), hide_index=True, use_container_width=True)
+                                else:
+                                    st.caption("ℹ️ Receptura tego produktu nie została ujawniona (dozowanie = 0 we "
+                                               "wszystkich surowcach — ochrona know-how). Zużycie surowców pochodzi "
+                                               "z arkusza 'Zużycie Surowców (bez receptury)', nie z tej receptury.")
                         else:
                             st.caption(f"⚠️ Nie znaleziono '{recipe_product_cmp}' w recepturze (Zakładka 1).")
                     else:
@@ -4318,11 +4341,16 @@ with tab2:
                     p["k_coeff_grzania"], p["exchange_area_m2"], p["utility_type_heat"],
                     p["flow_heat_value"], p["flow_heat_unit"], p["t_utility_heat_in"])
 
-                # --- 4. CHŁODZENIE DO ROZLEWU ---
-                cool_res = compute_thermal_ntu(
-                    mass_product, p["cp_product"], p["t_product_out"], p["t_discharge_c"],
-                    p["k_coeff"], p["exchange_area_m2"], p["utility_type_cool"],
-                    p["flow_cool_value"], p["flow_cool_unit"], p["t_utility_cool_in"])
+                # --- 4. CHŁODZENIE DO ROZLEWU (opcjonalne - niektóre produkty rozlewa się na
+                # gorąco, np. część smarów/wosków, i chłodzenie w ogóle nie ma zastosowania). ---
+                if p["wymaga_chlodzenia"]:
+                    cool_res = compute_thermal_ntu(
+                        mass_product, p["cp_product"], p["t_product_out"], p["t_discharge_c"],
+                        p["k_coeff"], p["exchange_area_m2"], p["utility_type_cool"],
+                        p["flow_cool_value"], p["flow_cool_unit"], p["t_utility_cool_in"])
+                else:
+                    cool_res = {"status": "brak_potrzeby", "q_total_kj": 0.0, "effectiveness": 0.0,
+                                "required_time_h": 0.0, "power_start_kw": 0.0}
 
                 # --- 5. Zapis wyników z powrotem do stanu sesji, aby Zakładka 2 mogła z nich realnie korzystać ---
                 # Czas pompowania: objętość szarży / wydajność pompy.
@@ -4915,6 +4943,7 @@ with tab2:
         with c_e3:
             margines_transformatora = st.slider("Margines bezpieczeństwa transformatora [%]:",
                                                   min_value=0, max_value=100, value=25) / 100.0
+            st.caption("")
 
         electric_boiler_load = total_heating_power_installed if typ_kotla == "Elektryczny" else 0.0
         cooling_electric_load = (total_cooling_duty / cop_chlodzenia) if uwzglednij_chlodzenie_el and cop_chlodzenia > 0 else 0.0
@@ -6749,34 +6778,41 @@ with tab5:
                            "wysyłki cysterną, bez pośredniego składowania na paletach.")
 
                 recipes_df_fgbuf = st.session_state.get("recipes_df")
+                mixer_tech_fgbuf = st.session_state.get("mixer_tech_advanced_details", {})
                 fg_buffer_candidates = []
                 if recipes_df_fgbuf is not None and not recipes_df_fgbuf.empty:
                     tanker_pct_col = recipe_pack_pct_col("Cysterna (luzem)")
-                    if tanker_pct_col in recipes_df_fgbuf.columns:
-                        for m in st.session_state.confirmed_mixers:
-                            # Zbiornik z JEDNYM produktem - jak dotychczas.
-                            # Zbiornik KAMPANIJNY (współdzielony) - sprawdź KAŻDY produkt osobno,
-                            # nie tylko m["recipe_product"] (który dla zbiorników kampanijnych jest
-                            # pusty) - inaczej produkty na współdzielonych mieszalnikach nigdy nie
-                            # trafiały do kandydatów na bufor FG, mimo mającej sens 'Cysterna (luzem)'.
-                            candidate_products = ([m.get("recipe_product")] if m.get("recipe_product")
-                                                   else [mem["product"] for mem in (m.get("shared_members") or [])])
-                            for recipe_product_fgbuf in candidate_products:
-                                if not recipe_product_fgbuf:
-                                    continue
-                                match_fgbuf = recipes_df_fgbuf[recipes_df_fgbuf[RECIPE_PRODUCT_COL] == recipe_product_fgbuf]
-                                if match_fgbuf.empty or float(match_fgbuf.iloc[0].get(tanker_pct_col, 0) or 0) <= 0:
-                                    continue
-                                density_fgbuf = st.session_state.active_portfolio.get(m["product_family"], {}).get("density", 0.9)
-                                # Sugestia: ~1,5x masy szarży, żeby zmieścić szarżę + margines na kolejną,
-                                # zanim cysterna zdąży odebrać poprzednią. Masa szarży to właściwość
-                                # FIZYCZNEGO zbiornika (jego objętość), ta sama niezależnie od tego,
-                                # który z współdzielonych produktów akurat w nim powstaje.
-                                suggested_capacity_m3 = round((m["mass_per_batch"] * 1.5 / 1000.0) / density_fgbuf, 1)
-                                fg_buffer_candidates.append({
-                                    "recipe_product": recipe_product_fgbuf, "mixer_tag": m["tag"],
-                                    "suggested_capacity_m3": suggested_capacity_m3,
-                                })
+                    for m in st.session_state.confirmed_mixers:
+                        # Kandydat na bufor FG z DWÓCH niezależnych powodów: (1) produkt wysyłany
+                        # luzem cysterną (jak dotychczas), (2) mieszalnik ma zaznaczone "Transfer do
+                        # bufora" w Karcie Maszyn (Twój przypadek - opakowania standardowe, ale
+                        # mieszalnik ma się zwalniać szybciej niż trwałby pełny rozlew).
+                        wants_buffer_transfer = mixer_tech_fgbuf.get(m["tag"], {}).get("transfer_do_bufora", False)
+                        # Zbiornik z JEDNYM produktem - jak dotychczas.
+                        # Zbiornik KAMPANIJNY (współdzielony) - sprawdź KAŻDY produkt osobno,
+                        # nie tylko m["recipe_product"] (który dla zbiorników kampanijnych jest
+                        # pusty) - inaczej produkty na współdzielonych mieszalnikach nigdy nie
+                        # trafiały do kandydatów na bufor FG, mimo mającej sens 'Cysterna (luzem)'.
+                        candidate_products = ([m.get("recipe_product")] if m.get("recipe_product")
+                                               else [mem["product"] for mem in (m.get("shared_members") or [])])
+                        for recipe_product_fgbuf in candidate_products:
+                            if not recipe_product_fgbuf:
+                                continue
+                            match_fgbuf = recipes_df_fgbuf[recipes_df_fgbuf[RECIPE_PRODUCT_COL] == recipe_product_fgbuf]
+                            has_tanker_pct = (not match_fgbuf.empty and tanker_pct_col in recipes_df_fgbuf.columns
+                                              and float(match_fgbuf.iloc[0].get(tanker_pct_col, 0) or 0) > 0)
+                            if not has_tanker_pct and not wants_buffer_transfer:
+                                continue
+                            density_fgbuf = st.session_state.active_portfolio.get(m["product_family"], {}).get("density", 0.9)
+                            # Sugestia: ~1,5x masy szarży, żeby zmieścić szarżę + margines na kolejną,
+                            # zanim cysterna/nalewak zdąży odebrać poprzednią. Masa szarży to
+                            # właściwość FIZYCZNEGO zbiornika (jego objętość), ta sama niezależnie od
+                            # tego, który z współdzielonych produktów akurat w nim powstaje.
+                            suggested_capacity_m3 = round((m["mass_per_batch"] * 1.5 / 1000.0) / density_fgbuf, 1)
+                            fg_buffer_candidates.append({
+                                "recipe_product": recipe_product_fgbuf, "mixer_tag": m["tag"],
+                                "suggested_capacity_m3": suggested_capacity_m3,
+                            })
 
                 if fg_buffer_candidates:
                     fg_buf_editor_rows = [
@@ -6983,14 +7019,23 @@ with tab6:
             mass_per_batch_for_filling, recipe_product_for_logistics, selected_vsm_family,
             selected_vsm_mixer_tag, rho_linii_vsm, opakowania_podzial=st.session_state.get("opakowania_podzial", {})
         )
+        p_transfer_check = st.session_state.get("mixer_tech_advanced_details", {}).get(selected_vsm_mixer_tag, {})
+        transfer_do_bufora_vsm = p_transfer_check.get("transfer_do_bufora", False)
+
         if filling_h == 0.0:
             st.info(f"ℹ️ Skonfiguruj podział opakowań w panelu bocznym i odwiedź Zakładkę 3, aby uzyskać rzeczywisty "
                     f"czas rozlewu dla {selected_vsm_mixer_tag}.")
+        elif transfer_do_bufora_vsm:
+            st.info(f"🪣 **Transfer do bufora włączony** — mieszalnik zwalnia się szybkim przepompowaniem (krok "
+                    f"'Pompowanie' poniżej), nie czeka na pełny rozlew ({filling_h:.1f} h). Sam rozlew nadal musi "
+                    "się odbyć - z bufora, na linii rozlewu, niezależnie od cyklu tego mieszalnika (dziś nie mamy "
+                    "jeszcze zbiorczego bilansu obciążenia linii rozlewu w Zakładce 4 - to dobry, kolejny krok).")
         elif filling_h > 8.0:
             st.warning(f"⚠️ **Czas rozlewu ({filling_h:.1f} h) wygląda długo** dla jednej szarży — sprawdź liczbę "
                        "głowic nalewających i ich wydajność w **Zakładce 4** (sekcja opakowań) — domyślnie 1-2 "
                        "głowice mogą być za mało dla dużej szarży. Duży mieszalnik potrzebuje zwykle szybszej "
-                       "linii nalewającej (więcej głowic), żeby nie stał bezczynnie podczas rozlewu.")
+                       "linii nalewającej (więcej głowic), żeby nie stał bezczynnie podczas rozlewu. Albo rozważ "
+                       "'Transfer do bufora' (Karta Maszyn), żeby mieszalnik zwalniał się szybciej.")
 
         # Bufory magazynowe — założenia globalne z Zakładek 3 i 5 (te wejścia nie są dziś różnicowane per rodzina).
         raw_material_buffer_days = st.session_state.get("days_of_stock_tab5", 14)
@@ -7008,7 +7053,8 @@ with tab6:
             {"name": "Zwolnienie QC", "hours": qc_time_h, "value_added": False, "extra_wait_h": qc_queue_h},
             {"name": "Pompowanie", "hours": pumping_h, "value_added": True},
             {"name": "Chłodzenie", "hours": cooling_h, "value_added": True},
-            {"name": "Rozlew", "hours": filling_h, "value_added": True},
+            {"name": "Rozlew" if not transfer_do_bufora_vsm else "Rozlew (→ z bufora, poza cyklem)",
+             "hours": 0.0 if transfer_do_bufora_vsm else filling_h, "value_added": True},
         ]
         for s in process_steps:
             s.setdefault("extra_wait_h", 0.0)
@@ -7221,6 +7267,10 @@ with tab6:
                              help=f"{filling_h:.2f} h/szarżę × {batches_month_this_mixer} szarż/mies.")
         with wr3: st.metric("🚿 Rozlew — rok", f"{filling_h * batches_year_this:.0f} h",
                              help=f"{filling_h:.2f} h/szarżę × {batches_year_this} szarż/rok")
+        if transfer_do_bufora_vsm:
+            st.caption("☝️ To obciążenie **linii rozlewu**, nie mieszalnika — przy 'Transfer do bufora' mieszalnik "
+                       "zwalnia się dużo szybciej (patrz krok 'Pompowanie' w diagramie wyżej), a te godziny "
+                       "rozlewu przechodzą na linię rozlewu/nalewak, niezależnie od cyklu mieszalnika.")
 
         wq1, wq2, wq3 = st.columns(3)
         with wq1: st.metric("🧪 Badań QC — dzień", f"{qc_day:.2f}")
@@ -7656,13 +7706,14 @@ with tab8:
                             p_e["flow_heat_value"], p_e["flow_heat_unit"], p_e["t_utility_heat_in"])
                         if heat_res_e["status"] == "ok":
                             thermal_kwh_year += (heat_res_e["q_total_kj"] / 3600.0) * scaled_batches_year
-                        cool_res_e = compute_thermal_ntu(
-                            m["mass_per_batch"], p_e["cp_product"], p_e["t_product_out"], p_e["t_discharge_c"],
-                            p_e["k_coeff"], p_e["exchange_area_m2"], p_e["utility_type_cool"],
-                            p_e["flow_cool_value"], p_e["flow_cool_unit"], p_e["t_utility_cool_in"])
-                        if cool_res_e["status"] == "ok":
-                            # Chłodzenie liczone jako energia ELEKTRYCZNA (agregat/COP), nie cieplna.
-                            electrical_kwh_year += (cool_res_e["q_total_kj"] / 3600.0) * scaled_batches_year
+                        if p_e.get("wymaga_chlodzenia", True):
+                            cool_res_e = compute_thermal_ntu(
+                                m["mass_per_batch"], p_e["cp_product"], p_e["t_product_out"], p_e["t_discharge_c"],
+                                p_e["k_coeff"], p_e["exchange_area_m2"], p_e["utility_type_cool"],
+                                p_e["flow_cool_value"], p_e["flow_cool_unit"], p_e["t_utility_cool_in"])
+                            if cool_res_e["status"] == "ok":
+                                # Chłodzenie liczone jako energia ELEKTRYCZNA (agregat/COP), nie cieplna.
+                                electrical_kwh_year += (cool_res_e["q_total_kj"] / 3600.0) * scaled_batches_year
                     except Exception:
                         pass
 
