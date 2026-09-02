@@ -1068,6 +1068,22 @@ def parse_recipe_excel(uploaded_file):
         permanent_import_exempt = (df[RECIPE_SOURCING_COL] == "Import") & \
                                    (df[RECIPE_IMPORT_TRANSITION_COL].isin(["Nigdy (stały import)", "Nigdy (bufor)"]))
         bad_sum_mask = bad_sum_mask & ~permanent_import_exempt
+
+    # Produkty z dozowaniem RÓWNYM DOKŁADNIE ZERO na wszystkich surowcach - traktujemy to jako
+    # ŚWIADOMĄ ochronę know-how (nie chcesz ujawniać receptury tego produktu w tym pliku), a NIE
+    # jako pomyłkę. Produkt i tak wchodzi do doboru floty (roczne zapotrzebowanie jest znane) -
+    # jego zużycie surowców musi wtedy pochodzić WYŁĄCZNIE z arkusza 'Zużycie Surowców (bez
+    # receptury)'. Odróżnia to od PRAWDZIWEJ pomyłki (np. suma = 850 zamiast 1000) - to nadal
+    # zgłaszamy jako błąd, bo tam ktoś najpewniej zapomniał dodatku, a nie świadomie ukrył recepturę.
+    undisclosed_recipe_mask = df[RECIPE_SUM_COL].abs() < 1e-6
+    if undisclosed_recipe_mask.any():
+        undisclosed_products = df.loc[undisclosed_recipe_mask, RECIPE_PRODUCT_COL].tolist()
+        errors.append(f"ℹ️ Receptura NIE podana (dozowanie = 0) dla: {', '.join(map(str, undisclosed_products))} - "
+                       "przyjęto jako świadomą ochronę know-how, produkty WCHODZĄ do doboru floty. Ich zużycie "
+                       "surowców musi pochodzić z arkusza 'Zużycie Surowców (bez receptury)', inaczej nie zostanie "
+                       "policzone wcale.")
+    bad_sum_mask = bad_sum_mask & ~undisclosed_recipe_mask
+
     if bad_sum_mask.any():
         bad_rows = df.loc[bad_sum_mask, [RECIPE_PRODUCT_COL, RECIPE_SUM_COL]]
         details = ", ".join(f"{r[RECIPE_PRODUCT_COL]} ({r[RECIPE_SUM_COL]:.0f} kg/t)" for _, r in bad_rows.iterrows())
