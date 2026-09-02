@@ -186,7 +186,7 @@ QC_SHEET_NAME = "Badania Laboratoryjne"
 QC_SHEET_TEST_NAME_COL = "Nazwa Testu"
 
 DIRECT_RM_SHEET_NAME = "Zużycie Surowców (bez recept.)"
-DIRECT_RM_GROUP_COL = "Grupa Produktowa"
+DIRECT_RM_GROUP_COL = "Grupa Produktowa (opcjonalnie - puste = ogólna krzywa rozruchu całego zakładu)"
 DIRECT_RM_MATERIAL_COL = "Nazwa Surowca (dowolna, np. z dostawcą)"
 DIRECT_RM_CATEGORY_COL = "Kategoria (opcjonalnie, do raportów zbiorczych)"
 DIRECT_RM_ANNUAL_COL = "Roczne Zużycie Docelowe [tony]"
@@ -1291,11 +1291,15 @@ def parse_direct_raw_materials_excel(uploaded_file):
         else:
             seen_normalized[norm] = material_raw
 
-        group_raw = str(row.get(DIRECT_RM_GROUP_COL, "")).strip()
-        if group_raw not in RECIPE_PRODUCT_GROUPS:
+        group_val = row.get(DIRECT_RM_GROUP_COL, "")
+        group_raw = "" if pd.isna(group_val) else str(group_val).strip()
+        if group_raw and group_raw not in RECIPE_PRODUCT_GROUPS:
             errors.append(f"Nieznana grupa produktowa '{group_raw}' dla surowca '{material_raw}' w arkuszu "
                            f"'{DIRECT_RM_SHEET_NAME}' - sprawdź pisownię. Wiersz pominięty.")
             continue
+        # Puste pole = OK - surowiec skaluje się wtedy wspólną, ogólną krzywą rozruchu całego
+        # zakładu zamiast krzywej konkretnej linii (przydatne, gdy nie wiesz, do którego
+        # produktu trafia dany surowiec - dokładnie scenariusz ochrony know-how).
 
         category_val = row.get(DIRECT_RM_CATEGORY_COL, "")
         category_raw = "" if pd.isna(category_val) else str(category_val).strip()
