@@ -1313,10 +1313,16 @@ def parse_direct_raw_materials_excel(uploaded_file):
     except Exception as exc:
         return [], [f"Nie udało się odczytać arkusza '{DIRECT_RM_SHEET_NAME}': {exc}"]
 
-    required_cols = {DIRECT_RM_GROUP_COL, DIRECT_RM_MATERIAL_COL, DIRECT_RM_ANNUAL_COL}
+    required_cols = {DIRECT_RM_MATERIAL_COL, DIRECT_RM_ANNUAL_COL}
     missing_cols = required_cols - set(df.columns)
     if missing_cols:
         return [], [f"Arkusz '{DIRECT_RM_SHEET_NAME}' istnieje, ale brakuje kolumn: {', '.join(missing_cols)}. Pominięto import."]
+
+    # Odporność na starą, krótszą nazwę kolumny grupy ("Grupa Produktowa") z plików utworzonych
+    # PRZED zmianą nagłówka na dłuższy, opisowy - obie wersje działają identycznie (grupa i tak
+    # jest opcjonalna, to nie ma wpływu na wymagalność kolumny).
+    group_col_actual = DIRECT_RM_GROUP_COL if DIRECT_RM_GROUP_COL in df.columns else (
+        "Grupa Produktowa" if "Grupa Produktowa" in df.columns else None)
 
     df = df[df[DIRECT_RM_MATERIAL_COL].notna()].copy()
     if df.empty:
@@ -1343,7 +1349,7 @@ def parse_direct_raw_materials_excel(uploaded_file):
         else:
             seen_normalized[norm] = material_raw
 
-        group_val = row.get(DIRECT_RM_GROUP_COL, "")
+        group_val = row.get(group_col_actual, "") if group_col_actual else ""
         group_raw = "" if pd.isna(group_val) else str(group_val).strip()
         if group_raw and group_raw not in RECIPE_PRODUCT_GROUPS:
             errors.append(f"Nieznana grupa produktowa '{group_raw}' dla surowca '{material_raw}' w arkuszu "
@@ -6334,7 +6340,7 @@ with tab5:
         days_of_stock = st.number_input("Wymagany zapas bezpieczeństwa surowca [dni]:", min_value=5, value=14)
         st.session_state["days_of_stock_tab5"] = days_of_stock
         max_single_tank_m3 = st.slider(
-            "Maksymalna pojemność pojedynczego zbiornika [m³]:", min_value=10, max_value=250, value=100, step=5,
+            "Maksymalna pojemność pojedynczego zbiornika [m³]:", min_value=10, max_value=1000, value=250, step=10,
             help="Górny limit dla JEDNEGO fizycznego zbiornika. Dla każdego surowca aplikacja dobierze najmniejszy "
                  "standardowy rozmiar, który mieści cały wymagany bufor w jednym zbiorniku — a jeśli surowiec "
                  "potrzebuje więcej niż ten limit, zaproponuje kilka zbiorników o tej maksymalnej pojemności."
@@ -6383,7 +6389,8 @@ with tab5:
                 st.caption(f"Zapas bezpieczeństwa i maks. pojemność zbiornika jak ustawione powyżej ({days_of_stock:.0f} dni, "
                            f"{max_single_tank_m3} m³).")
 
-            STANDARD_SMALL_TANK_SIZES_M3 = [10, 15, 20, 25, 30, 40, 50, 60, 80, 100, 125, 150, 200, 250]
+            STANDARD_SMALL_TANK_SIZES_M3 = [10, 15, 20, 25, 30, 40, 50, 60, 80, 100, 125, 150, 200, 250,
+                                             300, 350, 400, 500, 600, 750, 1000]
 
             with st.expander("ℹ️ Jak liczony jest wymagany bufor i dobór zbiornika?", expanded=False):
                 st.markdown(
