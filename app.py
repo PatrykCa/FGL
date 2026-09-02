@@ -4121,9 +4121,11 @@ with tab2:
                                                "wszystkich surowcach — ochrona know-how). Zużycie surowców pochodzi "
                                                "z arkusza 'Zużycie Surowców (bez receptury)', nie z tej receptury.")
                         else:
-                            st.caption(f"⚠️ Nie znaleziono '{recipe_product_cmp}' w recepturze (Zakładka 1).")
+                            with st.container(height=220):
+                                st.caption(f"⚠️ Nie znaleziono '{recipe_product_cmp}' w recepturze (Zakładka 1).")
                     else:
-                        st.caption("Ten mieszalnik nie ma przypisanego konkretnego produktu z receptury (wspólny/kampanijny zbiornik).")
+                        with st.container(height=220):
+                            st.caption("Ten mieszalnik nie ma przypisanego konkretnego produktu z receptury (wspólny/kampanijny zbiornik).")
 
                     # --- Badania laboratoryjne: PRIORYTET 1 - arkusz 'Badania Laboratoryjne'
                     # (testy jako wiersze, produkty jako kolumny, patrz parse_qc_tests_excel);
