@@ -348,7 +348,7 @@ PROJECT_SAVE_KEYS = [
     "rampup_global_pct", "rampup_per_line_pct", "rampup_differentiate", "rampup_start_pct", "import_follows_rampup",
     "group_pricing", "pack_configs", "filling_lines_config", "opakowania_podzial",
     "qc_tests_by_product", "vsm_qc_config", "vsm_qc_queue_days", "vsm_oee", "direct_raw_materials",
-    "qc_equipment_count_override", "supplier_splits",
+    "qc_equipment_count_override", "supplier_splits", "custom_qc_tests",
     "tanker_capacity_t", "mixer_fill_factor", "days_of_stock_tab5", "max_single_tank_m3",
     "czas_skladowania_tab3", "cena_mwh_tab4", "cena_gazu_mwh", "sprawnosc_kotla_frac",
     "import_pallet_mass_kg", "capex_lump_sum", "boiler_capacity_installed_kw",
@@ -797,6 +797,14 @@ def generate_recipe_template_bytes():
         for pc in range(len(example_qc_products)):
             ws_qc.cell(row=qc_row, column=4 + pc, value="").fill = input_fill
         qc_row += 1
+    # Przykład WŁASNEGO testu spoza wbudowanego katalogu - wystarczy wypełnić 'Sprzęt' i
+    # 'Czas [min]', a aplikacja zarejestruje go jako nowy test przy wgraniu pliku.
+    ws_qc.cell(row=qc_row, column=1, value="Przykład: Twój własny test").fill = input_fill
+    ws_qc.cell(row=qc_row, column=2, value="Nazwa Twojego aparatu").fill = input_fill
+    ws_qc.cell(row=qc_row, column=3, value=30).fill = input_fill
+    for pc in range(len(example_qc_products)):
+        ws_qc.cell(row=qc_row, column=4 + pc, value="").fill = input_fill
+    qc_row += 1
     for col, w in zip("AB", [40, 40]):
         ws_qc.column_dimensions[col].width = w
     ws_qc.column_dimensions["C"].width = 12
@@ -991,7 +999,8 @@ def parse_recipe_excel(uploaded_file):
     # tego produktu; jeśli produkt nie ma ŻADNEJ takiej kolumny wypełnionej, panel zwolnienia
     # nadal można skonfigurować per LINIA w Zakładce 6 (VSM) jako dotychczasowy fallback.
     qc_cols_found = [c for c in df.columns if c.startswith(QC_COL_PREFIX) and c.endswith(QC_COL_SUFFIX)]
-    unknown_qc_tests = [c for c in qc_cols_found if c[len(QC_COL_PREFIX):-len(QC_COL_SUFFIX)] not in QC_TEST_CATALOG]
+    unknown_qc_tests = [c for c in qc_cols_found if c[len(QC_COL_PREFIX):-len(QC_COL_SUFFIX)] not in QC_TEST_CATALOG
+                         and c[len(QC_COL_PREFIX):-len(QC_COL_SUFFIX)] not in st.session_state.get("custom_qc_tests", {})]
     if unknown_qc_tests:
         errors.append(f"Nieznane testy QC w kolumnach: {', '.join(unknown_qc_tests)} - sprawdź pisownię względem "
                        "katalogu testów (Zakładka 6, VSM). Kolumny te są ignorowane.")
@@ -1131,42 +1140,74 @@ def parse_packaging_excel(uploaded_file):
 def parse_qc_tests_excel(uploaded_file):
     """
     Wczytuje opcjonalny arkusz 'Badania Laboratoryjne' z tego samego pliku Excel co receptury.
-    Struktura ODWROTNA niż receptura: TESTY jako WIERSZE (kolumna 'Nazwa Testu', dopasowywana do
-    QC_TEST_CATALOG), PRODUKTY jako KOLUMNY (nagłówek = dokładna nazwa produktu z arkusza
-    'Receptury') - "x" w komórce = ten test dotyczy tego produktu. To ten sam układ, co typowe
-    zestawienie laboratoryjne (test/sprzęt/czas w wierszach, produkty w kolumnach obok).
-    Zwraca (dict_produkt_na_liste_testow, lista_bledow). Jeśli arkusz nie istnieje, (None, []).
+    Struktura ODWROTNA niż receptura: TESTY jako WIERSZE (kolumna 'Nazwa Testu'), PRODUKTY jako
+    KOLUMNY (nagłówek = dokładna nazwa produktu z arkusza 'Receptury') - "x" w komórce = ten test
+    dotyczy tego produktu.
+
+    WAŻNE: katalog testów NIE jest już zamknięty na wbudowaną listę (QC_TEST_CATALOG) - jeśli
+    "Nazwa Testu" nie pasuje do żadnego znanego testu, ale wiersz ma wypełnione własne kolumny
+    'Sprzęt' i 'Czas [min]', REJESTRUJEMY to jako NOWY, własny test (z Twoim czasem i sprzętem),
+    zamiast odrzucać jako "nieznany". Tylko wiersz bez ŻADNEGO dopasowania i bez tych dwóch
+    kolumn wypełnionych faktycznie się odrzuca.
+
+    Zwraca (dict_produkt_na_liste_testów, dict_nowych_testów_do_zarejestrowania, lista_błędów).
+    dict_nowych_testów ma format {nazwa_testu: {"duration_min", "equipment", "count": 1}} -
+    scal go do session_state.custom_qc_tests w kodzie wywołującym. Jeśli arkusz nie istnieje,
+    (None, {}, []).
     """
     try:
         xls = pd.ExcelFile(uploaded_file)
     except Exception as exc:
-        return None, [f"Nie udało się odczytać pliku Excel (badania laboratoryjne): {exc}"]
+        return None, {}, [f"Nie udało się odczytać pliku Excel (badania laboratoryjne): {exc}"]
 
     if QC_SHEET_NAME not in xls.sheet_names:
-        return None, []
+        return None, {}, []
 
     try:
         df = pd.read_excel(xls, sheet_name=QC_SHEET_NAME)
     except Exception as exc:
-        return None, [f"Nie udało się odczytać arkusza '{QC_SHEET_NAME}': {exc}"]
+        return None, {}, [f"Nie udało się odczytać arkusza '{QC_SHEET_NAME}': {exc}"]
 
     if QC_SHEET_TEST_NAME_COL not in df.columns:
-        return None, [f"Arkusz '{QC_SHEET_NAME}' istnieje, ale brakuje kolumny '{QC_SHEET_TEST_NAME_COL}'. Pominięto import badań."]
+        return None, {}, [f"Arkusz '{QC_SHEET_NAME}' istnieje, ale brakuje kolumny '{QC_SHEET_TEST_NAME_COL}'. Pominięto import badań."]
 
     df = df[df[QC_SHEET_TEST_NAME_COL].notna()].copy()
     if df.empty:
-        return None, []
+        return None, {}, []
+
+    equipment_col = next((c for c in ["Sprzęt", "Equipment Description"] if c in df.columns), None)
+    duration_col = next((c for c in ["Czas [min]", "Avr. Time (min)"] if c in df.columns), None)
+
+    def _clean(val):
+        return "" if pd.isna(val) else str(val).strip()
 
     errors = []
-    unknown_tests = [t for t in df[QC_SHEET_TEST_NAME_COL].astype(str) if t not in QC_TEST_CATALOG]
-    if unknown_tests:
-        errors.append(f"Nieznane testy w arkuszu '{QC_SHEET_NAME}': {', '.join(unknown_tests)} - sprawdź pisownię "
-                       "względem katalogu testów (Zakładka 6, VSM). Wiersze te są ignorowane.")
-        df = df[~df[QC_SHEET_TEST_NAME_COL].astype(str).isin(unknown_tests)]
+    new_tests = {}
+    known_tests = set(QC_TEST_CATALOG.keys()) | set(st.session_state.get("custom_qc_tests", {}).keys())
+    rows_to_drop = []
+    for idx, row in df.iterrows():
+        test_name = str(row[QC_SHEET_TEST_NAME_COL])
+        if test_name in known_tests:
+            continue
+        equip_val = _clean(row.get(equipment_col, "")) if equipment_col else ""
+        duration_val = row.get(duration_col, None) if duration_col else None
+        duration_ok = duration_val is not None and not pd.isna(duration_val) and float(duration_val) > 0
+        if equip_val and duration_ok:
+            new_tests[test_name] = {"duration_min": float(duration_val), "equipment": equip_val, "count": 1}
+            known_tests.add(test_name)  # żeby kolejne wiersze o tej samej nazwie już nie liczyły się jako nowe
+        else:
+            errors.append(f"Nieznany test '{test_name}' w arkuszu '{QC_SHEET_NAME}' - uzupełnij kolumny 'Sprzęt' i "
+                           "'Czas [min]' dla tego wiersza, żeby zarejestrować go jako nowy własny test, albo popraw "
+                           "pisownię, jeśli to literówka istniejącego testu. Wiersz pominięty.")
+            rows_to_drop.append(idx)
 
-    # Kolumny produktowe = wszystko poza opisowymi (Nazwa Testu i ewentualne Sprzęt/Czas, jeśli
-    # użytkownik trzyma je też w tym arkuszu dla własnej czytelności - ignorujemy je tutaj, bo
-    # dokładny czas/sprzęt i tak pochodzi z QC_TEST_CATALOG w aplikacji, nie z tego arkusza).
+    if rows_to_drop:
+        df = df.drop(index=rows_to_drop)
+    if df.empty:
+        return None, new_tests, errors
+
+    # Kolumny produktowe = wszystko poza opisowymi (Nazwa Testu, Sprzęt, Czas - te dwie ostatnie
+    # teraz FAKTYCZNIE odczytywane wyżej, nie tylko pomijane).
     descriptive_cols = {QC_SHEET_TEST_NAME_COL, "No.", "Sprzęt", "Equipment Description", "Avr. Time (min)", "Czas [min]"}
     product_cols = [c for c in df.columns if c not in descriptive_cols]
 
@@ -1180,7 +1221,7 @@ def parse_qc_tests_excel(uploaded_file):
                 if test_name not in existing:  # unikaj podwójnego liczenia tego samego testu,
                     existing.append(test_name)  # jeśli pojawia się na więcej niż jednym wierszu
 
-    return tests_by_product, errors
+    return tests_by_product, new_tests, errors
 
 
 def parse_direct_raw_materials_excel(uploaded_file):
@@ -1720,6 +1761,17 @@ def collapse_shared_tank_materials(consumption_dict):
         collapsed[combined_name] = combined_t
 
     return collapsed
+
+
+def get_full_qc_catalog():
+    """
+    JEDNO ŹRÓDŁO PRAWDY dla pełnego katalogu testów QC - wbudowany katalog (QC_TEST_CATALOG)
+    SCALONY z testami dopisanymi przez użytkownika w arkuszu 'Badania Laboratoryjne' (własne
+    kolumny 'Sprzęt'/'Czas [min]', patrz parse_qc_tests_excel). Używaj tego wszędzie zamiast
+    odwoływać się bezpośrednio do QC_TEST_CATALOG - inaczej własne testy użytkownika "znikają"
+    (brak czasu/sprzętu) w miejscach, które nie wiedzą o custom_qc_tests.
+    """
+    return {**QC_TEST_CATALOG, **st.session_state.get("custom_qc_tests", {})}
 
 
 def get_qc_tests_for_mixer(mixer):
@@ -2654,6 +2706,13 @@ if "supplier_splits" not in st.session_state:
     # wgrany. Pozwala pokazać kilka mniejszych zbiorników zamiast jednego dużego per kategoria.
     st.session_state.supplier_splits = []
 
+if "custom_qc_tests" not in st.session_state:
+    # dict: nazwa testu -> {"duration_min","equipment","count"} - testy DOPISANE przez
+    # użytkownika w arkuszu 'Badania Laboratoryjne' (własne kolumny 'Sprzęt'/'Czas [min]'),
+    # których nie ma w wbudowanym katalogu QC_TEST_CATALOG. Scalane z wbudowanym katalogiem
+    # wszędzie przez get_full_qc_catalog() - nie jesteś ograniczony do wbudowanej listy testów.
+    st.session_state.custom_qc_tests = {}
+
 if "equipment_df" not in st.session_state:
     st.session_state.equipment_df = None  # DataFrame cennika standardowej instalacji (Zakładka 5)
 
@@ -3135,10 +3194,17 @@ with tab1:
         # Opcjonalny arkusz 'Badania Laboratoryjne' - testy jako wiersze, produkty jako kolumny
         # (patrz parse_qc_tests_excel). Ma PIERWSZEŃSTWO nad panelem zwolnienia per linia
         # (Zakładka 6/VSM) wszędzie, gdzie liczba badań QC jest liczona per konkretny produkt.
+        # Testy spoza wbudowanego katalogu, ale z wypełnionym własnym 'Sprzęt'/'Czas [min]',
+        # rejestrują się jako NOWE testy (custom_qc_tests) - nie musisz ograniczać się do
+        # wbudowanej listy ~32 testów.
         uploaded_recipe_file.seek(0)
-        qc_tests_result, qc_tests_errors = parse_qc_tests_excel(uploaded_recipe_file)
+        qc_tests_result, new_qc_tests, qc_tests_errors = parse_qc_tests_excel(uploaded_recipe_file)
         for err in qc_tests_errors:
             st.warning(f"⚠️ {err}")
+        if new_qc_tests:
+            st.session_state.custom_qc_tests.update(new_qc_tests)
+            st.success(f"✅ Zarejestrowano {len(new_qc_tests)} nowych, własnych testów QC (spoza wbudowanego katalogu): "
+                       f"{', '.join(new_qc_tests.keys())}.")
         if qc_tests_result is not None:
             st.session_state.qc_tests_by_product = qc_tests_result
             st.success(f"✅ Wczytano przypisanie badań laboratoryjnych dla {len(qc_tests_result)} produktów z arkusza '{QC_SHEET_NAME}'.")
@@ -3864,7 +3930,7 @@ with tab2:
                     # PRIORYTET 3 (fallback) - panel zwolnienia per LINIA w Zakładce 6 (VSM). ---
                     qc_tests_used, qc_source_label = get_qc_tests_for_mixer(mixer)
                     n_tests_per_batch = len(qc_tests_used)
-                    time_min_per_batch = sum(QC_TEST_CATALOG.get(t, {}).get("duration_min", 0) for t in qc_tests_used)
+                    time_min_per_batch = sum(get_full_qc_catalog().get(t, {}).get("duration_min", 0) for t in qc_tests_used)
                     lab_tests_month = n_tests_per_batch * batches_month_cmp
                     lab_tests_year = n_tests_per_batch * batches_year_cmp
                     time_h_month = (time_min_per_batch * batches_month_cmp) / 60.0
@@ -6601,11 +6667,12 @@ with tab6:
                            "per LINIA (jedna wspólna lista). Dokładne, per-produktowe liczby badań QC znajdziesz w "
                            "widgecie porównawczym (Zakładka 2, Karta Maszyn).")
 
+        full_qc_catalog = get_full_qc_catalog()
         c_qc1, c_qc2 = st.columns([2, 1])
         with c_qc1:
             qc_cfg["tests"] = st.multiselect(
-                "Testy w panelu zwolnienia:", list(QC_TEST_CATALOG.keys()),
-                default=[t for t in qc_cfg["tests"] if t in QC_TEST_CATALOG],
+                "Testy w panelu zwolnienia:", list(full_qc_catalog.keys()),
+                default=[t for t in qc_cfg["tests"] if t in full_qc_catalog],
                 key=f"qc_tests_{selected_vsm_family}"
             )
         with c_qc2:
@@ -6619,8 +6686,8 @@ with tab6:
         if qc_cfg["tests"]:
             df_qc = pd.DataFrame([{
                 "Test": t,
-                "Czas [min]": qc_cfg["custom_durations"].get(t, QC_TEST_CATALOG[t]["duration_min"]),
-                "Sprzęt": QC_TEST_CATALOG[t]["equipment"],
+                "Czas [min]": qc_cfg["custom_durations"].get(t, full_qc_catalog[t]["duration_min"]),
+                "Sprzęt": full_qc_catalog[t]["equipment"],
             } for t in qc_cfg["tests"]])
 
             edited_qc = st.data_editor(
@@ -7009,7 +7076,7 @@ with tab6:
             tests_lab, _ = get_qc_tests_for_mixer(m_lab)
             batches_month_lab = m_lab.get("batches_count", 0)
             for t_name in tests_lab:
-                t_info = QC_TEST_CATALOG.get(t_name)
+                t_info = get_full_qc_catalog().get(t_name)
                 if not t_info:
                     continue
                 equip_name = t_info["equipment"]
@@ -7193,7 +7260,7 @@ with tab8:
                     ct_cmp = st.session_state.get("calculated_times", {}).get(tag_cmp, {"heating": 1.5, "pumping": 0.75, "cooling_h": 0.5})
                     bt_cmp = st.session_state.get("batch_time_components", {}).get(tag_cmp, {"dosing": 1.0, "homog": 2.0})
                     qc_tests_cmp_dash, _ = get_qc_tests_for_mixer(m_cmp)
-                    durations_min_cmp = [QC_TEST_CATALOG.get(t, {}).get("duration_min", 0) for t in qc_tests_cmp_dash]
+                    durations_min_cmp = [get_full_qc_catalog().get(t, {}).get("duration_min", 0) for t in qc_tests_cmp_dash]
                     qc_mode_cmp = st.session_state.get("vsm_qc_config", {}).get(m_cmp["product_family"], {}).get("mode", "Sekwencyjnie (jeden technik, jedno stanowisko)")
                     qc_time_h_cmp = (sum(durations_min_cmp) if qc_mode_cmp.startswith("Sekw") else max(durations_min_cmp, default=0)) / 60.0
 
