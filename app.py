@@ -4094,8 +4094,9 @@ with tab2:
                                     "t/rok": round_visible(mat_month_t * MONTHS_PER_YEAR),
                                     "Dostawa": "🚚 Cysterna (luzem)" if is_bulk_mat else "📦 Beczki/IBC/worki",
                                 })
-                            if material_rows_cmp:
-                                st.dataframe(pd.DataFrame(material_rows_cmp), hide_index=True, use_container_width=True)
+                            with st.container(height=220):
+                                if material_rows_cmp:
+                                    st.dataframe(pd.DataFrame(material_rows_cmp), hide_index=True, use_container_width=True)
                         else:
                             st.caption(f"⚠️ Nie znaleziono '{recipe_product_cmp}' w recepturze (Zakładka 1).")
                     else:
@@ -4126,24 +4127,25 @@ with tab2:
                     # i TYLKO dla materiałów faktycznie dostarczanych luzem cysterną (zbiornik
                     # dedykowany) - beczkowane/IBC jadą zwykłym transportem, nie cysterną. ---
                     st.markdown("**🚚 Cysterny — dostawy RM (per surowiec)**")
-                    if rm_bulk_month_t_by_material:
-                        rm_tanker_rows = []
-                        for mat, mat_month_t in rm_bulk_month_t_by_material.items():
-                            tankers_month_mat = math.ceil(mat_month_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
-                            tankers_year_mat = math.ceil((mat_month_t * MONTHS_PER_YEAR) / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
-                            rm_tanker_rows.append({
-                                "Surowiec": mat.replace(" [kg/t]", ""),
-                                "t/miesiąc": round_visible(mat_month_t),
-                                "Cystern/miesiąc": tankers_month_mat,
-                                "Cystern/rok": tankers_year_mat,
-                            })
-                        st.dataframe(pd.DataFrame(rm_tanker_rows), hide_index=True, use_container_width=True)
-                        st.caption("Każdy surowiec liczony osobno (własna cysterna, własny dostawca) — dokładne do "
-                                   "planowania harmonogramu dostaw, nie łączna suma masy.")
-                    else:
-                        st.caption("Brak surowców dostarczanych luzem (cysterną) dla tego produktu — wszystkie w "
-                                   "beczkach/IBC/workach, albo sposób magazynowania nie został jeszcze ustawiony "
-                                   "w Zakładce 2.")
+                    with st.container(height=160):
+                        if rm_bulk_month_t_by_material:
+                            rm_tanker_rows = []
+                            for mat, mat_month_t in rm_bulk_month_t_by_material.items():
+                                tankers_month_mat = math.ceil(mat_month_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
+                                tankers_year_mat = math.ceil((mat_month_t * MONTHS_PER_YEAR) / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
+                                rm_tanker_rows.append({
+                                    "Surowiec": mat.replace(" [kg/t]", ""),
+                                    "t/miesiąc": round_visible(mat_month_t),
+                                    "Cystern/miesiąc": tankers_month_mat,
+                                    "Cystern/rok": tankers_year_mat,
+                                })
+                            st.dataframe(pd.DataFrame(rm_tanker_rows), hide_index=True, use_container_width=True)
+                            st.caption("Każdy surowiec liczony osobno (własna cysterna, własny dostawca) — dokładne do "
+                                       "planowania harmonogramu dostaw, nie łączna suma masy.")
+                        else:
+                            st.caption("Brak surowców dostarczanych luzem (cysterną) dla tego produktu — wszystkie w "
+                                       "beczkach/IBC/workach, albo sposób magazynowania nie został jeszcze ustawiony "
+                                       "w Zakładce 2.")
 
                     fg_tankers_month = math.ceil(monthly_mass_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
                     fg_tankers_year = math.ceil(annual_mass_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
@@ -4927,6 +4929,7 @@ with tab2:
         with c_f_1:
             serwery_kw = st.number_input("Serwery / IT [kW]:", min_value=0.0, value=5.0, step=0.5, key="fac_servers_kw")
             hvac_kw = st.number_input("Wentylacja / HVAC (poza chłodzeniem procesowym) [kW]:", min_value=0.0, value=15.0, step=1.0, key="fac_hvac_kw")
+            st.caption("")
         with c_f_2:
             powierzchnia_zakladu_m2 = st.number_input("Powierzchnia zakładu do oświetlenia [m²]:", min_value=0.0, value=2000.0, step=100.0, key="fac_area_m2")
             wskaznik_oswietlenia_w_m2 = st.number_input("Wskaźnik mocy oświetlenia [W/m²]:", min_value=1.0, value=8.0, step=0.5, key="fac_light_wm2",
@@ -4936,6 +4939,7 @@ with tab2:
         with c_f_3:
             sprezarkownia_kw = st.number_input("Sprężarkownia (sprężone powietrze) [kW]:", min_value=0.0, value=45.0, step=5.0, key="fac_compressed_air_kw")
             inne_odbiory_kw = st.number_input("Inne (biura, ładowarki wózków, warsztat UR) [kW]:", min_value=0.0, value=20.0, step=5.0, key="fac_other_kw")
+            st.caption("")
 
         total_facility_load_kw = serwery_kw + hvac_kw + oswietlenie_kw + sprezarkownia_kw + inne_odbiory_kw
         wspolczynnik_jednoczesnosci_facility = st.slider(
@@ -5385,8 +5389,8 @@ with tab3:
             c_wh1, c_wh2, c_wh3 = st.columns(3)
             with c_wh1:
                 typ_skladowania = st.selectbox("Typ składowania:", list(RACKING_PRESETS_M2.keys()), index=2, key="typ_skladowania_tab3")
+            domyslna_powierzchnia = RACKING_PRESETS_M2[typ_skladowania]["m2"]
             with c_wh2:
-                domyslna_powierzchnia = RACKING_PRESETS_M2[typ_skladowania]["m2"]
                 if domyslna_powierzchnia is not None:
                     aisle_pct_preset = RACKING_PRESETS_AISLE_PCT[typ_skladowania]
                     powierzchnia_na_miejsce = domyslna_powierzchnia
@@ -5395,37 +5399,8 @@ with tab3:
                                    f"(szacunek dla tego typu składowania — {POWIERZCHNIA_NETTO_PALETY_M2:.1f} m² "
                                    f"netto/paletę ÷ (1 − {aisle_pct_preset:.0f}%)).")
                 else:
-                    st.caption("**Własna wartość** — rozbij poniżej na wymiary palety + szerokość alejki wózka "
-                               "widłowego, żeby mieć pełną, fizyczną kontrolę nad tym, ile miejsca to zajmuje.")
-                    aw1, aw2, aw3 = st.columns(3)
-                    with aw1:
-                        paleta_szerokosc_m = st.number_input(
-                            "Szerokość palety [m]:", min_value=0.5, value=1.2, step=0.1, key="paleta_szerokosc_input",
-                            help="Wymiar palety WZDŁUŻ alejki — standardowa paleta EUR ustawiona dłuższym bokiem "
-                                 "do alejki to ok. 1,2 m."
-                        )
-                    with aw2:
-                        paleta_glebokosc_m = st.number_input(
-                            "Głębokość palety [m]:", min_value=0.5, value=1.0, step=0.1, key="paleta_glebokosc_input",
-                            help="Wymiar palety W GŁĄB regału (prostopadle do alejki) — standardowa paleta EUR to ok. 0,8-1,0 m."
-                        )
-                    with aw3:
-                        szerokosc_alejki_m = st.number_input(
-                            "Szerokość alejki wózka widłowego [m]:", min_value=1.5, value=3.5, step=0.1, key="szerokosc_alejki_input",
-                            help="Typowe wartości: ~3,5 m dla wózka czołowego/reach trucka (regały selektywne), "
-                                 "~2,5 m dla wózka wąskoalejkowego (VNA), ~1,5 m minimalnie tam, gdzie wózek nie "
-                                 "musi skręcać (block stacking/drive-in)."
-                        )
-                    # Geometria rzędu regałowego: alejka jest WSPÓLNA dla dwóch rzędów palet po obu
-                    # stronach, więc każda pozycja "zajmuje" połowę szerokości alejki w głąb, na
-                    # całej szerokości palety wzdłuż alejki.
-                    powierzchnia_netto_wlasna = paleta_szerokosc_m * paleta_glebokosc_m
-                    powierzchnia_na_miejsce = paleta_szerokosc_m * (paleta_glebokosc_m + szerokosc_alejki_m / 2.0)
-                    aisle_pct_wlasna = (1.0 - powierzchnia_netto_wlasna / powierzchnia_na_miejsce) * 100.0
-                    st.metric("→ Powierzchnia / miejsce paletowe (1 poziom, wynik)", f"{powierzchnia_na_miejsce:.2f} m²",
-                              help=f"= szerokość palety × (głębokość palety + szerokość alejki ÷ 2) — alejka "
-                                   f"współdzielona z rzędem po drugiej stronie. Odpowiada ~{aisle_pct_wlasna:.0f}% "
-                                   "powierzchni na alejki.")
+                    st.caption("**Własna wartość** — rozbij poniżej na wymiary palety i szerokość alejki, żeby mieć "
+                               "pełną, fizyczną kontrolę nad tym, ile miejsca to zajmuje.")
             with c_wh3:
                 domyslne_poziomy = RACKING_PRESETS_M2[typ_skladowania]["poziomy"]
                 liczba_poziomow = st.number_input(
@@ -5437,6 +5412,38 @@ with tab3:
                          "regału (zwykle 3-5). Więcej poziomów = mniejsza wymagana powierzchnia podłogi przy "
                          "tej samej liczbie miejsc paletowych. Wybierz 'Własna wartość' powyżej, aby to odblokować."
                 )
+
+            if domyslna_powierzchnia is None:
+                aw1, aw2, aw3 = st.columns(3)
+                with aw1:
+                    paleta_szerokosc_m = st.number_input(
+                        "Szerokość palety [m]:", min_value=0.5, value=1.2, step=0.1, key="paleta_szerokosc_input",
+                        help="Wymiar palety WZDŁUŻ alejki — standardowa paleta EUR ustawiona dłuższym bokiem "
+                             "do alejki to ok. 1,2 m."
+                    )
+                with aw2:
+                    paleta_glebokosc_m = st.number_input(
+                        "Głębokość palety [m]:", min_value=0.5, value=1.0, step=0.1, key="paleta_glebokosc_input",
+                        help="Wymiar palety W GŁĄB regału (prostopadle do alejki) — standardowa paleta EUR to ok. 0,8-1,0 m."
+                    )
+                with aw3:
+                    szerokosc_alejki_m = st.number_input(
+                        "Szerokość alejki wózka widłowego [m]:", min_value=1.5, value=3.5, step=0.1, key="szerokosc_alejki_input",
+                        help="Typowe wartości: ~3,5 m dla wózka czołowego/reach trucka (regały selektywne), "
+                             "~2,5 m dla wózka wąskoalejkowego (VNA), ~1,5 m minimalnie tam, gdzie wózek nie "
+                             "musi skręcać (block stacking/drive-in)."
+                    )
+                # Geometria rzędu regałowego: alejka jest WSPÓLNA dla dwóch rzędów palet po obu
+                # stronach, więc każda pozycja "zajmuje" połowę szerokości alejki w głąb, na
+                # całej szerokości palety wzdłuż alejki.
+                powierzchnia_netto_wlasna = paleta_szerokosc_m * paleta_glebokosc_m
+                powierzchnia_na_miejsce = paleta_szerokosc_m * (paleta_glebokosc_m + szerokosc_alejki_m / 2.0)
+                aisle_pct_wlasna = (1.0 - powierzchnia_netto_wlasna / powierzchnia_na_miejsce) * 100.0
+                st.metric("→ Powierzchnia / miejsce paletowe (1 poziom, wynik)", f"{powierzchnia_na_miejsce:.2f} m²",
+                          help=f"= szerokość palety × (głębokość palety + szerokość alejki ÷ 2) — alejka "
+                               f"współdzielona z rzędem po drugiej stronie. Odpowiada ~{aisle_pct_wlasna:.0f}% "
+                               "powierzchni na alejki.")
+
             st.session_state["powierzchnia_na_miejsce_report"] = powierzchnia_na_miejsce
             st.session_state["liczba_poziomow_report"] = liczba_poziomow
 
