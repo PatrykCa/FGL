@@ -200,6 +200,13 @@ SUPPLIER_SPLIT_PCT_COL = "Udział w tej kategorii [%]"
 SUPPLIER_SPLIT_TECH_COL = "Technologia (opcjonalnie)"
 SUPPLIER_SPLIT_TANK_ID_COL = "ID Zbiornika (opcjonalnie - te samo ID = wspólny zbiornik)"
 
+TECH_PROPS_SHEET_NAME = "Właściwości Techniczne"
+TECH_PROPS_TYPE_COL = "Typ (Surowiec/Produkt)"
+TECH_PROPS_NAME_COL = "Nazwa"
+TECH_PROPS_PROPERTY_COL = "Właściwość"
+TECH_PROPS_VALUE_COL = "Wartość"
+TECH_PROPS_UNIT_COL = "Jednostka (opcjonalnie)"
+
 RECIPE_GROUP_COL = "Grupa Produktowa"
 RECIPE_PRODUCT_COL = "Produkt"
 RECIPE_ANNUAL_COL = "Roczne Zapotrzebowanie Produktu [tony]"
@@ -348,7 +355,7 @@ PROJECT_SAVE_KEYS = [
     "rampup_global_pct", "rampup_per_line_pct", "rampup_differentiate", "rampup_start_pct", "import_follows_rampup",
     "group_pricing", "pack_configs", "filling_lines_config", "opakowania_podzial",
     "qc_tests_by_product", "vsm_qc_config", "vsm_qc_queue_days", "vsm_oee", "direct_raw_materials",
-    "qc_equipment_count_override", "supplier_splits", "custom_qc_tests",
+    "qc_equipment_count_override", "supplier_splits", "custom_qc_tests", "technical_properties",
     "tanker_capacity_t", "mixer_fill_factor", "days_of_stock_tab5", "max_single_tank_m3",
     "czas_skladowania_tab3", "cena_mwh_tab4", "cena_gazu_mwh", "sprawnosc_kotla_frac",
     "import_pallet_mass_kg", "capex_lump_sum", "boiler_capacity_installed_kw",
@@ -866,6 +873,35 @@ def generate_recipe_template_bytes():
         ws_supplier.cell(row=row_idx, column=6, value=tank_id).fill = input_fill
     for col, w in zip("ABCDEF", [26, 22, 26, 18, 22, 30]):
         ws_supplier.column_dimensions[col].width = w
+
+    # --- Arkusz 'Właściwości Techniczne' (opcjonalny) - dowolne dane techniczne/bezpieczeństwa
+    # o surowcach i produktach, format "jeden wiersz = jedna właściwość" - czysto informacyjne,
+    # nie wpływa na żadne obliczenia. ---
+    ws_tech = wb.create_sheet(TECH_PROPS_SHEET_NAME)
+    tech_headers = [TECH_PROPS_TYPE_COL, TECH_PROPS_NAME_COL, TECH_PROPS_PROPERTY_COL, TECH_PROPS_VALUE_COL, TECH_PROPS_UNIT_COL]
+    for col_idx, h in enumerate(tech_headers, start=1):
+        cell = ws_tech.cell(row=1, column=col_idx, value=h)
+        cell.font = header_font
+        cell.fill = header_fill
+        cell.alignment = wrap_center
+    ws_tech.row_dimensions[1].height = 32
+    # "Dodatek" nie jest osobnym Typem (Typ to tylko Surowiec/Produkt) - zapisuje się jako
+    # WŁAŚCIWOŚĆ ("Rodzaj surowca"), tak samo jak każda inna cecha.
+    example_tech = [
+        ("Surowiec", "Baza Grupy II - Dostawca X1", "Grupa API", "II", ""),
+        ("Surowiec", "Baza Grupy II - Dostawca X1", "Lepkość @40°C", "30", "cSt"),
+        ("Surowiec", "Baza Grupy II - Dostawca X1", "Temperatura zapłonu", "220", "°C"),
+        ("Surowiec", "Dodatek Przeciwpienny X1", "Rodzaj surowca", "Dodatek (Antifoam)", ""),
+        ("Produkt", "Przykład: Hydraulic Oil 46", "Lepkość @40°C", "46", "cSt"),
+    ]
+    for row_idx, (typ, nazwa, wlasc, wart, jedn) in enumerate(example_tech, start=2):
+        ws_tech.cell(row=row_idx, column=1, value=typ).fill = input_fill
+        ws_tech.cell(row=row_idx, column=2, value=nazwa).fill = input_fill
+        ws_tech.cell(row=row_idx, column=3, value=wlasc).fill = input_fill
+        ws_tech.cell(row=row_idx, column=4, value=wart).fill = input_fill
+        ws_tech.cell(row=row_idx, column=5, value=jedn).fill = input_fill
+    for col, w in zip("ABCDE", [18, 32, 24, 20, 20]):
+        ws_tech.column_dimensions[col].width = w
 
     bio = io.BytesIO()
     wb.save(bio)
@@ -1402,6 +1438,66 @@ def parse_supplier_split_excel(uploaded_file):
                            "popraw udziały, inaczej zużycie per dostawca będzie błędnie przeskalowane.")
 
     return raw_entries, errors
+
+
+def parse_technical_properties_excel(uploaded_file):
+    """
+    Wczytuje opcjonalny arkusz 'Właściwości Techniczne' - dowolne dane techniczne/bezpieczeństwa
+    o surowcach i produktach (grupa API, lepkość, temperatura zapłonu, zagrożenia GHS, itd.),
+    w formacie "jeden wiersz = jedna właściwość" - żeby nie wymuszać wypełniania sztywnych
+    kolumn, kiedy dana właściwość jest po prostu nieznana dla konkretnego surowca/produktu.
+
+    CZYSTO INFORMACYJNE - nie wpływa na żadne obliczenia (zbiorniki, mieszalniki, moc) - to
+    warstwa wiedzy do przeglądania/eksportu, nie dane wejściowe do silnika obliczeniowego.
+
+    Zwraca (lista_wpisów, lista_błędów). Wpis: {"typ","nazwa","wlasciwosc","wartosc","jednostka"}.
+    Jeśli arkusz nie istnieje, ([], []).
+    """
+    try:
+        xls = pd.ExcelFile(uploaded_file)
+    except Exception as exc:
+        return [], [f"Nie udało się odczytać pliku Excel (właściwości techniczne): {exc}"]
+
+    if TECH_PROPS_SHEET_NAME not in xls.sheet_names:
+        return [], []
+
+    try:
+        df = pd.read_excel(xls, sheet_name=TECH_PROPS_SHEET_NAME)
+    except Exception as exc:
+        return [], [f"Nie udało się odczytać arkusza '{TECH_PROPS_SHEET_NAME}': {exc}"]
+
+    required_cols = {TECH_PROPS_TYPE_COL, TECH_PROPS_NAME_COL, TECH_PROPS_PROPERTY_COL, TECH_PROPS_VALUE_COL}
+    missing_cols = required_cols - set(df.columns)
+    if missing_cols:
+        return [], [f"Arkusz '{TECH_PROPS_SHEET_NAME}' istnieje, ale brakuje kolumn: {', '.join(missing_cols)}. Pominięto import."]
+
+    df = df[df[TECH_PROPS_NAME_COL].notna() & df[TECH_PROPS_PROPERTY_COL].notna()].copy()
+    if df.empty:
+        return [], []
+
+    def _clean(val):
+        return "" if pd.isna(val) else str(val).strip()
+
+    errors = []
+    entries = []
+    for _, row in df.iterrows():
+        typ_raw = _clean(row.get(TECH_PROPS_TYPE_COL, ""))
+        if typ_raw not in ("Surowiec", "Produkt"):
+            errors.append(f"Nieznany typ '{typ_raw}' w arkuszu '{TECH_PROPS_SHEET_NAME}' - dozwolone tylko "
+                           "'Surowiec' albo 'Produkt'. Wiersz pominięty.")
+            continue
+        nazwa_raw = _clean(row.get(TECH_PROPS_NAME_COL, ""))
+        wlasciwosc_raw = _clean(row.get(TECH_PROPS_PROPERTY_COL, ""))
+        wartosc_val = row.get(TECH_PROPS_VALUE_COL, "")
+        wartosc_raw = "" if pd.isna(wartosc_val) else str(wartosc_val).strip()
+        if not nazwa_raw or not wlasciwosc_raw or not wartosc_raw:
+            continue
+        entries.append({
+            "typ": typ_raw, "nazwa": nazwa_raw, "wlasciwosc": wlasciwosc_raw,
+            "wartosc": wartosc_raw, "jednostka": _clean(row.get(TECH_PROPS_UNIT_COL, "")),
+        })
+
+    return entries, errors
 
 # Cennik / Standardowa Instalacja (BOM) - osobny, aktualizowalny arkusz per grupa produktowa,
 # z ceną jednostkową komponentu; źródłem treści jest zwykle istniejący P&ID danej instalacji
@@ -2718,6 +2814,12 @@ if "custom_qc_tests" not in st.session_state:
     # wszędzie przez get_full_qc_catalog() - nie jesteś ograniczony do wbudowanej listy testów.
     st.session_state.custom_qc_tests = {}
 
+if "technical_properties" not in st.session_state:
+    # lista dictów {"typ","nazwa","wlasciwosc","wartosc","jednostka"} - dowolne dane techniczne/
+    # bezpieczeństwa o surowcach i produktach, z arkusza 'Właściwości Techniczne', jeśli wgrany.
+    # Czysto informacyjne - nie wpływa na żadne obliczenia.
+    st.session_state.technical_properties = []
+
 if "equipment_df" not in st.session_state:
     st.session_state.equipment_df = None  # DataFrame cennika standardowej instalacji (Zakładka 5)
 
@@ -3237,6 +3339,25 @@ with tab1:
         if supplier_split_entries:
             st.success(f"✅ Wczytano rozbicie dostawców dla {len(set(e['category'] for e in supplier_split_entries))} "
                        f"kategorii surowców z arkusza '{SUPPLIER_SPLIT_SHEET_NAME}'.")
+
+        # Opcjonalny arkusz 'Właściwości Techniczne' - dowolne dane techniczne/bezpieczeństwa o
+        # surowcach i produktach (czysto informacyjne, nie wpływa na obliczenia).
+        uploaded_recipe_file.seek(0)
+        tech_props_entries, tech_props_errors = parse_technical_properties_excel(uploaded_recipe_file)
+        for err in tech_props_errors:
+            st.warning(f"⚠️ {err}")
+        st.session_state.technical_properties = tech_props_entries
+        if tech_props_entries:
+            st.success(f"✅ Wczytano {len(tech_props_entries)} właściwości technicznych z arkusza '{TECH_PROPS_SHEET_NAME}'.")
+
+        if st.session_state.technical_properties:
+            with st.expander(f"📖 Przeglądaj właściwości techniczne ({len(st.session_state.technical_properties)} wpisów)"):
+                tech_search = st.text_input("Szukaj po nazwie surowca/produktu:", key="tech_props_search")
+                tech_df_view = pd.DataFrame(st.session_state.technical_properties)
+                tech_df_view.columns = ["Typ", "Nazwa", "Właściwość", "Wartość", "Jednostka"]
+                if tech_search:
+                    tech_df_view = tech_df_view[tech_df_view["Nazwa"].str.contains(tech_search, case=False, na=False)]
+                st.dataframe(tech_df_view, hide_index=True, use_container_width=True)
 
     st.markdown("---")
 
