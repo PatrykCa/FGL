@@ -41,8 +41,8 @@ STEAM_LATENT_HEAT_KJKG = 2200.0  # ciepło skraplania pary nasyconej (~2 bar) [k
 G_ACCEL = 9.81
 RAMPUP_YEARS = 5                 # horyzont symulacji rozruchu (Zakładka 2 + Zakładka 3)
 
-# --- 1. BAZA DANYCH PROCESOWYCH I FIZYKOCHEMICZNYCH FUCHS ---
-# (Dawny zestaw FUCHS_PORTFOLIO z liniami marek - np. "Hydraulic Oils (RENOLIN)" - został
+# --- 1. BAZA DANYCH PROCESOWYCH I FIZYKOCHEMICZNYCH ---
+# (Dawny zestaw z liniami marek - np. "Hydraulic Oils (Marka X)" - został
 # usunięty. Jedyna taksonomia w apce to teraz 7 grup produktowych, patrz GENERIC_PORTFOLIO
 # i GROUP_PHYSICAL_DEFAULTS niżej.)
 
@@ -80,37 +80,37 @@ MEDIA_PROCESOWE = {
 # laboratoryjnej - EDYTOWALNE bezpośrednio w Zakładce 6 (VSM), bo rzeczywisty czas zależy
 # od obciążenia laboratorium i wprawy technika.
 QC_TEST_CATALOG = {
-    "Lepkość kinematyczna @40°C (łaźnia ręczna)": {"duration_min": 40, "equipment": "Manual Viscosity Bath, 40°C", "count": 1},
-    "Lepkość kinematyczna @40°C (półautomat)": {"duration_min": 25, "equipment": "Semiautomatic Viscosity Bath, 40°C", "count": 1},
-    "Lepkość kinematyczna @40°C (automat)": {"duration_min": 15, "equipment": "Automatic Viscometer, 40°C", "count": 1},
-    "Lepkość kinematyczna @100°C (łaźnia ręczna)": {"duration_min": 60, "equipment": "Manual Viscosity Bath, 100°C", "count": 1},
-    "Lepkość kinematyczna @100°C (automat)": {"duration_min": 20, "equipment": "Automatic Viscometer, 100°C", "count": 1},
-    "Lepkość dynamiczna (ASTM D2669)": {"duration_min": 30, "equipment": "Viscosimeter Brookfield (ASTM D2669)", "count": 1},
-    "Lepkość dynamiczna (ASTM D2983)": {"duration_min": 45, "equipment": "Viscosimeter Brookfield (ASTM D2983)", "count": 1},
-    "Lepkość dynamiczna @-40°C": {"duration_min": 45, "equipment": "Viscosimeter Brookfield (niska temp.)", "count": 1},
-    "Krzywa Stribecka": {"duration_min": 60, "equipment": "Reometr (Anton Paar)", "count": 1},
+    "Lepkość kinematyczna @40°C (łaźnia ręczna)": {"duration_min": 40, "equipment": "Łaźnia wiskozymetryczna ręczna, 40°C", "count": 1},
+    "Lepkość kinematyczna @40°C (półautomat)": {"duration_min": 25, "equipment": "Łaźnia wiskozymetryczna półautomatyczna, 40°C", "count": 1},
+    "Lepkość kinematyczna @40°C (automat)": {"duration_min": 15, "equipment": "Wiskozymetr automatyczny, 40°C", "count": 1},
+    "Lepkość kinematyczna @100°C (łaźnia ręczna)": {"duration_min": 60, "equipment": "Łaźnia wiskozymetryczna ręczna, 100°C", "count": 1},
+    "Lepkość kinematyczna @100°C (automat)": {"duration_min": 20, "equipment": "Wiskozymetr automatyczny, 100°C", "count": 1},
+    "Lepkość dynamiczna (ASTM D2669)": {"duration_min": 30, "equipment": "Wiskozymetr rotacyjny (ASTM D2669)", "count": 1},
+    "Lepkość dynamiczna (ASTM D2983)": {"duration_min": 45, "equipment": "Wiskozymetr rotacyjny (ASTM D2983)", "count": 1},
+    "Lepkość dynamiczna @-40°C": {"duration_min": 45, "equipment": "Wiskozymetr rotacyjny (niska temp.)", "count": 1},
+    "Krzywa Stribecka": {"duration_min": 60, "equipment": "Reometr", "count": 1},
     "Barwa ASTM": {"duration_min": 5, "equipment": "Kolorymetr (ASTM D1500)", "count": 1},
-    "Wielkość cząstek (Particle size)": {"duration_min": 15, "equipment": "Litesizer DLS 500", "count": 1},
+    "Wielkość cząstek (Particle size)": {"duration_min": 15, "equipment": "Analizator wielkości cząstek", "count": 1},
     "Klasa czystości (Cleanliness code)": {"duration_min": 15, "equipment": "Licznik cząstek (ISO 4406)", "count": 1},
     "Gęstość": {"duration_min": 10, "equipment": "Hydrometr / densimetr", "count": 1},
     "Wskaźnik refrakcji": {"duration_min": 5, "equipment": "Refraktometr cyfrowy", "count": 1},
-    "Temp. zapłonu - półautomat": {"duration_min": 45, "equipment": "Semiautomatic (Open/Closed cup)", "count": 1},
-    "Temp. zapłonu - automat": {"duration_min": 25, "equipment": "Automatic (Open/Closed cup)", "count": 1},
-    "Krzywa chłodzenia (Cooling Curve)": {"duration_min": 30, "equipment": "Smart Quench SQ2", "count": 1},
-    "XRF": {"duration_min": 15, "equipment": "Spektrometr XRF (Bruker)", "count": 1},
-    "Punkt aniliny": {"duration_min": 50, "equipment": "Aniline Point Tester", "count": 1},
-    "Zawartość ciał stałych": {"duration_min": 20, "equipment": "Wagosuszarka (Ohaus)", "count": 1},
+    "Temp. zapłonu - półautomat": {"duration_min": 45, "equipment": "Aparat do temp. zapłonu, półautomatyczny", "count": 1},
+    "Temp. zapłonu - automat": {"duration_min": 25, "equipment": "Aparat do temp. zapłonu, automatyczny", "count": 1},
+    "Krzywa chłodzenia (Cooling Curve)": {"duration_min": 30, "equipment": "Aparat do krzywej chłodzenia", "count": 1},
+    "XRF": {"duration_min": 15, "equipment": "Spektrometr XRF", "count": 1},
+    "Punkt aniliny": {"duration_min": 50, "equipment": "Aparat do punktu aniliny", "count": 1},
+    "Zawartość ciał stałych": {"duration_min": 20, "equipment": "Wagosuszarka", "count": 1},
     "Przewodność": {"duration_min": 10, "equipment": "Konduktometr", "count": 1},
-    "Zawartość wody (Karl Fischer)": {"duration_min": 20, "equipment": "Kulometr (Karl Fischer)", "count": 1},
-    "Spektroskopia FTIR": {"duration_min": 15, "equipment": "Spektrometr FT-IR (Perkin Elmer)", "count": 1},
+    "Zawartość wody (Karl Fischer)": {"duration_min": 20, "equipment": "Kulometr (metoda Karl Fischera)", "count": 1},
+    "Spektroskopia FTIR": {"duration_min": 15, "equipment": "Spektrometr FT-IR", "count": 1},
     "pH": {"duration_min": 10, "equipment": "pH-metr stołowy", "count": 1},
     "Zasadowość (Alkalinity)": {"duration_min": 25, "equipment": "Automatyczny tytrator potencjometryczny", "count": 1},
     "Spektroskopia UV-Vis": {"duration_min": 20, "equipment": "Spektrometr UV/Vis", "count": 1},
     "Test korozji": {"duration_min": 1440, "equipment": "Komora klimatyczna (DIN 6270-2) — czas oczekiwania 24h+", "count": 1},
-    "Pienienie (Foam)": {"duration_min": 30, "equipment": "Cnomo foam tester", "count": 1},
-    "EP / AW (tarcie i zużycie)": {"duration_min": 90, "equipment": "Aparat Falexa (tarcie i zużycie)", "count": 1},
-    "Tapping Torque Test": {"duration_min": 45, "equipment": "Trybometr (Micro tap)", "count": 1},
-    "Demulgowalność": {"duration_min": 45, "equipment": "Bath demulsibility", "count": 1},
+    "Pienienie (Foam)": {"duration_min": 30, "equipment": "Aparat do badania pienienia", "count": 1},
+    "EP / AW (tarcie i zużycie)": {"duration_min": 90, "equipment": "Aparat do tarcia i zużycia (EP/AW)", "count": 1},
+    "Tapping Torque Test": {"duration_min": 45, "equipment": "Trybometr", "count": 1},
+    "Demulgowalność": {"duration_min": 45, "equipment": "Aparat do demulgowalności", "count": 1},
     "Pour Point": {"duration_min": 30, "equipment": "Aparat Pour Point", "count": 1},
 }
 
@@ -163,7 +163,7 @@ GROUP_PHYSICAL_DEFAULTS = {
 
 # Zestaw startowy active_portfolio - JEDYNA taksonomia w apce, wspólna dla trybu ręcznego i
 # recepturowego: 7 grup produktowych z GROUP_PHYSICAL_DEFAULTS, bez osobnych, zaszytych w
-# kodzie linii marek (dawne FUCHS_PORTFOLIO z nazwami typu "Hydraulic Oils (RENOLIN)") - to
+# kodzie linii marek (dawne nazwy typu "Hydraulic Oils (Marka X)") - to
 # było źródłem dublowania się nazewnictwa, gdy obok wbudowanych linii pojawiały się grupy
 # z wgranej receptury o niemal identycznej nazwie.
 GENERIC_PORTFOLIO = {
@@ -798,9 +798,10 @@ def generate_recipe_template_bytes():
             ws_qc.cell(row=qc_row, column=4 + pc, value="").fill = input_fill
         qc_row += 1
     # Przykład WŁASNEGO testu spoza wbudowanego katalogu - wystarczy wypełnić 'Sprzęt' i
-    # 'Czas [min]', a aplikacja zarejestruje go jako nowy test przy wgraniu pliku.
-    ws_qc.cell(row=qc_row, column=1, value="Przykład: Twój własny test").fill = input_fill
-    ws_qc.cell(row=qc_row, column=2, value="Nazwa Twojego aparatu").fill = input_fill
+    # 'Czas [min]', a aplikacja zarejestruje go jako nowy test przy wgraniu pliku. To dokładnie
+    # Twój przypadek (drugi aparat do pienienia) - podmień na Twój rzeczywisty sprzęt/czas.
+    ws_qc.cell(row=qc_row, column=1, value="XXX Foam Tester").fill = input_fill
+    ws_qc.cell(row=qc_row, column=2, value="XXX Foam Tester").fill = input_fill
     ws_qc.cell(row=qc_row, column=3, value=30).fill = input_fill
     for pc in range(len(example_qc_products)):
         ws_qc.cell(row=qc_row, column=4 + pc, value="").fill = input_fill
@@ -825,8 +826,8 @@ def generate_recipe_template_bytes():
     # Przykład: dwaj dostawcy tej samej bazy - osobne pozycje (własne śledzenie zużycia), ale
     # WSPÓLNE ID Zbiornika (rotacja dostawców w tym samym fizycznym zbiorniku R-01).
     example_direct_rm = [
-        ("Hydraulic Oils", "Baza Grupy I - Dostawca A", "Base Oil Group I", 700.0, "R-01"),
-        ("Hydraulic Oils", "Baza Grupy I - Dostawca B", "Base Oil Group I", 500.0, "R-01"),
+        ("Hydraulic Oils", "Baza Grupy I - Dostawca X1", "Base Oil Group I", 700.0, "R-01"),
+        ("Hydraulic Oils", "Baza Grupy I - Dostawca X2", "Base Oil Group I", 500.0, "R-01"),
         ("Engine Oils", "Base Oil Group III", "Base Oil Group III", 800.0, ""),
     ]
     for row_idx, (grp, mat, cat, val, tank_id) in enumerate(example_direct_rm, start=2):
@@ -853,8 +854,8 @@ def generate_recipe_template_bytes():
     # Przykład: rozbicie "całego zakładu" (puste pole grupy) dla Base Oil Group II - 60/40 na
     # dwóch dostawców, sumujące się do 100%.
     example_supplier = [
-        ("", "Base Oil Group II", "PRIMA 230N", 60.0, "Hydrokraking", ""),
-        ("", "Base Oil Group II", "Dostawca B", 40.0, "", ""),
+        ("", "Base Oil Group II", "Baza Grupy II - Dostawca X1", 60.0, "", ""),
+        ("", "Base Oil Group II", "Baza Grupy II - Dostawca X2", 40.0, "", ""),
     ]
     for row_idx, (grp, cat, sup, pct, tech, tank_id) in enumerate(example_supplier, start=2):
         ws_supplier.cell(row=row_idx, column=1, value=grp).fill = input_fill
@@ -1230,7 +1231,7 @@ def parse_direct_raw_materials_excel(uploaded_file):
     zużycie znasz wprost (np. "zużywamy X ton Bazy Grupy I od Dostawcy A rocznie"), ale NIE
     chcesz/możesz ujawnić pełnej receptury produktu z uwagi na ochronę know-how.
 
-    Nazwa Surowca jest DOWOLNA (np. "Baza Grupy I - Dostawca A", "Baza Grupy I - Dostawca B" jako
+    Nazwa Surowca jest DOWOLNA (np. "Baza Grupy I - Dostawca X1", "Baza Grupy I - Dostawca X2" jako
     dwie ODRĘBNE pozycje - własne zbiorniki/cysterny/zużycie) - nie musi pasować do sztywnej listy
     kategorii z Zakładki 1. Kategoria (opcjonalna) łączy to z jedną z tych kategorii WYŁĄCZNIE do
     raportów zbiorczych - sam dobór zbiornika działa na konkretnej nazwie, nie na kategorii.
@@ -2866,7 +2867,7 @@ def sync_recipes_into_fleet_defaults():
     """
     Spina Zakładkę 1 (Receptury) z Zakładką 2 (Flota) NA POZIOMIE GRUPY PRODUKTOWEJ - tak jak
     w pliku Excel (Cleaners/Engine Oils/Glycols/Greases/Hydraulic Oils/Watermiscibles/Waxes),
-    a nie per pojedynczy produkt czy stara szczegółowa linia FUCHS_PORTFOLIO. Każda grupa
+    a nie per pojedynczy produkt czy stara szczegółowa lista marek. Każda grupa
     obecna w recepturze staje się JEDNĄ pozycją do wyboru w panelu bocznym.
 
     W ramach grupy, wiersze (produkty) dzielą się na "sloty" zbiornikowe wg RECIPE_TANK_ID_COL:
