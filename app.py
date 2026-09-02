@@ -6443,7 +6443,9 @@ with tab5:
                         "TEN SAM, spójny wariant (wcześniej to były dwa niezależne, rozjeżdżające się wyliczenia)."
                     )
 
-                # --- Sposób magazynowania: automatyczna sugestia + RĘCZNE nadpisanie per surowiec ---
+                # --- Sposób magazynowania: automatyczna sugestia + RĘCZNE nadpisanie per surowiec,
+                # POŁĄCZONE w JEDNĄ tabelę razem z wynikiem (bufor/silosy/rekomendacja) - wcześniej
+                # to były dwie osobne tabele, które trzeba było zestawiać ręcznie po nazwie surowca.
                 # Algorytm sugeruje "Zbiornik" tylko gdy fizycznie się nadaje (bulk_eligible) I przekracza
                 # próg opłacalności - ale to tylko sugestia. Materiał sypki, dostępny wyłącznie w
                 # paczkach/workach, albo z innego powodu niemagazynowalny luzem MUSI dać się ręcznie
@@ -6451,31 +6453,15 @@ with tab5:
                 if "rm_storage_method_override" not in st.session_state:
                     st.session_state.rm_storage_method_override = {}
 
-                override_rows = []
-                for material, annual_tony_target in sorted(recipe_consumption_target.items(), key=lambda x: -x[1]):
-                    if annual_tony_target <= 0:
-                        continue
-                    info = RAW_MATERIAL_STORAGE_INFO.get(material, {"bulk_eligible": True, "note": "Brak danych - domyślnie traktowany jak ciecz magazynowalna luzem."})
-                    auto_suggestion = "Zbiornik (luzem)" if (info["bulk_eligible"] and annual_tony_target >= prog_zbiornika_t) else "Beczki / IBC / worki"
-                    current_choice = st.session_state.rm_storage_method_override.get(material, auto_suggestion)
-                    override_rows.append({
-                        "Surowiec": material, "Zużycie docelowe [t/rok]": round(annual_tony_target, 1),
-                        "Sugestia algorytmu": auto_suggestion, "Sposób magazynowania": current_choice,
-                    })
-
-                st.markdown("##### 🔀 Sposób magazynowania per surowiec (możesz nadpisać sugestię)")
+                st.markdown("##### 🔀 Sposób magazynowania i dobór zbiornika per surowiec (możesz nadpisać sugestię)")
                 st.caption("Np. materiał sypki, dostępny tylko w paczkach/workach, albo z innego powodu "
-                           "niemagazynowalny luzem — zmień 'Sposób magazynowania' na 'Beczki / IBC / worki', a "
-                           "przeliczy się to poprawnie do magazynu RM poniżej.")
-                edited_override_df = st.data_editor(
-                    pd.DataFrame(override_rows), hide_index=True, use_container_width=True,
-                    disabled=["Surowiec", "Zużycie docelowe [t/rok]", "Sugestia algorytmu"], key="rm_storage_override_editor",
-                    column_config={
-                        "Sposób magazynowania": st.column_config.SelectboxColumn(options=["Zbiornik (luzem)", "Beczki / IBC / worki"]),
-                    }
-                )
-                for _, r in edited_override_df.iterrows():
-                    st.session_state.rm_storage_method_override[r["Surowiec"]] = r["Sposób magazynowania"]
+                           "niemagazynowalny luzem — zmień 'Sposób magazynowania' na 'Beczki / IBC / worki'. "
+                           "Wynik (bufor, liczba zbiorników) przelicza się natychmiast w tym samym wierszu.")
+
+                # "Konsumpcja (ten rok)" pokazujemy TYLKO gdy wybrany widok to konkretny rok rozruchu
+                # (nie cel 100%) - inaczej kolumna byłaby identyczna z "docelowo" w każdym wierszu,
+                # co nie niesie żadnej dodatkowej informacji.
+                show_this_year_col = selected_rm_year_idx is not None
 
                 recipe_silos_rows = []
                 recipe_total_tanks = 0
@@ -6487,11 +6473,12 @@ with tab5:
                     annual_tony_year = recipe_consumption.get(material, 0.0)
                     info = RAW_MATERIAL_STORAGE_INFO.get(material, {"bulk_eligible": True, "note": "Brak danych - domyślnie traktowany jak ciecz magazynowalna luzem."})
                     bulk_ok = info["bulk_eligible"]
-                    recommend_tank = st.session_state.rm_storage_method_override.get(material) == "Zbiornik (luzem)"
+                    auto_suggestion = "Zbiornik (luzem)" if (bulk_ok and annual_tony_target >= prog_zbiornika_t) else "Beczki / IBC / worki"
+                    current_choice = st.session_state.rm_storage_method_override.get(material, auto_suggestion)
+                    recommend_tank = current_choice == "Zbiornik (luzem)"
 
                     daily_t = annual_tony_target / WORKING_DAYS_YEAR
-                    is_manual_override = st.session_state.rm_storage_method_override.get(material) != (
-                        "Zbiornik (luzem)" if (bulk_ok and annual_tony_target >= prog_zbiornika_t) else "Beczki / IBC / worki")
+                    is_manual_override = current_choice != auto_suggestion
                     if recommend_tank:
                         required_m3 = (daily_t * days_of_stock) / OIL_FILL_FACTOR
                         # Netto pojemność potrzebna PO uwzględnieniu współczynnika bezpiecznego napełnienia -
@@ -6507,7 +6494,7 @@ with tab5:
                         recipe_total_tanks += needed_tanks
                         rekomendacja = f"🛢️ {needed_tanks}× zbiornik dedykowany ({recommended_capacity:.0f} m³)"
                         uzasadnienie = (f"Zużycie {annual_tony_target:.1f} t/rok (docelowo) ≥ próg {prog_zbiornika_t:.0f} t/rok, nadaje się do magazynowania luzem."
-                                         if not is_manual_override else "Ręcznie wybrane powyżej (odbiega od sugestii algorytmu).")
+                                         if not is_manual_override else "Ręcznie wybrane obok (odbiega od sugestii algorytmu).")
                         bufor_txt = f"{required_m3:.1f}"
                         silosy_txt = f"{needed_tanks} szt."
                         wykorzystanie_txt = f"{(annual_tony_year / annual_tony_target * 100.0):.0f}%" if annual_tony_target > 0 else "—"
@@ -6517,7 +6504,7 @@ with tab5:
                     else:
                         rekomendacja = "🧴 Beczki / IBC / worki"
                         if is_manual_override:
-                            uzasadnienie = "Ręcznie wybrane powyżej (odbiega od sugestii algorytmu) — np. materiał sypki/w paczkach."
+                            uzasadnienie = "Ręcznie wybrane obok (odbiega od sugestii algorytmu) — np. materiał sypki/w paczkach."
                         else:
                             uzasadnienie = info["note"] if not bulk_ok else f"Zużycie {annual_tony_target:.1f} t/rok (docelowo) < próg {prog_zbiornika_t:.0f} t/rok — zbiornik się nie opłaca."
                         bufor_txt = "—"
@@ -6526,15 +6513,33 @@ with tab5:
                         if annual_tony_year > 0:
                             drummed_materials.append({"material": material, "annual_tony": annual_tony_year, "info": info})
 
-                    recipe_silos_rows.append({
-                        "Surowiec": material, "Konsumpcja [t/rok] (docelowo)": round(annual_tony_target, 2),
-                        "Konsumpcja [t/rok] (ten rok)": round(annual_tony_year, 2),
+                    row_dict = {"Surowiec": material, "Konsumpcja [t/rok] (docelowo)": round(annual_tony_target, 2)}
+                    if show_this_year_col:
+                        row_dict["Konsumpcja [t/rok] (ten rok)"] = round(annual_tony_year, 2)
+                    row_dict.update({
+                        "Sposób magazynowania": current_choice,
                         "Wymagany Bufor [m³]": bufor_txt, "Liczba silosów": silosy_txt,
                         "Wykorzystanie w tym roku": wykorzystanie_txt,
                         "Rekomendacja": rekomendacja, "Uzasadnienie": uzasadnienie,
                     })
+                    recipe_silos_rows.append(row_dict)
 
-                st.dataframe(pd.DataFrame(recipe_silos_rows), hide_index=True, use_container_width=True)
+                all_cols = list(recipe_silos_rows[0].keys()) if recipe_silos_rows else []
+                edited_silos_df = st.data_editor(
+                    pd.DataFrame(recipe_silos_rows), hide_index=True, use_container_width=True,
+                    disabled=[c for c in all_cols if c != "Sposób magazynowania"], key="rm_storage_override_editor",
+                    column_config={
+                        "Sposób magazynowania": st.column_config.SelectboxColumn(options=["Zbiornik (luzem)", "Beczki / IBC / worki"]),
+                    }
+                )
+                storage_choice_changed = False
+                for _, r in edited_silos_df.iterrows():
+                    if st.session_state.rm_storage_method_override.get(r["Surowiec"]) != r["Sposób magazynowania"]:
+                        storage_choice_changed = True
+                    st.session_state.rm_storage_method_override[r["Surowiec"]] = r["Sposób magazynowania"]
+                if storage_choice_changed:
+                    st.rerun()
+
                 m_silo1, m_silo2 = st.columns(2)
                 with m_silo1:
                     st.metric("🧱 Całkowita liczba silosów (surowce w zbiornikach, docelowo)", f"{recipe_total_tanks} szt.")
@@ -6749,20 +6754,29 @@ with tab5:
                     tanker_pct_col = recipe_pack_pct_col("Cysterna (luzem)")
                     if tanker_pct_col in recipes_df_fgbuf.columns:
                         for m in st.session_state.confirmed_mixers:
-                            recipe_product_fgbuf = m.get("recipe_product")
-                            if not recipe_product_fgbuf:
-                                continue
-                            match_fgbuf = recipes_df_fgbuf[recipes_df_fgbuf[RECIPE_PRODUCT_COL] == recipe_product_fgbuf]
-                            if match_fgbuf.empty or float(match_fgbuf.iloc[0].get(tanker_pct_col, 0) or 0) <= 0:
-                                continue
-                            density_fgbuf = st.session_state.active_portfolio.get(m["product_family"], {}).get("density", 0.9)
-                            # Sugestia: ~1,5x masy szarży, żeby zmieścić szarżę + margines na kolejną,
-                            # zanim cysterna zdąży odebrać poprzednią.
-                            suggested_capacity_m3 = round((m["mass_per_batch"] * 1.5 / 1000.0) / density_fgbuf, 1)
-                            fg_buffer_candidates.append({
-                                "recipe_product": recipe_product_fgbuf, "mixer_tag": m["tag"],
-                                "suggested_capacity_m3": suggested_capacity_m3,
-                            })
+                            # Zbiornik z JEDNYM produktem - jak dotychczas.
+                            # Zbiornik KAMPANIJNY (współdzielony) - sprawdź KAŻDY produkt osobno,
+                            # nie tylko m["recipe_product"] (który dla zbiorników kampanijnych jest
+                            # pusty) - inaczej produkty na współdzielonych mieszalnikach nigdy nie
+                            # trafiały do kandydatów na bufor FG, mimo mającej sens 'Cysterna (luzem)'.
+                            candidate_products = ([m.get("recipe_product")] if m.get("recipe_product")
+                                                   else [mem["product"] for mem in (m.get("shared_members") or [])])
+                            for recipe_product_fgbuf in candidate_products:
+                                if not recipe_product_fgbuf:
+                                    continue
+                                match_fgbuf = recipes_df_fgbuf[recipes_df_fgbuf[RECIPE_PRODUCT_COL] == recipe_product_fgbuf]
+                                if match_fgbuf.empty or float(match_fgbuf.iloc[0].get(tanker_pct_col, 0) or 0) <= 0:
+                                    continue
+                                density_fgbuf = st.session_state.active_portfolio.get(m["product_family"], {}).get("density", 0.9)
+                                # Sugestia: ~1,5x masy szarży, żeby zmieścić szarżę + margines na kolejną,
+                                # zanim cysterna zdąży odebrać poprzednią. Masa szarży to właściwość
+                                # FIZYCZNEGO zbiornika (jego objętość), ta sama niezależnie od tego,
+                                # który z współdzielonych produktów akurat w nim powstaje.
+                                suggested_capacity_m3 = round((m["mass_per_batch"] * 1.5 / 1000.0) / density_fgbuf, 1)
+                                fg_buffer_candidates.append({
+                                    "recipe_product": recipe_product_fgbuf, "mixer_tag": m["tag"],
+                                    "suggested_capacity_m3": suggested_capacity_m3,
+                                })
 
                 if fg_buffer_candidates:
                     fg_buf_editor_rows = [
