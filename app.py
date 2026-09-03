@@ -179,7 +179,7 @@ PACKAGING_SHEET_NAME = "Opakowania"
 PACKAGING_NAME_COL = "Nazwa Opakowania"
 PACKAGING_SIZE_COL = "Pojemność [L]"
 PACKAGING_PER_PALLET_COL = "Sztuk na Palecie"
-PACKAGING_RATE_COL = "Wydajność 1 głowicy [kg/min]"
+PACKAGING_RATE_COL = "Wydajność 1 głowicy [l/min]"
 PACKAGING_NOZZLES_COL = "Liczba głowic (domyślna)"
 
 QC_SHEET_NAME = "Badania Laboratoryjne"
@@ -773,11 +773,11 @@ def generate_recipe_template_bytes():
     for name, cfg in current_pack_defaults.items():
         is_small_pack = "5l" in name.lower() or "1l" in name.lower() or "4l" in name.lower()
         default_nozzles = 4 if is_small_pack else 1
-        default_rate_kg_min = 15.0 if is_small_pack else 60.0
+        default_rate_l_min = 18.0 if is_small_pack else 70.0
         ws_pack.cell(row=pack_row, column=1, value=name).fill = input_fill
         ws_pack.cell(row=pack_row, column=2, value=cfg.get("size_l", 0)).fill = input_fill
         ws_pack.cell(row=pack_row, column=3, value=cfg.get("per_pallet", 0)).fill = input_fill
-        ws_pack.cell(row=pack_row, column=4, value=default_rate_kg_min).fill = input_fill
+        ws_pack.cell(row=pack_row, column=4, value=default_rate_l_min).fill = input_fill
         ws_pack.cell(row=pack_row, column=5, value=default_nozzles).fill = input_fill
         pack_row += 1
     for col, w in zip("ABCDE", [22, 16, 16, 20, 20]):
@@ -1130,7 +1130,7 @@ def parse_packaging_excel(uploaded_file):
     """
     Wczytuje opcjonalny arkusz 'Opakowania' z tego samego pliku Excel co receptury.
     Zwraca (dict_opakowan, lista_bledow). dict_opakowan ma strukturę zgodną z PACK_CONFIGS
-    (size_l, per_pallet, rate_szt_h) rozszerzoną o domyślne nozzles/speed_kg_min do
+    (size_l, per_pallet, rate_szt_h) rozszerzoną o domyślne nozzles/speed_l_min do
     prekonfiguracji sekcji rozlewu w Zakładce 3. Jeśli arkusz nie istnieje w pliku, zwraca
     (None, []) po cichu - to pole jest opcjonalne, nie każdy plik musi go zawierać.
     """
@@ -1183,7 +1183,7 @@ def parse_packaging_excel(uploaded_file):
         rate = row.get(PACKAGING_RATE_COL) if PACKAGING_RATE_COL in df.columns else None
         nozzles = row.get(PACKAGING_NOZZLES_COL) if PACKAGING_NOZZLES_COL in df.columns else None
         filling_defaults[name] = {
-            "speed_kg_min": float(rate) if pd.notna(rate) else 30.0,
+            "speed_l_min": float(rate) if pd.notna(rate) else 35.0,
             "nozzles": float(nozzles) if pd.notna(nozzles) else 1.0,
         }
 
@@ -1999,7 +1999,7 @@ def compute_filling_time_h(mass_kg, recipe_product, kat, mixer_tag, rho_linii, o
         if pack_capacity_kg <= 0:
             continue
         cfg_fill = st.session_state.filling_lines_config.get(p, default_filling_line_config(p))
-        sekcja_nalewania_m3_h = (cfg_fill["nozzles"] * cfg_fill["speed_kg_min"] * 60.0) / (rho_linii * 1000.0)
+        sekcja_nalewania_m3_h = (cfg_fill["nozzles"] * cfg_fill["speed_l_min"] * 60.0) / 1000.0
         q_effective_flow_m3h = min(q_pump_m3h, sekcja_nalewania_m3_h)
         if q_effective_flow_m3h > 0:
             total_h += (mass_this_pack_kg / (rho_linii * 1000.0)) / q_effective_flow_m3h
@@ -2017,17 +2017,17 @@ def default_filling_line_config(pack_name):
     absurdalny czas napełnienia (~12h zamiast realnych 30-60 min).
     """
     if pack_name in st.session_state.get("pack_configs", {}) and st.session_state.pack_configs[pack_name].get("per_pallet") == 0:
-        return {"nozzles": 1, "speed_kg_min": 800.0}  # ramię załadowcze cysterny, ~48 t/h
+        return {"nozzles": 1, "speed_l_min": 950.0}  # ramię załadowcze cysterny, ~57 m³/h
     if "5l" in pack_name.lower() or "1l" in pack_name.lower():
-        return {"nozzles": 4, "speed_kg_min": 15.0}  # mała pakowarka wielogłowicowa (detal/karton)
-    return {"nozzles": 2, "speed_kg_min": 60.0}  # standardowa dysza do beczek/kanistrów/IBC - 2 głowice
+        return {"nozzles": 4, "speed_l_min": 18.0}  # mała pakowarka wielogłowicowa (detal/karton)
+    return {"nozzles": 2, "speed_l_min": 70.0}  # standardowa dysza do beczek/kanistrów/IBC - 2 głowice
     # jako bardziej realistyczny punkt startowy dla większych partii niż pojedyncza dysza; i tak
     # zawsze warto zweryfikować/dostosować w Zakładce 4 do rzeczywistej linii nalewającej.
 
 
-def default_filling_speed_kg_min(pack_name):
+def default_filling_speed_l_min(pack_name):
     """Zachowane dla zgodności - zwraca tylko prędkość z default_filling_line_config."""
-    return default_filling_line_config(pack_name)["speed_kg_min"]
+    return default_filling_line_config(pack_name)["speed_l_min"]
 
 
 def round_visible(value, min_significant=2, max_decimals=8):
@@ -5081,7 +5081,7 @@ with tab3:
         pack_fill_editor_rows = [
             {"Nazwa Opakowania": name, "Pojemność [L]": cfg["size_l"], "Sztuk na Palecie": cfg["per_pallet"],
              "Głowice nalewaka [szt]": int(st.session_state.filling_lines_config.get(name, {"nozzles": 1})["nozzles"]),
-             "Wydajność 1 głowicy [kg/min]": float(st.session_state.filling_lines_config.get(name, {"speed_kg_min": default_filling_speed_kg_min(name)})["speed_kg_min"])}
+             "Wydajność 1 głowicy [l/min]": float(st.session_state.filling_lines_config.get(name, {"speed_l_min": default_filling_speed_l_min(name)})["speed_l_min"])}
             for name, cfg in st.session_state.pack_configs.items()
         ]
         edited_pack_fill_df = st.data_editor(
@@ -5102,7 +5102,7 @@ with tab3:
             }
             new_filling_config[name] = {
                 "nozzles": float(row["Głowice nalewaka [szt]"]) if pd.notna(row["Głowice nalewaka [szt]"]) else 1.0,
-                "speed_kg_min": float(row["Wydajność 1 głowicy [kg/min]"]) if pd.notna(row["Wydajność 1 głowicy [kg/min]"]) else 30.0,
+                "speed_l_min": float(row["Wydajność 1 głowicy [l/min]"]) if pd.notna(row["Wydajność 1 głowicy [l/min]"]) else 35.0,
             }
         st.session_state.pack_configs = new_pack_configs
         st.session_state.filling_lines_config = new_filling_config
@@ -5221,7 +5221,7 @@ with tab3:
                 liczba_sztuk_month = math.ceil(masa_opakowania_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
 
                 cfg_fill = st.session_state.filling_lines_config.get(p, default_filling_line_config(p))
-                sekcja_nalewania_m3_h = (cfg_fill["nozzles"] * cfg_fill["speed_kg_min"] * 60.0) / (rho_linii * 1000.0)
+                sekcja_nalewania_m3_h = (cfg_fill["nozzles"] * cfg_fill["speed_l_min"] * 60.0) / 1000.0
 
                 # Rzeczywisty przepływ pompy TEGO KONKRETNEGO mieszalnika z Zakładki 2 (nie
                 # reprezentanta całej grupy jak poprzednio - każdy mieszalnik ma teraz własny wiersz).
@@ -7246,76 +7246,6 @@ with tab6:
                    "operacyjnie, ale to właśnie tu zwykle leży potencjał skrócenia lead time. **C/O** i **OEE** "
                    "pokazane pod nazwą etapu, gdy dotyczy.")
 
-        # --- WSKAŹNIKI: DZIEŃ / MIESIĄC / ROK - produkcja, laboratorium, logistyka razem, dla
-        # WYBRANEGO wyżej mieszalnika (i konkretnego produktu, jeśli zbiornik kampanijny). ---
-        st.markdown("### 📊 Wskaźniki: Dzień / Miesiąc / Rok")
-        dni_robocze_miesiac_vsm = WORKING_DAYS_YEAR / MONTHS_PER_YEAR
-        batches_year_this = batches_month_this_mixer * MONTHS_PER_YEAR
-        batches_day_this = batches_month_this_mixer / dni_robocze_miesiac_vsm if dni_robocze_miesiac_vsm > 0 else 0.0
-
-        n_tests_per_batch_vsm = len(qc_cfg.get("tests", []))
-        qc_day = n_tests_per_batch_vsm * batches_day_this
-        qc_month = n_tests_per_batch_vsm * batches_month_this_mixer
-        qc_year = n_tests_per_batch_vsm * batches_year_this
-
-        wp1, wp2, wp3 = st.columns(3)
-        with wp1: st.metric("🏭 Szarż — dzień", f"{batches_day_this:.2f}")
-        with wp2: st.metric("🏭 Szarż — miesiąc", f"{batches_month_this_mixer}")
-        with wp3: st.metric("🏭 Szarż — rok", f"{batches_year_this}")
-
-        wr1, wr2, wr3 = st.columns(3)
-        with wr1: st.metric("🚿 Rozlew — na szarżę", f"{filling_h:.2f} h")
-        with wr2: st.metric("🚿 Rozlew — miesiąc", f"{filling_h * batches_month_this_mixer:.1f} h",
-                             help=f"{filling_h:.2f} h/szarżę × {batches_month_this_mixer} szarż/mies.")
-        with wr3: st.metric("🚿 Rozlew — rok", f"{filling_h * batches_year_this:.0f} h",
-                             help=f"{filling_h:.2f} h/szarżę × {batches_year_this} szarż/rok")
-        if transfer_do_bufora_vsm:
-            st.caption("☝️ To obciążenie **linii rozlewu**, nie mieszalnika — przy 'Transfer do bufora' mieszalnik "
-                       "zwalnia się dużo szybciej (patrz krok 'Pompowanie' w diagramie wyżej), a te godziny "
-                       "rozlewu przechodzą na linię rozlewu/nalewak, niezależnie od cyklu mieszalnika.")
-
-        wq1, wq2, wq3 = st.columns(3)
-        with wq1: st.metric("🧪 Badań QC — dzień", f"{qc_day:.2f}")
-        with wq2: st.metric("🧪 Badań QC — miesiąc", f"{qc_month}")
-        with wq3: st.metric("🧪 Badań QC — rok", f"{qc_year}")
-
-        # Logistyka: dostawy RM (cysterny per surowiec) i wysyłki FG (jeśli "Cysterna (luzem)")
-        # dla konkretnego produktu tego mieszalnika - ta sama logika co widget porównawczy
-        # (Zakładka 2, Karta Maszyn), przeliczona tu na dzień/miesiąc/rok.
-        recipes_df_vsm = st.session_state.get("recipes_df")
-        rm_tankers_month_total, fg_tankers_month = 0, 0
-        if recipes_df_vsm is not None and not recipes_df_vsm.empty and recipe_product_for_logistics:
-            match_vsm = recipes_df_vsm[recipes_df_vsm[RECIPE_PRODUCT_COL] == recipe_product_for_logistics]
-            if not match_vsm.empty:
-                row_vsm = match_vsm.iloc[0]
-                mass_per_batch_for_log = (mass_per_batch_vsm if shared_members_vsm else selected_vsm_mixer["mass_per_batch"])
-                monthly_mass_for_log = mass_per_batch_for_log * batches_month_this_mixer
-                rm_storage_override_vsm = st.session_state.get("rm_storage_method_override", {})
-                for mat in RECIPE_RAW_MATERIALS:
-                    dozowanie_kg_t = float(row_vsm.get(mat, 0) or 0)
-                    if dozowanie_kg_t <= 0 or rm_storage_override_vsm.get(mat) == "Zbiornik (luzem)":
-                        continue
-                    mat_month_t = dozowanie_kg_t / 1000.0 * (monthly_mass_for_log / 1000.0)
-                    rm_tankers_month_total += math.ceil(mat_month_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
-                tanker_col_vsm = recipe_pack_pct_col("Cysterna (luzem)")
-                if tanker_col_vsm in recipes_df_vsm.columns and float(row_vsm.get(tanker_col_vsm, 0) or 0) > 0:
-                    fg_tankers_month = math.ceil((monthly_mass_for_log / 1000.0) / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
-
-        wl1, wl2, wl3 = st.columns(3)
-        with wl1: st.metric("🚚 Cystern RM — dzień", f"{(rm_tankers_month_total / dni_robocze_miesiac_vsm) if dni_robocze_miesiac_vsm > 0 else 0:.2f}")
-        with wl2: st.metric("🚚 Cystern RM — miesiąc", f"{rm_tankers_month_total}")
-        with wl3: st.metric("🚚 Cystern RM — rok", f"{rm_tankers_month_total * MONTHS_PER_YEAR}")
-        if fg_tankers_month > 0:
-            wf1, wf2, wf3 = st.columns(3)
-            with wf1: st.metric("📦 Wysyłek FG (cysterna) — dzień", f"{(fg_tankers_month / dni_robocze_miesiac_vsm) if dni_robocze_miesiac_vsm > 0 else 0:.2f}")
-            with wf2: st.metric("📦 Wysyłek FG (cysterna) — miesiąc", f"{fg_tankers_month}")
-            with wf3: st.metric("📦 Wysyłek FG (cysterna) — rok", f"{fg_tankers_month * MONTHS_PER_YEAR}")
-
-        # --- POJEMNOŚĆ LABORATORIUM: obciążenie każdego aparatu w CAŁYM ZAKŁADZIE (nie tylko dla
-        # wybranego mieszalnika) - niektóre testy mogą mieć WIĘCEJ NIŻ JEDEN identyczny aparat w
-        # laboratorium (np. 2 aparaty do pienienia), co bezpośrednio podwaja przepustowość tego
-        # konkretnego testu na cały zakład, nie tylko dla jednej szarży/mieszalnika. ---
-        st.markdown("---")
         st.markdown("### 🔬 Pojemność Laboratorium (cały zakład)")
         st.caption("Zużycie czasu każdego aparatu, zsumowane po WSZYSTKICH mieszalnikach i produktach na raz — "
                    "jeśli laboratorium ma więcej niż 1 sztukę danego aparatu, wpisz to poniżej: bezpośrednio "
@@ -7418,6 +7348,9 @@ with tab8:
 
         st.markdown("### 🏭 Produkcja i Flota")
         st.metric("🎯 Docelowa produkcja własna (100%, Rok 5+)", f"{target_annual_t_dash:,.0f} t/rok — {n_mixers} mieszalników, {len(groups_active)} grup produktowych")
+        st.caption("ℹ️ To dokładny cel z receptury (Zakładka 1), przed zaokrągleniem szarż. **'Rok 5' poniżej może "
+                   "pokazywać nieco WIĘCEJ** — bo szarż nie da się zrobić w ułamkach, więc flota zawsze zaokrągla "
+                   "liczbę szarż w górę do pełnej sztuki, osiągając odrobinę więcej niż dokładny cel, nigdy mniej.")
         st.caption("ℹ️ **Utylizacja = czas pracy ÷ dostępny czas pracy w miesiącu** (szarże × cykl [h] ÷ godziny "
                    "dostępne) — ta sama logika co Zakładka 1 ('Utylizacja Czasowa'). To realny wskaźnik: nawet przy "
                    "100% docelowej produkcji mieszalnik zwykle **nie** osiąga 100% (zbiornik ma margines na "
