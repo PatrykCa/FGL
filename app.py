@@ -1998,12 +1998,28 @@ def compute_filling_time_h(mass_kg, recipe_product, kat, mixer_tag, rho_linii, o
         pack_capacity_kg = st.session_state.pack_configs[p]["size_l"] * rho_linii
         if pack_capacity_kg <= 0:
             continue
-        cfg_fill = st.session_state.filling_lines_config.get(p, default_filling_line_config(p))
+        cfg_fill = get_filling_config(p)
         sekcja_nalewania_m3_h = (cfg_fill["nozzles"] * cfg_fill["speed_l_min"] * 60.0) / 1000.0
         q_effective_flow_m3h = min(q_pump_m3h, sekcja_nalewania_m3_h)
         if q_effective_flow_m3h > 0:
             total_h += (mass_this_pack_kg / (rho_linii * 1000.0)) / q_effective_flow_m3h
     return total_h
+
+
+def get_filling_config(pack_name):
+    """
+    JEDNO ŹRÓDŁO PRAWDY dla odczytu konfiguracji linii nalewającej danego opakowania - odporne na
+    STARE wpisy w pamięci sesji sprzed zmiany jednostki prędkości z kg/min na l/min (klucz
+    "speed_kg_min" zamiast "speed_l_min"). Bez tej ochrony stary wpis w session_state powodował
+    KeyError przy każdym uruchomieniu, dopóki użytkownik nie wyczyścił sesji ręcznie. Stary wpis
+    jest traktowany jako nieaktualny i zastępowany świeżym domyślnym (w l/min) - nie próbujemy
+    liczbowo przeliczać kg/min na l/min tutaj, bo wymagałoby to gęstości, której nie mamy na tym
+    poziomie (per opakowanie, nie per konkretny produkt).
+    """
+    cfg = st.session_state.filling_lines_config.get(pack_name)
+    if cfg is None or "speed_l_min" not in cfg:
+        return default_filling_line_config(pack_name)
+    return cfg
 
 
 def default_filling_line_config(pack_name):
@@ -5081,7 +5097,7 @@ with tab3:
         pack_fill_editor_rows = [
             {"Nazwa Opakowania": name, "Pojemność [L]": cfg["size_l"], "Sztuk na Palecie": cfg["per_pallet"],
              "Głowice nalewaka [szt]": int(st.session_state.filling_lines_config.get(name, {"nozzles": 1})["nozzles"]),
-             "Wydajność 1 głowicy [l/min]": float(st.session_state.filling_lines_config.get(name, {"speed_l_min": default_filling_speed_l_min(name)})["speed_l_min"])}
+             "Wydajność 1 głowicy [l/min]": float(get_filling_config(name)["speed_l_min"])}
             for name, cfg in st.session_state.pack_configs.items()
         ]
         edited_pack_fill_df = st.data_editor(
@@ -5220,7 +5236,7 @@ with tab3:
                 pack_capacity_kg = st.session_state.pack_configs[p]["size_l"] * rho_linii
                 liczba_sztuk_month = math.ceil(masa_opakowania_month / pack_capacity_kg) if pack_capacity_kg > 0 else 0
 
-                cfg_fill = st.session_state.filling_lines_config.get(p, default_filling_line_config(p))
+                cfg_fill = get_filling_config(p)
                 sekcja_nalewania_m3_h = (cfg_fill["nozzles"] * cfg_fill["speed_l_min"] * 60.0) / 1000.0
 
                 # Rzeczywisty przepływ pompy TEGO KONKRETNEGO mieszalnika z Zakładki 2 (nie
