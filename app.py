@@ -3477,11 +3477,22 @@ with tab1:
             permanent_import_exempt_live = (edited_recipes_df[RECIPE_SOURCING_COL] == "Import") & \
                                             (edited_recipes_df[RECIPE_IMPORT_TRANSITION_COL].isin(["Nigdy (stały import)", "Nigdy (bufor)"]))
             bad_sum_live_mask = bad_sum_live_mask & ~permanent_import_exempt_live
+        # Suma dozowania RÓWNA DOKŁADNIE ZERO = świadoma ochrona know-how (receptura nieujawniona),
+        # NIE pomyłka - ta sama logika co przy wczytywaniu pliku (parse_recipe_excel). Bez tego
+        # wyjątku produkty z ukrytą recepturą dostawały ten sam alarmujący błąd co przy prawdziwej
+        # pomyłce (np. suma=850 zamiast 1000), co myliło z prawdziwym problemem do poprawienia.
+        undisclosed_live_mask = edited_recipes_df[RECIPE_SUM_COL].abs() < 1e-6
+        bad_sum_live_mask = bad_sum_live_mask & ~undisclosed_live_mask
         bad_sum_live = edited_recipes_df[bad_sum_live_mask]
         if not bad_sum_live.empty:
             zle_produkty = ", ".join(f"{p} ({s:.0f} kg/t)" for p, s in zip(bad_sum_live[RECIPE_PRODUCT_COL], bad_sum_live[RECIPE_SUM_COL]))
             st.error(f"❌ Suma dozowania surowców odbiega od 1000 kg/t (± {RECIPE_SUM_TOLERANCE_KG:.0f} kg) dla: "
                      f"{zle_produkty}. Popraw przed dalszą analizą.")
+        if undisclosed_live_mask.any():
+            undisclosed_products_live = edited_recipes_df.loc[undisclosed_live_mask, RECIPE_PRODUCT_COL].tolist()
+            st.info(f"ℹ️ Receptura NIE podana (dozowanie = 0) dla: {', '.join(map(str, undisclosed_products_live))} - "
+                    "przyjęto jako świadomą ochronę know-how, nie błąd. Zużycie surowców dla tych produktów musi "
+                    "pochodzić z arkusza 'Zużycie Surowców (bez receptury)'.")
 
         overloaded_live = edited_recipes_df[edited_recipes_df[RECIPE_UTILIZATION_COL] > RECIPE_UTILIZATION_WARN_PCT]
         if not overloaded_live.empty:
@@ -4768,6 +4779,81 @@ with tab2:
         # ============================================================
         # DOBÓR KOTŁA GRZEWCZEGO (agregacja zapotrzebowania cieplnego floty)
         # ============================================================
+        # ============================================================
+        # STRATY CIEPŁA INSTALACJI OLEJU TERMALNEGO/GRZEWCZEJ (PODTRZYMANIE TEMPERATURY)
+        # ============================================================
+        st.markdown("### 🔥🛢️ Straty Ciepła Instalacji Grzewczej (Podtrzymanie Temperatury)")
+        st.caption("Ciągła moc potrzebna, żeby utrzymać CAŁĄ instalację (rurociąg rozdzielczy + zbiorniki/kocioł/naczynie "
+                   "wzbiorcze) w temperaturze roboczej — NIEZALEŻNIE od tego, czy akurat grzejesz szarżę. To osobna, "
+                   "ciągła strata do otoczenia (izolacja nigdy nie jest doskonała), doliczana DODATKOWO do mocy "
+                   "potrzebnej na podgrzanie produktu poniżej.")
+
+        c_th1, c_th2, c_th3 = st.columns(3)
+        with c_th1:
+            temp_medium_grzewczego_c = st.number_input(
+                "Temperatura robocza medium grzewczego [°C]:", min_value=20.0, value=280.0, step=10.0, key="temp_medium_grzewczego",
+                help="Typowo 250-320°C dla oleju termalnego w instalacjach przemysłowych."
+            )
+        with c_th2:
+            u_wsp_izolacji = st.number_input(
+                "Współczynnik przenikania U (z izolacją) [W/(m²·K)]:", min_value=1.0, value=10.0, step=1.0, key="u_izolacja_termalna",
+                help="Dla dobrze izolowanego rurociągu przemysłowego (wełna mineralna + płaszcz blaszany) typowo 8-15 "
+                     "W/(m²·K), liczone względem powierzchni rury (nie płaszcza izolacji)."
+            )
+        with c_th3:
+            powierzchnia_zbiornikow_m2 = st.number_input(
+                "Powierzchnia zbiorników/kotła/nacz. wzbiorczego [m²]:", min_value=0.0, value=25.0, step=5.0, key="powierzchnia_zbiornikow_termal",
+                help="Łączna zewnętrzna powierzchnia 'brył' instalacji (kocioł, zbiornik oleju, naczynie wzbiorcze) - "
+                     "uproszczone, bez modelowania dokładnej geometrii każdej z osobna."
+            )
+
+        st.markdown("##### 🔧 Odcinki Rurociągu Rozdzielczego (jak na P&ID)")
+        st.caption("Wpisz odcinki dokładnie tak, jak na Twoim schemacie technologicznym (np. DN150, DN125, DN80...) - "
+                   "każdy wiersz to jeden odcinek o stałej średnicy.")
+        pipe_segments_default = [
+            {"Średnica DN [mm]": 150.0, "Długość [m]": 20.0},
+            {"Średnica DN [mm]": 125.0, "Długość [m]": 15.0},
+            {"Średnica DN [mm]": 80.0, "Długość [m]": 10.0},
+        ]
+        if "thermal_pipe_segments" not in st.session_state:
+            st.session_state.thermal_pipe_segments = pipe_segments_default
+        edited_pipe_segments = st.data_editor(
+            pd.DataFrame(st.session_state.thermal_pipe_segments), hide_index=True, use_container_width=True,
+            num_rows="dynamic", key="thermal_pipe_segments_editor"
+        )
+        segment_rows = [r for _, r in edited_pipe_segments.iterrows() if pd.notna(r["Średnica DN [mm]"]) and pd.notna(r["Długość [m]"])]
+        st.session_state.thermal_pipe_segments = [dict(r) for r in segment_rows]
+
+        pipe_surface_m2 = sum((row["Średnica DN [mm]"] / 1000.0) * math.pi * row["Długość [m]"] for row in st.session_state.thermal_pipe_segments)
+        total_surface_m2 = pipe_surface_m2 + powierzchnia_zbiornikow_m2
+
+        m_th1, m_th2 = st.columns(2)
+        with m_th1:
+            st.metric("📐 Powierzchnia rurociągu (odcinki)", f"{pipe_surface_m2:.1f} m²")
+        with m_th2:
+            st.metric("📐 Powierzchnia całkowita instalacji", f"{total_surface_m2:.1f} m²")
+
+        c_th_temp1, c_th_temp2 = st.columns(2)
+        with c_th_temp1:
+            temp_otoczenia_lato_c = st.number_input("Temperatura otoczenia — Lato [°C]:", value=25.0, step=1.0, key="temp_otoczenia_lato")
+        with c_th_temp2:
+            temp_otoczenia_zima_c = st.number_input("Temperatura otoczenia — Zima [°C]:", value=-15.0, step=1.0, key="temp_otoczenia_zima")
+
+        strata_ciepla_lato_kw = (u_wsp_izolacji * total_surface_m2 * (temp_medium_grzewczego_c - temp_otoczenia_lato_c)) / 1000.0
+        strata_ciepla_zima_kw = (u_wsp_izolacji * total_surface_m2 * (temp_medium_grzewczego_c - temp_otoczenia_zima_c)) / 1000.0
+        st.session_state["strata_ciepla_instalacji_zima_kw"] = strata_ciepla_zima_kw
+        st.session_state["strata_ciepla_instalacji_lato_kw"] = strata_ciepla_lato_kw
+
+        m_th3, m_th4 = st.columns(2)
+        with m_th3:
+            st.metric("☀️ Straty ciepła — Lato", f"{strata_ciepla_lato_kw:.1f} kW")
+        with m_th4:
+            st.metric("❄️ Straty ciepła — Zima (przyjęte do doboru kotła)", f"{strata_ciepla_zima_kw:.1f} kW")
+        st.caption("⚠️ Uproszczony model stacjonarny (U×A×ΔT) - nie uwzględnia wiatru, dokładnego stanu izolacji czy "
+                   "mostków cieplnych na podporach/zaworach/kołnierzach, które w praktyce zwiększają rzeczywiste straty.")
+
+        st.markdown("---")
+
         st.markdown("### 🔥 Dobór Kotła Grzewczego i Instalacji Grzewczej")
         st.caption("Sumuje moc grzania I przepływ medium grzewczego (ta zakładka) po wszystkich mieszalnikach — moc dobiera kocioł, "
                    "przepływ dobiera pompy obiegowe i średnicę rurociągu rozdzielczego.")
@@ -4832,6 +4918,13 @@ with tab2:
                 else:
                     needed = needed_peak
 
+                # Dolicz straty postojowe instalacji (zima, najgorszy przypadek) - TYLKO do medium
+                # oleju termalnego (nie do wody, żeby nie dublować straty, gdy flota używa obu
+                # mediów naraz) - kocioł na oleju musi utrzymać temperaturę instalacji CIĄGLE,
+                # nawet między szarżami, nie tylko pokryć szczyt grzania produktu.
+                if "olej" in medium.lower():
+                    needed += strata_ciepla_zima_kw
+
                 STANDARD_BOILER_SIZES_KW = [50, 75, 100, 150, 200, 250, 300, 400, 500, 600, 800, 1000, 1250, 1600, 2000]
                 recommended = next((s for s in STANDARD_BOILER_SIZES_KW if s >= needed), needed)
                 row = {
@@ -4871,7 +4964,9 @@ with tab2:
         with c_f3:
             st.metric("Moc zainstalowana grzania (suma floty)", f"{total_heating_power_installed:.1f} kW")
 
-        # Miesięczny koszt paliwa grzewczego — energia użyteczna (Q grzania) / sprawność kotła.
+        # Miesięczny koszt paliwa grzewczego — energia użyteczna (Q grzania) / sprawność kotła
+        # + CIĄGŁE straty postojowe instalacji (24/7, nie tylko podczas grzania szarży) dla oleju
+        # termalnego - to realny, stały koszt "trzymania temperatury" instalacji.
         total_heating_energy_mwh_month = 0.0
         for m in st.session_state.confirmed_mixers:
             ct = st.session_state.calculated_times.get(m["tag"])
@@ -4879,6 +4974,13 @@ with tab2:
                 continue
             energy_kwh_batch = ct.get("power_heating_kw", 0.0) * ct.get("heating", 0.0)
             total_heating_energy_mwh_month += (energy_kwh_batch * m["batches_count"]) / 1000.0
+
+        uses_thermal_oil = any("olej" in medium.lower() for medium in heat_by_medium.keys())
+        days_per_month_calendar = 365.25 / MONTHS_PER_YEAR
+        standby_loss_mwh_month = (strata_ciepla_zima_kw * 24.0 * days_per_month_calendar) / 1000.0 if uses_thermal_oil else 0.0
+        # Uwaga: instalacja stygnie/traci ciepło 7 dni w tygodniu (365 dni/rok kalendarzowych),
+        # nie tylko w dni robocze - stąd pełna liczba dni kalendarzowych w miesiącu, nie dni robocze.
+        total_heating_energy_mwh_month += standby_loss_mwh_month
 
         fuel_price_for_calc = cena_gazu_mwh if typ_kotla == "Gazowy" else st.session_state.get("cena_mwh_tab4", 750.0)
         koszt_paliwa_grzewczego_month = (total_heating_energy_mwh_month / sprawnosc_kotla) * fuel_price_for_calc if sprawnosc_kotla > 0 else 0.0
@@ -7220,6 +7322,55 @@ with tab6:
                        "największa dźwignia poprawy leży zwykle w skróceniu dni bufora surowców/wyrobów gotowych "
                        "lub kolejki laboratoryjnej, a nie w przyspieszaniu samego procesu w reaktorze.")
 
+        # --- SYMULACJA OEE: dziś OEE per etap to tylko kosmetyczna plakietka na diagramie -
+        # poniżej pokazujemy, co by się STAŁO, gdyby straty OEE realnie wydłużały czas zajęcia
+        # zasobu (reaktora/QC/linii rozlewu), zamiast być tylko wyświetlaną liczbą. WYŁĄCZNIE
+        # informacyjne w tej zakładce - świadomie NIE wpływa na dobór floty (Zakładka 1) ani na
+        # żadne inne obliczenia poza tym widokiem.
+        st.markdown("### 🎯 Symulacja: Wpływ OEE na Łańcuch")
+        st.caption("Czas efektywny = czas nominalny ÷ OEE% — czyli ile czasu realnie zajmuje etap zasobowi "
+                   "(reaktorowi/laboratorium/linii), uwzględniając przestoje, wolniejsze tempo i powtórki/braki. "
+                   "**Wyłącznie tu, informacyjnie** — nie zmienia doboru floty ani żadnych innych obliczeń w aplikacji.")
+
+        sim_rows = []
+        for s in display_steps:
+            oee_frac = max(s["oee_pct"] / 100.0, 0.01)  # unikaj dzielenia przez ~0 przy skrajnym OEE
+            effective_h = s["hours"] / oee_frac
+            sim_rows.append({
+                "Etap": s["name"], "Nominalny [h]": round(s["hours"], 2), "OEE [%]": round(s["oee_pct"], 1),
+                "Efektywny [h]": round(effective_h, 2), "Różnica [h]": round(effective_h - s["hours"], 2),
+                "_effective_h": effective_h, "_reactor_step": s["name"] in reactor_pump_steps or s["name"] == "Blending/Cooking",
+            })
+        sim_df = pd.DataFrame(sim_rows)
+        st.dataframe(sim_df.drop(columns=["_effective_h", "_reactor_step"]), hide_index=True, use_container_width=True)
+
+        total_effective_process_h = sum(r["_effective_h"] for r in sim_rows)
+        effective_lead_time_h = total_effective_process_h + total_co_h + total_wait_h
+        bottleneck = max(sim_rows, key=lambda r: r["Różnica [h]"]) if sim_rows else None
+
+        m_sim1, m_sim2, m_sim3 = st.columns(3)
+        with m_sim1:
+            st.metric("⏳ Lead Time (nominalny)", f"{total_lead_time_h / 24.0:.1f} dni")
+        with m_sim2:
+            st.metric("⏳ Lead Time (efektywny, z OEE)", f"{effective_lead_time_h / 24.0:.1f} dni",
+                       delta=f"+{(effective_lead_time_h - total_lead_time_h):.1f} h", delta_color="inverse")
+        with m_sim3:
+            if bottleneck and bottleneck["Różnica [h]"] > 0:
+                st.metric("🚧 Wąskie gardło (OEE)", bottleneck["Etap"], help=f"+{bottleneck['Różnica [h]']:.2f} h vs nominalny czas")
+            else:
+                st.metric("🚧 Wąskie gardło (OEE)", "Brak (wszystkie OEE=100%)")
+
+        reactor_bottleneck = max((r for r in sim_rows if r["_reactor_step"]), key=lambda r: r["Różnica [h]"], default=None)
+        if reactor_bottleneck and reactor_bottleneck["Różnica [h]"] > 0.01:
+            nominal_reactor_h = sum(r["Nominalny [h]"] for r in sim_rows if r["_reactor_step"])
+            effective_reactor_h = sum(r["_effective_h"] for r in sim_rows if r["_reactor_step"])
+            potential_batch_impact_pct = (1.0 - nominal_reactor_h / effective_reactor_h) * 100.0 if effective_reactor_h > 0 else 0.0
+            st.info(f"ℹ️ **Informacyjnie, nie zastosowane nigdzie indziej:** gdyby te straty OEE realnie zajmowały "
+                    f"czas reaktora ('{reactor_bottleneck['Etap']}' i inne etapy reaktorowe razem: "
+                    f"{nominal_reactor_h:.1f}h → {effective_reactor_h:.1f}h), potencjalna liczba szarż/miesiąc "
+                    f"osiągalna na tym mieszalniku spadłaby orientacyjnie o **~{potential_batch_impact_pct:.0f}%** "
+                    "względem dzisiejszego doboru floty (Zakładka 1), który tego jeszcze nie uwzględnia.")
+
         # --- DIAGRAM VSM: proste boksy/strzałki w HTML+CSS (bez zależności od graphviz) ---
         st.markdown("### 🗺️ Diagram Strumienia Wartości")
 
@@ -7387,12 +7538,15 @@ with tab8:
             utilizations = []  # (tag, %)
             own_tonnage_y, import_tonnage_y = 0.0, 0.0
             import_breakdown_y = []  # (produkt, t) - do przejrzystości, co dokładnie się sumuje
+            newly_transitioned = []  # produkty, które WŁAŚNIE w tym roku przeszły Import -> Własna
             for m in st.session_state.confirmed_mixers:
                 recipe_product = m.get("recipe_product")
                 is_imported = False
                 if recipe_product and recipe_product in product_sourcing_lookup_dash:
                     sourcing, transition = product_sourcing_lookup_dash[recipe_product]
                     is_imported = is_product_imported_in_year(sourcing, transition, year_idx)
+                    if not is_imported and year_idx > 0 and is_product_imported_in_year(sourcing, transition, year_idx - 1):
+                        newly_transitioned.append((recipe_product, (m["annual_volume"] / 1000.0) * get_rampup_fraction(m["product_family"], year_idx)))
                 if is_imported:
                     inactive_n += 1
                     import_frac = get_import_volume_fraction(m["product_family"], year_idx)
@@ -7429,6 +7583,10 @@ with tab8:
                 else:
                     st.caption("Brak aktywnych mieszalników w tym roku.")
                 st.metric("🏭 Produkcja własna", f"{own_tonnage_y:,.0f} t")
+                if newly_transitioned:
+                    trans_txt = " · ".join(f"{name}: +{t:,.0f} t" for name, t in newly_transitioned)
+                    st.caption(f"⬆️ **Skok w tym roku** — {len(newly_transitioned)} produkt(ów) właśnie przeszło z "
+                               f"Importu na Produkcję Własną (Zakładka 1, 'Rok przejścia'): {trans_txt}.")
                 if import_breakdown_y:
                     breakdown_txt = " · ".join(f"{name}: {t:,.0f} t" for name, t in import_breakdown_y)
                     st.metric("📦 Import", f"{import_tonnage_y:,.0f} t",
