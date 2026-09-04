@@ -5757,7 +5757,7 @@ with tab3:
             shipment_ratio = (actual_pallets_per_day / suggested_pallets_per_day) if suggested_pallets_per_day > 0 else 1.0
             fg_capacity_pallets = total_fg_positions_target
 
-            # Przelicznik palety -> kg -> wartość SPRZEDAŻNA (Zakładka 5, Krok 1: cena sprzedaży per
+            # Przelicznik palety -> kg -> wartość SPRZEDAŻNA (Zakładka 5, Krok 2: cena sprzedaży per
             # grupa produktowa [waluta/L], przeliczona na [waluta/kg] przez gęstość) - to jest realna
             # wartość towaru leżącego w magazynie, nie tylko koszt wytworzenia. Ważona rzeczywistym
             # miksem produkcji tej floty; jeśli Zakładka 5 nie była jeszcze skonfigurowana, używane
@@ -5779,7 +5779,7 @@ with tab3:
 
             waluta_stock = st.selectbox("Waluta wyceny zapasu:", ["PLN", "EUR", "USD"], key="waluta_stock_value")
             if not group_pricing_stock:
-                st.caption(f"ℹ️ Cena sprzedaży per grupa nie była jeszcze ustawiana w Zakładce 5, Krok 1 — użyto "
+                st.caption(f"ℹ️ Cena sprzedaży per grupa nie była jeszcze ustawiana w Zakładce 5, Krok 2 — użyto "
                            f"wartości domyślnej ({avg_selling_value_per_kg:.2f} {waluta_stock}/kg). "
                            f"Ustaw ją w Zakładce 5, aby wycena była dokładniejsza.")
 
@@ -5893,7 +5893,7 @@ with tab4:
         # "startujemy nisko, dochodzimy do celu" była spójna w całej aplikacji.
         # ==========================================
         st.markdown("---")
-        with st.expander("📈 Symulacja Rozruchu (Rampup) — 5 lat — wyniki", expanded=False):
+        with st.expander("💵 Krok 1: Symulacja Rozruchu — Podsumowanie 5-letnie", expanded=False):
             st.caption("Ustawienia krzywej rozruchu zmieniasz w **panelu bocznym (KROK 3)** — działają na żywo "
                        "we wszystkich zakładkach. Tu tylko podsumowanie wynikowe.")
 
@@ -5987,8 +5987,8 @@ with tab4:
                 st.line_chart(chart_df)
             with ch_c2:
                 st.markdown(f"**Koszt produkcji vs Przychód sprzedaży [{waluta}/rok]**")
-                st.caption("Z tych samych cen/kosztów per grupa co w Kroku 1 (Rentowność), każda grupa skalowana "
-                           "WŁASNĄ krzywą rozruchu — to ten sam model, który zasila ROI w Kroku 3 niżej.")
+                st.caption("Z tych samych cen/kosztów per grupa co w Kroku 2 (Rentowność), każda grupa skalowana "
+                           "WŁASNĄ krzywą rozruchu — to ten sam model, który zasila ROI w Kroku 4 niżej.")
                 chart_cost_rev_df = pd.DataFrame(rampup_cost_revenue_chart).set_index("Rok")
                 try:
                     st.bar_chart(chart_cost_rev_df, stack=False)  # słupki obok siebie, nie jeden na drugim
@@ -6085,7 +6085,7 @@ with tab4:
                 st.dataframe(df_rm_year[df_rm_year["Rok"] == selected_year_view].drop(columns=["Rok"]),
                              hide_index=True, use_container_width=True)
 
-        st.markdown("### 💵 Krok 1: Rentowność per Grupa Produktowa (Cena − Koszty)")
+        st.markdown("### 💵 Krok 2: Rentowność per Grupa Produktowa (Cena − Koszty)")
         st.caption("Ustaw cenę sprzedaży, koszt surowców i pozostałe czynniki kosztotwórcze — wszystko w "
                    "[waluta]/L (jak w Twoim zestawieniu). Marża brutto i procent ceny, jaki stanowi każdy koszt, "
                    "liczą się automatycznie. **Białe pola edytujesz, szare (marża, %) to wynik.**")
@@ -6204,7 +6204,7 @@ with tab4:
             fixed_monthly_opex = koszt_energii_facility_month
 
         st.markdown("---")
-        st.markdown("### 🧰 Krok 2: CAPEX — Nakłady Inwestycyjne")
+        st.markdown("### 🧰 Krok 3: CAPEX — Nakłady Inwestycyjne")
         st.caption("Wybierz sposób określenia CAPEX zależnie od zaawansowania prac projektowych: kwota całkowita "
                    "jako szybki szacunek na wczesnym etapie, albo szczegółowy cennik instalacji z Excela, gdy masz "
                    "już rozpisany projekt (P&ID, dobrane urządzenia, ceny jednostkowe).")
@@ -6355,10 +6355,10 @@ with tab4:
                 st.metric("💰 CAPEX razem (z rezerwą)", f"{total_capex:,.0f} {waluta}")
 
         st.markdown("---")
-        st.markdown("### 📈 Krok 3: ROI (z uwzględnieniem krzywej rozruchu)")
-        st.caption("Przychód i koszt liczone **per grupa produktowa** (ceny/koszty z Kroku 1), każda skalowana "
+        st.markdown("### 📈 Krok 4: ROI (z uwzględnieniem krzywej rozruchu)")
+        st.caption("Przychód i koszt liczone **per grupa produktowa** (ceny/koszty z Kroku 2), każda skalowana "
                    "WŁASNĄ krzywą rozruchu (panel boczny). Doliczana jest też stała energia pozaprodukcyjna "
-                   "(z rozwijanego panelu w Kroku 1, jeśli skonfigurowana).")
+                   "(z rozwijanego panelu w Kroku 2, jeśli skonfigurowana).")
 
         # Ta sama krzywa rozruchu co w panelu bocznym, per grupa - liczona tu od nowa na bazie
         # confirmed_mixers, żeby ROI nie zależało od tego, czy użytkownik odwiedził Zakładkę 2.
@@ -6434,7 +6434,7 @@ with tab4:
             st.metric("🎯 ROI w Roku 5 (ustabilizowane)", f"{roi_year5:.1f}%" if roi_year5 is not None else "—")
         with r_c4:
             if total_capex <= 0:
-                st.metric("⏳ Okres zwrotu (z rozruchem)", "—", help="Uzupełnij cennik CAPEX w Kroku 2 powyżej.")
+                st.metric("⏳ Okres zwrotu (z rozruchem)", "—", help="Uzupełnij cennik CAPEX w Kroku 3 powyżej.")
             elif payback_year_fraction is not None:
                 st.metric("⏳ Okres zwrotu (z rozruchem)", f"{payback_year_fraction:.1f} lat")
             else:
@@ -6442,7 +6442,7 @@ with tab4:
                           help="Skumulowany zysk nie pokrywa CAPEX nawet w Roku 5 przy obecnych założeniach.")
 
         if total_capex <= 0:
-            st.info("ℹ️ ROI wymaga policzonego CAPEX — uzupełnij cennik instalacji w Kroku 2 powyżej.")
+            st.info("ℹ️ ROI wymaga policzonego CAPEX — uzupełnij cennik instalacji w Kroku 3 powyżej.")
 
         # Zapis do session_state, żeby nowa Zakładka Dashboard mogła pokazać te liczby na "pierwszy rzut oka".
         st.session_state["total_capex_report"] = total_capex
@@ -6451,7 +6451,7 @@ with tab4:
         st.session_state["waluta_report"] = waluta
 
         st.markdown("---")
-        st.markdown("### 📄 Krok 4: Raport 5-letni (PDF / Excel)")
+        st.markdown("### 📄 Krok 5: Raport 5-letni (PDF / Excel)")
         st.caption("Zbiera w jeden dokument to, co już policzone w aplikacji: skalę produkcji per rok, produkty, "
                    "produkcja własna vs import, flotę (mieszalniki), wykorzystanie magazynu i KPI energetyczne. "
                    "**PDF** — czytelny, sformatowany dokument (po angielsku) do pokazania/udostępnienia. **Excel** "
