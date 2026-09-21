@@ -3552,6 +3552,11 @@ with tab1:
                                "tego automatycznie, żeby nie stracić Twoich ręcznych zmian.")
                     if st.button(f"🔄 Użyj wartości z receptury ({recipe_roczna_kg:,.0f} kg) dla '{selected_family_to_edit}'", key=f"sync_roczna_{selected_family_to_edit}"):
                         st.session_state.prod_dict[selected_family_to_edit]["roczna"] = recipe_roczna_kg
+                        # Streamlit IGNORUJE parametr value= poniższego number_input po pierwszym
+                        # renderze, jeśli jego WŁASNY klucz już istnieje w pamięci sesji - trzeba
+                        # nadpisać klucz widgetu wprost, inaczej pole na ekranie zostaje przy starej
+                        # wartości mimo poprawnie zaktualizowanego prod_dict.
+                        st.session_state[f"roczna_{selected_family_to_edit}"] = int(recipe_roczna_kg)
                         st.rerun()
 
         c_ed1, c_ed2, c_ed3, c_ed4 = st.columns(4)
@@ -6298,7 +6303,11 @@ with tab4:
                                        "zatwierdzonej floty (Zakładka 2) - przydatne, gdy flota zmieniła się po "
                                        "pierwszym ustawieniu tych liczb."):
                         for grp in groups_in_price_list:
-                            st.session_state.equipment_install_counts[grp] = fleet_counts_by_group.get(grp, 0)
+                            synced_count = fleet_counts_by_group.get(grp, 0)
+                            st.session_state.equipment_install_counts[grp] = synced_count
+                            # Streamlit ignoruje value= poniższego number_input po pierwszym renderze,
+                            # jeśli jego WŁASNY klucz już istnieje - trzeba nadpisać klucz widgetu wprost.
+                            st.session_state[f"eq_count_{grp}"] = synced_count
                         st.rerun()
 
                 cols_counts = st.columns(min(len(groups_in_price_list), 4)) if groups_in_price_list else []
@@ -7015,6 +7024,9 @@ with tab6:
                             "— różni się od listy poniżej.")
                     if st.button(f"🔄 Użyj testów z Excela dla '{selected_vsm_family}'", key=f"sync_qc_{selected_vsm_family}"):
                         qc_cfg["tests"] = recipe_tests_for_line
+                        # Streamlit ignoruje default= poniższego multiselect po pierwszym renderze,
+                        # jeśli jego WŁASNY klucz już istnieje - trzeba nadpisać klucz widgetu wprost.
+                        st.session_state[f"qc_tests_{selected_vsm_family}"] = recipe_tests_for_line
                         st.rerun()
             else:
                 st.warning("⚠️ Arkusz 'Badania Laboratoryjne' definiuje **RÓŻNE** testy dla różnych produktów tej linii "
