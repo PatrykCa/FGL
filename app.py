@@ -4102,168 +4102,137 @@ with tab2:
                 help="Wspólna dla wszystkich porównywanych mieszalników poniżej — typowa cysterna drogowa to ok. 24 t."
             )
 
-            compare_cols = st.columns(len(compare_mixer_tags))
-            for col, selected_mixer_tag in zip(compare_cols, compare_mixer_tags):
-                real_mixer = next(m for m in st.session_state.confirmed_mixers if m["tag"] == selected_mixer_tag)
-                p = st.session_state.mixer_tech_advanced_details[selected_mixer_tag]
-                with col:
-                    st.markdown(f"**🔧 {selected_mixer_tag}** ({real_mixer['product_family']})")
+            def render_comparison_column(mixer, p, col_label, mixer_tag_for_qc, show_editable_config=True):
+                st.markdown(f"**🔧 {col_label}**")
+                batches_month_cmp = mixer["batches_count"]
+                batches_year_cmp = batches_month_cmp * MONTHS_PER_YEAR
+                mass_per_batch_t = mixer["mass_per_batch"] / 1000.0
+                monthly_mass_t = batches_month_cmp * mass_per_batch_t
+                annual_mass_t = batches_year_cmp * mass_per_batch_t
 
-                    sim_on = st.checkbox("🔍 Symuluj inną pojemność", key=f"sim_capacity_on_{selected_mixer_tag}")
-                    mixer = dict(real_mixer)
-                    if sim_on:
-                        sim_capacity_m3 = st.slider(
-                            "Symulowana pojemność [m³]:", min_value=max(0.5, real_mixer["capacity_m3"] * 0.2),
-                            max_value=real_mixer["capacity_m3"] * 3.0, value=real_mixer["capacity_m3"], step=0.5,
-                            key=f"sim_capacity_val_{selected_mixer_tag}",
-                            help="Przelicza masę i liczbę szarż tak, żeby roczny wolumen produktu został ten sam — "
-                                 "izoluje efekt SAMEJ zmiany pojemności, bez zmiany reszty konfiguracji technicznej."
-                        )
-                        density_sim = st.session_state.active_portfolio.get(real_mixer["product_family"], {}).get("density", 0.9)
-                        mixer["capacity_m3"] = sim_capacity_m3
-                        mixer["mass_per_batch"] = sim_capacity_m3 * density_sim * 1000.0 * st.session_state.get("mixer_fill_factor", 0.925)
-                        if mixer["mass_per_batch"] > 0:
-                            mixer["batches_count"] = math.ceil(
-                                (real_mixer["mass_per_batch"] * real_mixer["batches_count"]) / mixer["mass_per_batch"])
-                        st.caption(f"Symulacja: {real_mixer['capacity_m3']:.0f} m³ → **{sim_capacity_m3:.0f} m³** "
-                                   f"({real_mixer['batches_count']} → **{mixer['batches_count']} szarż/mies.**)")
+                bm1, bm2 = st.columns(2)
+                with bm1: st.metric("📦 Szarż/miesiąc", f"{batches_month_cmp}")
+                with bm2: st.metric("📦 Szarż/rok", f"{batches_year_cmp}")
 
-                    batches_month_cmp = mixer["batches_count"]
-                    batches_year_cmp = batches_month_cmp * MONTHS_PER_YEAR
-                    mass_per_batch_t = mixer["mass_per_batch"] / 1000.0
-                    monthly_mass_t = batches_month_cmp * mass_per_batch_t
-                    annual_mass_t = batches_year_cmp * mass_per_batch_t
-
-                    bm1, bm2 = st.columns(2)
-                    with bm1: st.metric("📦 Szarż/miesiąc", f"{batches_month_cmp}")
-                    with bm2: st.metric("📦 Szarż/rok", f"{batches_year_cmp}")
-
-                    # --- Rozbicie na surowce, ten sam uklad co plik uzytkownika: Surowiec | %
-                    # dozowania | Tony/szarze | Zuzycie/miesiac / rok [t]. ---
-                    recipes_df_cmp = st.session_state.get("recipes_df")
-                    recipe_product_cmp = mixer.get("recipe_product")
-                    rm_bulk_month_t_by_material = {}  # tylko materialy luzem (dostawa cysterna)
-                    if recipes_df_cmp is not None and not recipes_df_cmp.empty and recipe_product_cmp:
-                        match_cmp = recipes_df_cmp[recipes_df_cmp[RECIPE_PRODUCT_COL] == recipe_product_cmp]
-                        if not match_cmp.empty:
-                            row_cmp = match_cmp.iloc[0]
-                            rm_storage_override_cmp = st.session_state.get("rm_storage_method_override", {})
-                            material_rows_cmp = []
-                            for mat in RECIPE_RAW_MATERIALS:
-                                dozowanie_kg_t = float(row_cmp.get(mat, 0) or 0)
-                                if dozowanie_kg_t <= 0:
-                                    continue
-                                mat_month_t = dozowanie_kg_t / 1000.0 * monthly_mass_t
-                                is_bulk_mat = rm_storage_override_cmp.get(mat) == "Zbiornik (luzem)"
-                                if is_bulk_mat:
-                                    rm_bulk_month_t_by_material[mat] = mat_month_t
-                                material_rows_cmp.append({
-                                    "Surowiec": mat.replace(" [kg/t]", ""),
-                                    "% dozowania": round_visible(dozowanie_kg_t / 10.0),
-                                    "t/szarżę": round_visible(dozowanie_kg_t / 1000.0 * mass_per_batch_t),
-                                    "t/miesiąc": round_visible(mat_month_t),
-                                    "t/rok": round_visible(mat_month_t * MONTHS_PER_YEAR),
-                                    "Dostawa": "🚚 Cysterna (luzem)" if is_bulk_mat else "📦 Beczki/IBC/worki",
-                                })
-                            with st.container(height=220):
-                                if material_rows_cmp:
-                                    st.dataframe(pd.DataFrame(material_rows_cmp), hide_index=True, use_container_width=True)
-                                else:
-                                    st.caption("ℹ️ Receptura tego produktu nie została ujawniona (dozowanie = 0 we "
-                                               "wszystkich surowcach — ochrona know-how). Zużycie surowców pochodzi "
-                                               "z arkusza 'Zużycie Surowców (bez receptury)', nie z tej receptury.")
-                        else:
-                            with st.container(height=220):
-                                st.caption(f"⚠️ Nie znaleziono '{recipe_product_cmp}' w recepturze (Zakładka 1).")
+                # --- Rozbicie na surowce, ten sam uklad co plik uzytkownika: Surowiec | %
+                # dozowania | Tony/szarze | Zuzycie/miesiac / rok [t]. ---
+                recipes_df_cmp = st.session_state.get("recipes_df")
+                recipe_product_cmp = mixer.get("recipe_product")
+                rm_bulk_month_t_by_material = {}  # tylko materialy luzem (dostawa cysterna)
+                if recipes_df_cmp is not None and not recipes_df_cmp.empty and recipe_product_cmp:
+                    match_cmp = recipes_df_cmp[recipes_df_cmp[RECIPE_PRODUCT_COL] == recipe_product_cmp]
+                    if not match_cmp.empty:
+                        row_cmp = match_cmp.iloc[0]
+                        rm_storage_override_cmp = st.session_state.get("rm_storage_method_override", {})
+                        material_rows_cmp = []
+                        for mat in RECIPE_RAW_MATERIALS:
+                            dozowanie_kg_t = float(row_cmp.get(mat, 0) or 0)
+                            if dozowanie_kg_t <= 0:
+                                continue
+                            mat_month_t = dozowanie_kg_t / 1000.0 * monthly_mass_t
+                            is_bulk_mat = rm_storage_override_cmp.get(mat) == "Zbiornik (luzem)"
+                            if is_bulk_mat:
+                                rm_bulk_month_t_by_material[mat] = mat_month_t
+                            material_rows_cmp.append({
+                                "Surowiec": mat.replace(" [kg/t]", ""),
+                                "% dozowania": round_visible(dozowanie_kg_t / 10.0),
+                                "t/szarżę": round_visible(dozowanie_kg_t / 1000.0 * mass_per_batch_t),
+                                "t/miesiąc": round_visible(mat_month_t),
+                                "t/rok": round_visible(mat_month_t * MONTHS_PER_YEAR),
+                                "Dostawa": "🚚 Cysterna (luzem)" if is_bulk_mat else "📦 Beczki/IBC/worki",
+                            })
+                        with st.container(height=220):
+                            if material_rows_cmp:
+                                st.dataframe(pd.DataFrame(material_rows_cmp), hide_index=True, use_container_width=True)
+                            else:
+                                st.caption("ℹ️ Receptura tego produktu nie została ujawniona (dozowanie = 0 we "
+                                           "wszystkich surowcach — ochrona know-how). Zużycie surowców pochodzi "
+                                           "z arkusza 'Zużycie Surowców (bez receptury)', nie z tej receptury.")
                     else:
                         with st.container(height=220):
-                            st.caption("Ten mieszalnik nie ma przypisanego konkretnego produktu z receptury (wspólny/kampanijny zbiornik).")
+                            st.caption(f"⚠️ Nie znaleziono '{recipe_product_cmp}' w recepturze (Zakładka 1).")
+                else:
+                    with st.container(height=220):
+                        st.caption("Ten mieszalnik nie ma przypisanego konkretnego produktu z receptury (wspólny/kampanijny zbiornik).")
 
-                    # --- Badania laboratoryjne: PRIORYTET 1 - arkusz 'Badania Laboratoryjne'
-                    # (testy jako wiersze, produkty jako kolumny, patrz parse_qc_tests_excel);
-                    # PRIORYTET 2 - kolumny 'QC: {test} [x]' wprost w arkuszu Receptury;
-                    # PRIORYTET 3 (fallback) - panel zwolnienia per LINIA w Zakładce 6 (VSM). ---
-                    qc_tests_used, qc_source_label = get_qc_tests_for_mixer(mixer)
-                    n_tests_per_batch = len(qc_tests_used)
-                    time_min_per_batch = sum(get_full_qc_catalog().get(t, {}).get("duration_min", 0) for t in qc_tests_used)
-                    lab_tests_month = n_tests_per_batch * batches_month_cmp
-                    lab_tests_year = n_tests_per_batch * batches_year_cmp
-                    time_h_month = (time_min_per_batch * batches_month_cmp) / 60.0
-                    time_h_year = (time_min_per_batch * batches_year_cmp) / 60.0
-                    bl1, bl2 = st.columns(2)
-                    with bl1: st.metric("🧪 Badań QC/miesiąc", f"{lab_tests_month}",
-                                        help=f"{n_tests_per_batch} testów/szarżę ({qc_source_label}) × {batches_month_cmp} szarż/mies.")
-                    with bl2: st.metric("🧪 Badań QC/rok", f"{lab_tests_year}")
-                    bl3, bl4 = st.columns(2)
-                    with bl3: st.metric("⏱️ Czas QC/miesiąc", f"{time_h_month:,.1f} h",
-                                        help=f"{time_min_per_batch:.0f} min/szarżę (suma czasów wszystkich testów) × {batches_month_cmp} szarż/mies. "
-                                             "Zakłada testy WYKONYWANE SEKWENCYJNIE (jeden po drugim) - jeśli część robicie równolegle, realny czas będzie krótszy.")
-                    with bl4: st.metric("⏱️ Czas QC/rok", f"{time_h_year:,.0f} h")
+                # --- Badania laboratoryjne: PRIORYTET 1 - arkusz 'Badania Laboratoryjne'
+                # (testy jako wiersze, produkty jako kolumny, patrz parse_qc_tests_excel);
+                # PRIORYTET 2 - kolumny 'QC: {test} [x]' wprost w arkuszu Receptury;
+                # PRIORYTET 3 (fallback) - panel zwolnienia per LINIA w Zakładce 6 (VSM). ---
+                qc_tests_used, qc_source_label = get_qc_tests_for_mixer(mixer)
+                n_tests_per_batch = len(qc_tests_used)
+                time_min_per_batch = sum(get_full_qc_catalog().get(t, {}).get("duration_min", 0) for t in qc_tests_used)
+                lab_tests_month = n_tests_per_batch * batches_month_cmp
+                lab_tests_year = n_tests_per_batch * batches_year_cmp
+                time_h_month = (time_min_per_batch * batches_month_cmp) / 60.0
+                time_h_year = (time_min_per_batch * batches_year_cmp) / 60.0
+                bl1, bl2 = st.columns(2)
+                with bl1: st.metric("🧪 Badań QC/miesiąc", f"{lab_tests_month}",
+                                    help=f"{n_tests_per_batch} testów/szarżę ({qc_source_label}) × {batches_month_cmp} szarż/mies.")
+                with bl2: st.metric("🧪 Badań QC/rok", f"{lab_tests_year}")
+                bl3, bl4 = st.columns(2)
+                with bl3: st.metric("⏱️ Czas QC/miesiąc", f"{time_h_month:,.1f} h",
+                                    help=f"{time_min_per_batch:.0f} min/szarżę (suma czasów wszystkich testów) × {batches_month_cmp} szarż/mies. "
+                                         "Zakłada testy WYKONYWANE SEKWENCYJNIE (jeden po drugim) - jeśli część robicie równolegle, realny czas będzie krótszy.")
+                with bl4: st.metric("⏱️ Czas QC/rok", f"{time_h_year:,.0f} h")
 
-                    # --- Cysterny: dostawy surowców (RM) - ROZBITE PER SUROWIEC (nie łącznie),
-                    # i TYLKO dla materiałów faktycznie dostarczanych luzem cysterną (zbiornik
-                    # dedykowany) - beczkowane/IBC jadą zwykłym transportem, nie cysterną. ---
-                    st.markdown("**🚚 Cysterny — dostawy RM (per surowiec)**")
-                    with st.container(height=160):
-                        if rm_bulk_month_t_by_material:
-                            rm_tanker_rows = []
-                            for mat, mat_month_t in rm_bulk_month_t_by_material.items():
-                                tankers_month_mat = math.ceil(mat_month_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
-                                tankers_year_mat = math.ceil((mat_month_t * MONTHS_PER_YEAR) / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
-                                rm_tanker_rows.append({
-                                    "Surowiec": mat.replace(" [kg/t]", ""),
-                                    "t/miesiąc": round_visible(mat_month_t),
-                                    "Cystern/miesiąc": tankers_month_mat,
-                                    "Cystern/rok": tankers_year_mat,
-                                })
-                            st.dataframe(pd.DataFrame(rm_tanker_rows), hide_index=True, use_container_width=True)
-                            st.caption("Każdy surowiec liczony osobno (własna cysterna, własny dostawca) — dokładne do "
-                                       "planowania harmonogramu dostaw, nie łączna suma masy.")
-                        else:
-                            st.caption("Brak surowców dostarczanych luzem (cysterną) dla tego produktu — wszystkie w "
-                                       "beczkach/IBC/workach, albo sposób magazynowania nie został jeszcze ustawiony "
-                                       "w Zakładce 2.")
+                # --- Cysterny: dostawy surowców (RM) - ROZBITE PER SUROWIEC (nie łącznie),
+                # i TYLKO dla materiałów faktycznie dostarczanych luzem cysterną (zbiornik
+                # dedykowany) - beczkowane/IBC jadą zwykłym transportem, nie cysterną. ---
+                st.markdown("**🚚 Cysterny — dostawy RM (per surowiec)**")
+                with st.container(height=160):
+                    if rm_bulk_month_t_by_material:
+                        rm_tanker_rows = []
+                        for mat, mat_month_t in rm_bulk_month_t_by_material.items():
+                            tankers_month_mat = math.ceil(mat_month_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
+                            tankers_year_mat = math.ceil((mat_month_t * MONTHS_PER_YEAR) / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
+                            rm_tanker_rows.append({
+                                "Surowiec": mat.replace(" [kg/t]", ""),
+                                "t/miesiąc": round_visible(mat_month_t),
+                                "Cystern/miesiąc": tankers_month_mat,
+                                "Cystern/rok": tankers_year_mat,
+                            })
+                        st.dataframe(pd.DataFrame(rm_tanker_rows), hide_index=True, use_container_width=True)
+                        st.caption("Każdy surowiec liczony osobno (własna cysterna, własny dostawca) — dokładne do "
+                                   "planowania harmonogramu dostaw, nie łączna suma masy.")
+                    else:
+                        st.caption("Brak surowców dostarczanych luzem (cysterną) dla tego produktu — wszystkie w "
+                                   "beczkach/IBC/workach, albo sposób magazynowania nie został jeszcze ustawiony "
+                                   "w Zakładce 2.")
 
-                    fg_tankers_month = math.ceil(monthly_mass_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
-                    fg_tankers_year = math.ceil(annual_mass_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
+                fg_tankers_month = math.ceil(monthly_mass_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
+                fg_tankers_year = math.ceil(annual_mass_t / st.session_state.tanker_capacity_t) if st.session_state.tanker_capacity_t > 0 else 0
 
-                    st.markdown("**🚚 Cysterny — wysyłki FG**")
-                    bt3, bt4 = st.columns(2)
-                    with bt3: st.metric("Wysyłki/miesiąc", f"{fg_tankers_month}")
-                    with bt4: st.metric("Wysyłki/rok", f"{fg_tankers_year}")
-                    st.caption("Dotyczy TYLKO produktu wysyłanego luzem w cysternie — jeśli ten produkt jest "
-                               "pakowany (beczki/kanistry/palety), zignoruj tę metrykę (masz ją w Zakładce 4).")
+                st.markdown("**🚚 Cysterny — wysyłki FG**")
+                bt3, bt4 = st.columns(2)
+                with bt3: st.metric("Wysyłki/miesiąc", f"{fg_tankers_month}")
+                with bt4: st.metric("Wysyłki/rok", f"{fg_tankers_year}")
+                st.caption("Dotyczy TYLKO produktu wysyłanego luzem w cysternie — jeśli ten produkt jest "
+                           "pakowany (beczki/kanistry/palety), zignoruj tę metrykę (masz ją w Zakładce 4).")
 
+                if show_editable_config:
                     p["pump_mode"] = st.selectbox(
                         "Tryb pompy:", ["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"],
                         index=["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"].index(p["pump_mode"]),
-                        key=f"pump_mode_{selected_mixer_tag}",
+                        key=f"pump_mode_{mixer_tag_for_qc}",
                         help="Jedna fizyczna pompa może obsługiwać kilka zbiorników na przemian — wybierz "
                              "'Współdzielona' i podaj ten sam ID pompy dla wszystkich zbiorników, które ją dzielą."
                     )
                     if p["pump_mode"] == "Współdzielona (kilka zbiorników)":
                         p["shared_pump_id"] = st.text_input(
-                            "ID pompy współdzielonej:", value=p["shared_pump_id"] or "P-01", key=f"shared_pump_id_{selected_mixer_tag}"
+                            "ID pompy współdzielonej:", value=p["shared_pump_id"] or "P-01", key=f"shared_pump_id_{mixer_tag_for_qc}"
                         )
                         st.caption("Przepływ/sprawność/MTBF/MTTR tej pompy w tabeli '🔧 Pompy Współdzielone' niżej.")
-                        shared = st.session_state.shared_pumps.get(p["shared_pump_id"], {})
-                        pump_mtbf_disp = shared.get("mtbf_h", 2000.0)
-                        pump_mttr_disp = shared.get("mttr_h", 8.0)
-                        avail_pump_preview = pump_mtbf_disp / (pump_mtbf_disp + pump_mttr_disp) * 100.0
                     else:
                         p["shared_pump_id"] = ""
-                        p["pump_mtbf_h"] = st.number_input("MTBF pompy [h]:", min_value=1.0, value=float(p["pump_mtbf_h"]), key=f"pump_mtbf_{selected_mixer_tag}")
-                        p["pump_mttr_h"] = st.number_input("MTTR pompy [h]:", min_value=0.1, value=float(p["pump_mttr_h"]), key=f"pump_mttr_{selected_mixer_tag}")
-                        avail_pump_preview = p["pump_mtbf_h"] / (p["pump_mtbf_h"] + p["pump_mttr_h"]) * 100.0
-                    avail_reactor_preview = p["reactor_mtbf_h"] / (p["reactor_mtbf_h"] + p["reactor_mttr_h"]) * 100.0
-                    avail_combined_preview = (avail_pump_preview / 100.0) * (avail_reactor_preview / 100.0) * 100.0
-                    st.metric("Dostępność łączna", f"{avail_combined_preview:.1f}%")
+                        p["pump_mtbf_h"] = st.number_input("MTBF pompy [h]:", min_value=1.0, value=float(p["pump_mtbf_h"]), key=f"pump_mtbf_{mixer_tag_for_qc}")
+                        p["pump_mttr_h"] = st.number_input("MTTR pompy [h]:", min_value=0.1, value=float(p["pump_mttr_h"]), key=f"pump_mttr_{mixer_tag_for_qc}")
 
                     p.setdefault("process_type", "Ciecz (mieszanie/blending)")
                     p["process_type"] = st.selectbox(
                         "Typ procesu:", ["Ciecz (mieszanie/blending)", "Smar/Wax (gotowanie z odparowaniem)"],
                         index=["Ciecz (mieszanie/blending)", "Smar/Wax (gotowanie z odparowaniem)"].index(p["process_type"]),
-                        key=f"proc_type_{selected_mixer_tag}",
+                        key=f"proc_type_{mixer_tag_for_qc}",
                         help="Wybierz 'Smar/Wax', jeśli ten reaktor gotuje z intensywnym odparowaniem — zbiorczy "
                              "rurociąg zrzutowy policzy się niżej, dla wszystkich reaktorów tego typu naraz."
                     )
@@ -4271,37 +4240,91 @@ with tab2:
                         p.setdefault("steam_avg_flow", 0.0185)
                         p.setdefault("steam_max_process", 0.037)
                         p.setdefault("steam_max_decompress", 0.089)
-                        p["steam_avg_flow"] = st.number_input("Średni strumień odwadniania [kg/s]:", min_value=0.0, value=float(p["steam_avg_flow"]), step=0.001, format="%.4f", key=f"steam_avg_{selected_mixer_tag}")
-                        p["steam_max_process"] = st.number_input("Maks. strumień procesowy [kg/s]:", min_value=0.0, value=float(p["steam_max_process"]), step=0.001, format="%.4f", key=f"steam_proc_{selected_mixer_tag}")
-                        p["steam_max_decompress"] = st.number_input("Maks. strumień dekompresji [kg/s]:", min_value=0.0, value=float(p["steam_max_decompress"]), step=0.001, format="%.4f", key=f"steam_decomp_{selected_mixer_tag}")
+                        p["steam_avg_flow"] = st.number_input("Średni strumień odwadniania [kg/s]:", min_value=0.0, value=float(p["steam_avg_flow"]), step=0.001, format="%.4f", key=f"steam_avg_{mixer_tag_for_qc}")
+                        p["steam_max_process"] = st.number_input("Maks. strumień procesowy [kg/s]:", min_value=0.0, value=float(p["steam_max_process"]), step=0.001, format="%.4f", key=f"steam_proc_{mixer_tag_for_qc}")
+                        p["steam_max_decompress"] = st.number_input("Maks. strumień dekompresji [kg/s]:", min_value=0.0, value=float(p["steam_max_decompress"]), step=0.001, format="%.4f", key=f"steam_decomp_{mixer_tag_for_qc}")
+                else:
+                    st.caption(f"🔧 Pompa: {p['pump_mode']}, Proces: {p.get('process_type', 'Ciecz (mieszanie/blending)')} "
+                               "*(konfiguracja techniczna — edytuj w kolumnie rzeczywistej)*")
 
-                    st.markdown("**⚡ Energetyczne KPI**")
-                    try:
-                        _visc_avg_kpi = (p["viscosity_min_cst"] + p["viscosity_max_cst"]) / 2.0
-                        _, _, agitator_power_kw_kpi = compute_agitator_power(
-                            p["agitator_type"], p["agitator_rpm"], p["agitator_diameter_m"], p["density_kg_m3"], _visc_avg_kpi
+                if p["pump_mode"] == "Współdzielona (kilka zbiorników)":
+                    shared = st.session_state.shared_pumps.get(p["shared_pump_id"], {})
+                    pump_mtbf_disp = shared.get("mtbf_h", 2000.0)
+                    pump_mttr_disp = shared.get("mttr_h", 8.0)
+                    avail_pump_preview = pump_mtbf_disp / (pump_mtbf_disp + pump_mttr_disp) * 100.0
+                else:
+                    avail_pump_preview = p["pump_mtbf_h"] / (p["pump_mtbf_h"] + p["pump_mttr_h"]) * 100.0
+                avail_reactor_preview = p["reactor_mtbf_h"] / (p["reactor_mtbf_h"] + p["reactor_mttr_h"]) * 100.0
+                avail_combined_preview = (avail_pump_preview / 100.0) * (avail_reactor_preview / 100.0) * 100.0
+                st.metric("Dostępność łączna", f"{avail_combined_preview:.1f}%")
+
+                st.markdown("**⚡ Energetyczne KPI**")
+                try:
+                    _visc_avg_kpi = (p["viscosity_min_cst"] + p["viscosity_max_cst"]) / 2.0
+                    _, _, agitator_power_kw_kpi = compute_agitator_power(
+                        p["agitator_type"], p["agitator_rpm"], p["agitator_diameter_m"], p["density_kg_m3"], _visc_avg_kpi
+                    )
+                    _heat_res_kpi = compute_thermal_ntu(
+                        mixer["mass_per_batch"], p["cp_product"], p["t_product_in"], p["t_product_out"],
+                        p["k_coeff_grzania"], p["exchange_area_m2"], p["utility_type_heat"],
+                        p["flow_heat_value"], p["flow_heat_unit"], p["t_utility_heat_in"])
+                    _cool_res_kpi = compute_thermal_ntu(
+                        mixer["mass_per_batch"], p["cp_product"], p["t_product_out"], p["t_discharge_c"],
+                        p["k_coeff"], p["exchange_area_m2"], p["utility_type_cool"],
+                        p["flow_cool_value"], p["flow_cool_unit"], p["t_utility_cool_in"])
+
+                    heating_kwh_batch = (_heat_res_kpi["q_total_kj"] * 0.2778 / 1000.0) if _heat_res_kpi["status"] == "ok" else 0.0
+                    cooling_kwh_batch = (_cool_res_kpi["q_total_kj"] * 0.2778 / 1000.0) if _cool_res_kpi["status"] == "ok" else 0.0
+                    mixing_kwh_batch = agitator_power_kw_kpi * mixer.get("cycle_h", 4.0)
+                    batches_month_kpi = mixer.get("batches_count", 0)
+                    total_kwh_month = (heating_kwh_batch + cooling_kwh_batch + mixing_kwh_batch) * batches_month_kpi
+
+                    st.metric("Grzanie / szarżę", f"{heating_kwh_batch:.1f} kWh" if _heat_res_kpi["status"] == "ok" else "⚠️ N/A")
+                    st.metric("Chłodzenie / szarżę", f"{cooling_kwh_batch:.1f} kWh" if _cool_res_kpi["status"] == "ok" else "⚠️ N/A")
+                    st.metric("Mieszanie / szarżę", f"{mixing_kwh_batch:.1f} kWh")
+                    st.metric("Razem / miesiąc", f"{total_kwh_month:,.0f} kWh")
+                except Exception as _kpi_exc:
+                    st.caption(f"⚠️ Nie udało się policzyć KPI energetycznego: {_kpi_exc}")
+
+            # --- Zbuduj plan renderowania PRZED utworzeniem kolumn - Streamlit wymaga znanej
+            # z góry liczby kolumn, a checkbox "Symuluj" per mieszalnik może dokładać dodatkową
+            # kolumnę tuż obok rzeczywistego. Czytamy stan checkboxa z poprzedniego przebiegu
+            # (session_state), zanim w ogóle utworzymy layout kolumn.
+            render_plan = []
+            for tag in compare_mixer_tags:
+                render_plan.append({"tag": tag, "is_sim": False})
+                if st.session_state.get(f"sim_capacity_on_{tag}", False):
+                    render_plan.append({"tag": tag, "is_sim": True})
+
+            compare_cols = st.columns(len(render_plan))
+            for col, plan_item in zip(compare_cols, render_plan):
+                selected_mixer_tag = plan_item["tag"]
+                real_mixer = next(m for m in st.session_state.confirmed_mixers if m["tag"] == selected_mixer_tag)
+                p = st.session_state.mixer_tech_advanced_details[selected_mixer_tag]
+                with col:
+                    if not plan_item["is_sim"]:
+                        st.checkbox("🔍 Pokaż symulację innej pojemności (osobna kolumna obok)",
+                                    key=f"sim_capacity_on_{selected_mixer_tag}")
+                        render_comparison_column(real_mixer, p, selected_mixer_tag, selected_mixer_tag, show_editable_config=True)
+                    else:
+                        sim_capacity_m3 = st.slider(
+                            "Symulowana pojemność [m³]:", min_value=max(0.5, real_mixer["capacity_m3"] * 0.2),
+                            max_value=real_mixer["capacity_m3"] * 3.0, value=real_mixer["capacity_m3"], step=0.5,
+                            key=f"sim_capacity_val_{selected_mixer_tag}",
+                            help="Przelicza masę i liczbę szarż tak, żeby roczny wolumen produktu został ten sam — "
+                                 "izoluje efekt SAMEJ zmiany pojemności, bez zmiany reszty konfiguracji technicznej "
+                                 "(edytowalnej tylko w kolumnie rzeczywistej, po lewej)."
                         )
-                        _heat_res_kpi = compute_thermal_ntu(
-                            mixer["mass_per_batch"], p["cp_product"], p["t_product_in"], p["t_product_out"],
-                            p["k_coeff_grzania"], p["exchange_area_m2"], p["utility_type_heat"],
-                            p["flow_heat_value"], p["flow_heat_unit"], p["t_utility_heat_in"])
-                        _cool_res_kpi = compute_thermal_ntu(
-                            mixer["mass_per_batch"], p["cp_product"], p["t_product_out"], p["t_discharge_c"],
-                            p["k_coeff"], p["exchange_area_m2"], p["utility_type_cool"],
-                            p["flow_cool_value"], p["flow_cool_unit"], p["t_utility_cool_in"])
+                        density_sim = st.session_state.active_portfolio.get(real_mixer["product_family"], {}).get("density", 0.9)
+                        sim_mixer = dict(real_mixer)
+                        sim_mixer["capacity_m3"] = sim_capacity_m3
+                        sim_mixer["mass_per_batch"] = sim_capacity_m3 * density_sim * 1000.0 * st.session_state.get("mixer_fill_factor", 0.925)
+                        if sim_mixer["mass_per_batch"] > 0:
+                            sim_mixer["batches_count"] = math.ceil(
+                                (real_mixer["mass_per_batch"] * real_mixer["batches_count"]) / sim_mixer["mass_per_batch"])
+                        render_comparison_column(sim_mixer, p, f"{selected_mixer_tag} @ {sim_capacity_m3:.0f}m³ (symulacja)",
+                                                  selected_mixer_tag, show_editable_config=False)
 
-                        heating_kwh_batch = (_heat_res_kpi["q_total_kj"] * 0.2778 / 1000.0) if _heat_res_kpi["status"] == "ok" else 0.0
-                        cooling_kwh_batch = (_cool_res_kpi["q_total_kj"] * 0.2778 / 1000.0) if _cool_res_kpi["status"] == "ok" else 0.0
-                        mixing_kwh_batch = agitator_power_kw_kpi * mixer.get("cycle_h", 4.0)
-                        batches_month_kpi = mixer.get("batches_count", 0)
-                        total_kwh_month = (heating_kwh_batch + cooling_kwh_batch + mixing_kwh_batch) * batches_month_kpi
-
-                        st.metric("Grzanie / szarżę", f"{heating_kwh_batch:.1f} kWh" if _heat_res_kpi["status"] == "ok" else "⚠️ N/A")
-                        st.metric("Chłodzenie / szarżę", f"{cooling_kwh_batch:.1f} kWh" if _cool_res_kpi["status"] == "ok" else "⚠️ N/A")
-                        st.metric("Mieszanie / szarżę", f"{mixing_kwh_batch:.1f} kWh")
-                        st.metric("Razem / miesiąc", f"{total_kwh_month:,.0f} kWh")
-                    except Exception as _kpi_exc:
-                        st.caption(f"⚠️ Nie udało się policzyć KPI energetycznego: {_kpi_exc}")
 
         # --- Pompy współdzielone: jedno miejsce edycji przepływu/sprawności/MTBF/MTTR, ---
         # wspólne dla wszystkich zbiorników, które przypisano do tej samej pompy powyżej.
