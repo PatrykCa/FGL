@@ -4210,42 +4210,43 @@ with tab2:
                 st.caption("Dotyczy TYLKO produktu wysyłanego luzem w cysternie — jeśli ten produkt jest "
                            "pakowany (beczki/kanistry/palety), zignoruj tę metrykę (masz ją w Zakładce 4).")
 
-                if show_editable_config:
-                    p["pump_mode"] = st.selectbox(
-                        "Tryb pompy:", ["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"],
-                        index=["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"].index(p["pump_mode"]),
-                        key=f"pump_mode_{mixer_tag_for_qc}",
-                        help="Jedna fizyczna pompa może obsługiwać kilka zbiorników na przemian — wybierz "
-                             "'Współdzielona' i podaj ten sam ID pompy dla wszystkich zbiorników, które ją dzielą."
-                    )
-                    if p["pump_mode"] == "Współdzielona (kilka zbiorników)":
-                        p["shared_pump_id"] = st.text_input(
-                            "ID pompy współdzielonej:", value=p["shared_pump_id"] or "P-01", key=f"shared_pump_id_{mixer_tag_for_qc}"
+                with st.container(height=400):
+                    if show_editable_config:
+                        p["pump_mode"] = st.selectbox(
+                            "Tryb pompy:", ["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"],
+                            index=["Dedykowana (dla tego zbiornika)", "Współdzielona (kilka zbiorników)"].index(p["pump_mode"]),
+                            key=f"pump_mode_{mixer_tag_for_qc}",
+                            help="Jedna fizyczna pompa może obsługiwać kilka zbiorników na przemian — wybierz "
+                                 "'Współdzielona' i podaj ten sam ID pompy dla wszystkich zbiorników, które ją dzielą."
                         )
-                        st.caption("Przepływ/sprawność/MTBF/MTTR tej pompy w tabeli '🔧 Pompy Współdzielone' niżej.")
-                    else:
-                        p["shared_pump_id"] = ""
-                        p["pump_mtbf_h"] = st.number_input("MTBF pompy [h]:", min_value=1.0, value=float(p["pump_mtbf_h"]), key=f"pump_mtbf_{mixer_tag_for_qc}")
-                        p["pump_mttr_h"] = st.number_input("MTTR pompy [h]:", min_value=0.1, value=float(p["pump_mttr_h"]), key=f"pump_mttr_{mixer_tag_for_qc}")
+                        if p["pump_mode"] == "Współdzielona (kilka zbiorników)":
+                            p["shared_pump_id"] = st.text_input(
+                                "ID pompy współdzielonej:", value=p["shared_pump_id"] or "P-01", key=f"shared_pump_id_{mixer_tag_for_qc}"
+                            )
+                            st.caption("Przepływ/sprawność/MTBF/MTTR tej pompy w tabeli '🔧 Pompy Współdzielone' niżej.")
+                        else:
+                            p["shared_pump_id"] = ""
+                            p["pump_mtbf_h"] = st.number_input("MTBF pompy [h]:", min_value=1.0, value=float(p["pump_mtbf_h"]), key=f"pump_mtbf_{mixer_tag_for_qc}")
+                            p["pump_mttr_h"] = st.number_input("MTTR pompy [h]:", min_value=0.1, value=float(p["pump_mttr_h"]), key=f"pump_mttr_{mixer_tag_for_qc}")
 
-                    p.setdefault("process_type", "Ciecz (mieszanie/blending)")
-                    p["process_type"] = st.selectbox(
-                        "Typ procesu:", ["Ciecz (mieszanie/blending)", "Smar/Wax (gotowanie z odparowaniem)"],
-                        index=["Ciecz (mieszanie/blending)", "Smar/Wax (gotowanie z odparowaniem)"].index(p["process_type"]),
-                        key=f"proc_type_{mixer_tag_for_qc}",
-                        help="Wybierz 'Smar/Wax', jeśli ten reaktor gotuje z intensywnym odparowaniem — zbiorczy "
-                             "rurociąg zrzutowy policzy się niżej, dla wszystkich reaktorów tego typu naraz."
-                    )
-                    if p["process_type"] == "Smar/Wax (gotowanie z odparowaniem)":
-                        p.setdefault("steam_avg_flow", 0.0185)
-                        p.setdefault("steam_max_process", 0.037)
-                        p.setdefault("steam_max_decompress", 0.089)
-                        p["steam_avg_flow"] = st.number_input("Średni strumień odwadniania [kg/s]:", min_value=0.0, value=float(p["steam_avg_flow"]), step=0.001, format="%.4f", key=f"steam_avg_{mixer_tag_for_qc}")
-                        p["steam_max_process"] = st.number_input("Maks. strumień procesowy [kg/s]:", min_value=0.0, value=float(p["steam_max_process"]), step=0.001, format="%.4f", key=f"steam_proc_{mixer_tag_for_qc}")
-                        p["steam_max_decompress"] = st.number_input("Maks. strumień dekompresji [kg/s]:", min_value=0.0, value=float(p["steam_max_decompress"]), step=0.001, format="%.4f", key=f"steam_decomp_{mixer_tag_for_qc}")
-                else:
-                    st.caption(f"🔧 Pompa: {p['pump_mode']}, Proces: {p.get('process_type', 'Ciecz (mieszanie/blending)')} "
-                               "*(konfiguracja techniczna — edytuj w kolumnie rzeczywistej)*")
+                        p.setdefault("process_type", "Ciecz (mieszanie/blending)")
+                        p["process_type"] = st.selectbox(
+                            "Typ procesu:", ["Ciecz (mieszanie/blending)", "Smar/Wax (gotowanie z odparowaniem)"],
+                            index=["Ciecz (mieszanie/blending)", "Smar/Wax (gotowanie z odparowaniem)"].index(p["process_type"]),
+                            key=f"proc_type_{mixer_tag_for_qc}",
+                            help="Wybierz 'Smar/Wax', jeśli ten reaktor gotuje z intensywnym odparowaniem — zbiorczy "
+                                 "rurociąg zrzutowy policzy się niżej, dla wszystkich reaktorów tego typu naraz."
+                        )
+                        if p["process_type"] == "Smar/Wax (gotowanie z odparowaniem)":
+                            p.setdefault("steam_avg_flow", 0.0185)
+                            p.setdefault("steam_max_process", 0.037)
+                            p.setdefault("steam_max_decompress", 0.089)
+                            p["steam_avg_flow"] = st.number_input("Średni strumień odwadniania [kg/s]:", min_value=0.0, value=float(p["steam_avg_flow"]), step=0.001, format="%.4f", key=f"steam_avg_{mixer_tag_for_qc}")
+                            p["steam_max_process"] = st.number_input("Maks. strumień procesowy [kg/s]:", min_value=0.0, value=float(p["steam_max_process"]), step=0.001, format="%.4f", key=f"steam_proc_{mixer_tag_for_qc}")
+                            p["steam_max_decompress"] = st.number_input("Maks. strumień dekompresji [kg/s]:", min_value=0.0, value=float(p["steam_max_decompress"]), step=0.001, format="%.4f", key=f"steam_decomp_{mixer_tag_for_qc}")
+                    else:
+                        st.caption(f"🔧 Pompa: {p['pump_mode']}, Proces: {p.get('process_type', 'Ciecz (mieszanie/blending)')} "
+                                   "*(konfiguracja techniczna — edytuj w kolumnie rzeczywistej)*")
 
                 if p["pump_mode"] == "Współdzielona (kilka zbiorników)":
                     shared = st.session_state.shared_pumps.get(p["shared_pump_id"], {})
@@ -4307,9 +4308,9 @@ with tab2:
                                     key=f"sim_capacity_on_{selected_mixer_tag}")
                         render_comparison_column(real_mixer, p, selected_mixer_tag, selected_mixer_tag, show_editable_config=True)
                     else:
-                        sim_capacity_m3 = st.slider(
-                            "Symulowana pojemność [m³]:", min_value=max(0.5, real_mixer["capacity_m3"] * 0.2),
-                            max_value=real_mixer["capacity_m3"] * 3.0, value=real_mixer["capacity_m3"], step=0.5,
+                        sim_capacity_m3 = st.number_input(
+                            "Symulowana pojemność [m³]:", min_value=0.5, max_value=1000.0,
+                            value=real_mixer["capacity_m3"], step=1.0,
                             key=f"sim_capacity_val_{selected_mixer_tag}",
                             help="Przelicza masę i liczbę szarż tak, żeby roczny wolumen produktu został ten sam — "
                                  "izoluje efekt SAMEJ zmiany pojemności, bez zmiany reszty konfiguracji technicznej "
