@@ -4111,8 +4111,8 @@ with tab2:
                 annual_mass_t = batches_year_cmp * mass_per_batch_t
 
                 bm1, bm2 = st.columns(2)
-                with bm1: st.metric("📦 Szarż/miesiąc", f"{batches_month_cmp}")
-                with bm2: st.metric("📦 Szarż/rok", f"{batches_year_cmp}")
+                with bm1: st.metric("📦 Szarż/miesiąc", f"{batches_month_cmp:.1f}" if batches_month_cmp != int(batches_month_cmp) else f"{batches_month_cmp:.0f}")
+                with bm2: st.metric("📦 Szarż/rok", f"{batches_year_cmp:.0f}")
 
                 # --- Rozbicie na surowce, ten sam uklad co plik uzytkownika: Surowiec | %
                 # dozowania | Tony/szarze | Zuzycie/miesiac / rok [t]. ---
@@ -4167,7 +4167,7 @@ with tab2:
                 time_h_month = (time_min_per_batch * batches_month_cmp) / 60.0
                 time_h_year = (time_min_per_batch * batches_year_cmp) / 60.0
                 bl1, bl2 = st.columns(2)
-                with bl1: st.metric("🧪 Badań QC/miesiąc", f"{lab_tests_month}",
+                with bl1: st.metric("🧪 Badań QC/miesiąc", f"{lab_tests_month:.1f}",
                                     help=f"{n_tests_per_batch} testów/szarżę ({qc_source_label}) × {batches_month_cmp} szarż/mies.")
                 with bl2: st.metric("🧪 Badań QC/rok", f"{lab_tests_year}")
                 bl3, bl4 = st.columns(2)
@@ -4320,9 +4320,27 @@ with tab2:
                         sim_mixer = dict(real_mixer)
                         sim_mixer["capacity_m3"] = sim_capacity_m3
                         sim_mixer["mass_per_batch"] = sim_capacity_m3 * density_sim * 1000.0 * st.session_state.get("mixer_fill_factor", 0.925)
+                        # Kotwiczymy symulację w DOKŁADNYM, ŻYWYM celu z receptury (Zakładka 1),
+                        # NIE w real_mixer["batches_count"] wprost - ta wartość pochodzi z
+                        # zatwierdzonej floty i MOŻE już nieść nadmiar z własnego zaokrąglenia w
+                        # górę (albo być nieaktualna względem obecnej receptury) - bez tej korekty
+                        # symulacja dziedziczyłaby ten sam błąd, tylko powiększony.
+                        live_target_kg = st.session_state.prod_dict.get(real_mixer["product_family"], {}).get("roczna", 0)
+                        real_implied_annual_kg = real_mixer["mass_per_batch"] * real_mixer["batches_count"] * MONTHS_PER_YEAR
+                        correction_factor = (live_target_kg / real_implied_annual_kg) if (live_target_kg > 0 and real_implied_annual_kg > 0) else 1.0
                         if sim_mixer["mass_per_batch"] > 0:
-                            sim_mixer["batches_count"] = math.ceil(
-                                (real_mixer["mass_per_batch"] * real_mixer["batches_count"]) / sim_mixer["mass_per_batch"])
+                            # Zaokrąglamy RAZ, na poziomie ROCZNYM - zaokrąglenie miesięczne,
+                            # a potem ×12, sztucznie 12-krotnie powiększałoby nadmiar (np. dla
+                            # dużego zbiornika: 4,6 szarży/miesiąc → zaokrąglone do 5 → ×12 = 60/rok,
+                            # zamiast 55/rok przy jednorazowym zaokrągleniu rocznym - różnica rzędu
+                            # kilkuset ton, nie do zaakceptowania w symulacji "co jeśli").
+                            target_annual_kg = real_mixer["mass_per_batch"] * real_mixer["batches_count"] * MONTHS_PER_YEAR * correction_factor
+                            sim_annual_batches = math.ceil(target_annual_kg / sim_mixer["mass_per_batch"])
+                            sim_mixer["batches_count"] = sim_annual_batches / MONTHS_PER_YEAR
+                        if abs(correction_factor - 1.0) > 0.02:
+                            st.caption(f"⚠️ Zatwierdzona flota odbiega od żywego celu receptury o {abs(correction_factor-1)*100:.0f}% "
+                                       "— symulacja skorygowana do dokładnego celu. Rozważ ponowne 'Zatwierdź i wyślij "
+                                       "konfigurację' w Zakładce 1, żeby to zsynchronizować na stałe.")
                         render_comparison_column(sim_mixer, p, f"{selected_mixer_tag} @ {sim_capacity_m3:.0f}m³ (symulacja)",
                                                   selected_mixer_tag, show_editable_config=False)
 
