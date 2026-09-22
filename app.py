@@ -3716,12 +3716,17 @@ with tab1:
                     # każdy produkt ma WŁASNĄ masę szarży (ta sama pojemność zbiornika, ale
                     # własna gęstość) i własny cykl; sumujemy szarże i faktyczny czas zajętości
                     # zbiornika, zamiast zgadywać jednym uśrednionym cyklem.
-                    total_batches, total_hours, mass_per_batch_list = 0, 0.0, []
+                    # WAŻNE: zaokrąglamy RAZ, na poziomie ROCZNYM (round, nie ceil - unikamy
+                    # systematycznego zawyżania) - liczenie miesięczne w górę (ceil), a potem ×12,
+                    # sztucznie 12-krotnie powiększałoby nadmiar z zaokrąglenia (np. dla dużego
+                    # zbiornika: 4,6 szarży/miesiąc → ceil do 5 → ×12 = 60/rok, zamiast 55/rok przy
+                    # jednorazowym zaokrągleniu rocznym - różnica rzędu setek ton na rok).
+                    total_batches, total_hours, mass_per_batch_list = 0.0, 0.0, []
                     for mem in members:
                         mass_pb_i = v_tank_user * mem["density"] * 1000.0 * st.session_state.mixer_fill_factor
                         mass_per_batch_list.append(mass_pb_i)
-                        monthly_i = mem["annual_kg"] / MONTHS_PER_YEAR
-                        batches_i = math.ceil(monthly_i / mass_pb_i) if mass_pb_i > 0 else 0
+                        annual_batches_i = round(mem["annual_kg"] / mass_pb_i) if mass_pb_i > 0 else 0
+                        batches_i = annual_batches_i / MONTHS_PER_YEAR
                         total_batches += batches_i
                         total_hours += batches_i * mem["cycle_h"]
                     batches_per_tank = total_batches
@@ -3733,8 +3738,8 @@ with tab1:
                     # podział proporcjonalny do pojemności (mamy dokładne dane, więc ich używamy).
                     mem = members[0]
                     mass_per_batch = v_tank_user * mem["density"] * 1000.0 * st.session_state.mixer_fill_factor
-                    monthly_mass = mem["annual_kg"] / MONTHS_PER_YEAR
-                    batches_per_tank = math.ceil(monthly_mass / mass_per_batch) if mass_per_batch > 0 else 0
+                    annual_batches_single = round(mem["annual_kg"] / mass_per_batch) if mass_per_batch > 0 else 0
+                    batches_per_tank = annual_batches_single / MONTHS_PER_YEAR
                     real_utilization = (batches_per_tank * mem["cycle_h"]) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
                 elif members is not None and len(members) == 0:
                     # Zbiornik jawnie opróżniony (przeniesiono z niego wszystkie produkty w
@@ -3747,10 +3752,10 @@ with tab1:
                     # większą część wolumenu zamiast wymuszania tej samej liczby szarż co na małym.
                     capacity_share = (v_tank_user / total_capacity) if total_capacity > 0 else (1.0 / tanks_count)
                     annual_per_tank = m_annual * capacity_share
-                    monthly_per_tank = annual_per_tank / MONTHS_PER_YEAR
 
                     mass_per_batch = v_tank_user * rho_product * 1000.0 * st.session_state.mixer_fill_factor
-                    batches_per_tank = math.ceil(monthly_per_tank / mass_per_batch) if mass_per_batch > 0 else 0
+                    annual_batches_manual = round(annual_per_tank / mass_per_batch) if mass_per_batch > 0 else 0
+                    batches_per_tank = annual_batches_manual / MONTHS_PER_YEAR
                     real_utilization = (batches_per_tank * cyc_h) / AVAILABLE_HOURS_MONTH * 100.0 if AVAILABLE_HOURS_MONTH > 0 else 0.0
 
                 tag_id = f"MT-{tag_counter}" + (f"-Z{t_idx+1}" if tanks_count > 1 else "")
@@ -3795,7 +3800,7 @@ with tab1:
                     "Pojemność [m³]": round(v_tank_user, 1),
                     "Masa Szarży [kg]": int(mass_per_batch),
                     "Cykl Szacowany [h]": round(cyc_h, 2),
-                    "Szarż / miesiąc (per aparat)": int(batches_per_tank),
+                    "Szarż / miesiąc (per aparat)": round(batches_per_tank, 1),
                     "Utylizacja Czasowa": f"{real_utilization:.1f}%",
                     "Status": status_txt
                 })
@@ -3844,16 +3849,15 @@ with tab1:
 
         if not edited_df.empty:
             total_annual_production_edited = sum(st.session_state.prod_dict[kat]["roczna"] for kat in wybrane_kategorie)
-            total_batches_edited = pd.to_numeric(edited_df["Szarż / miesiąc (per aparat)"], errors="coerce").fillna(0).astype(int).sum()
+            total_batches_edited = pd.to_numeric(edited_df["Szarż / miesiąc (per aparat)"], errors="coerce").fillna(0).sum()
             total_volume_edited = pd.to_numeric(edited_df["Pojemność [m³]"], errors="coerce").fillna(0.0).astype(float).sum()
-            # Ta sama formuła (masa szarży x szarż/mies x 12) co przy zatwierdzaniu floty - PO
-            # zaokrągleniu liczby szarż w górę do pełnych sztuk. Fleet ZAWSZE wychodzi trochę
-            # WIĘKSZA niż dokładny cel z receptury (nie da się zrobić np. 17,3 szarży) - porównanie
-            # "aktualności" floty musi więc odbywać się względem TEJ (też zaokrąglonej) liczby, nie
-            # względem dokładnego celu, inaczej ostrzeżenie o nieaktualności nigdy by nie znikało,
-            # nawet zaraz po zatwierdzeniu.
+            # Ta sama formuła (masa szarży x szarż/mies x 12) co przy zatwierdzaniu floty - liczba
+            # szarż jest teraz zaokrąglana RAZ na poziomie ROCZNYM (round, nie ceil na poziomie
+            # miesięcznym x12, co dawało systematyczne, nawet kilkunastoprocentowe zawyżenie) -
+            # fleet powinna więc wychodzić BLISKO dokładnego celu z receptury, z obu stron, nie
+            # tylko systematycznie w górę.
             mass_col_live = pd.to_numeric(edited_df["Masa Szarży [kg]"], errors="coerce").fillna(0.0)
-            batches_col_live = pd.to_numeric(edited_df["Szarż / miesiąc (per aparat)"], errors="coerce").fillna(0).astype(int)
+            batches_col_live = pd.to_numeric(edited_df["Szarż / miesiąc (per aparat)"], errors="coerce").fillna(0.0)
             st.session_state["live_fleet_annual_kg_rounded"] = float((mass_col_live * batches_col_live * MONTHS_PER_YEAR).sum())
         else:
             total_annual_production_edited = 0
@@ -3909,10 +3913,10 @@ with tab1:
                             "product_family": kat,
                             "capacity_m3": float(row["Pojemność [m³]"]),
                             "material": st.session_state.active_portfolio[kat]["material"],
-                            "batches_count": int(row["Szarż / miesiąc (per aparat)"]),
+                            "batches_count": float(row["Szarż / miesiąc (per aparat)"]),
                             "mass_per_batch": int(row["Masa Szarży [kg]"]),
                             "cycle_h": float(row["Cykl Szacowany [h]"]),
-                            "annual_volume": int(row["Masa Szarży [kg]"]) * int(row["Szarż / miesiąc (per aparat)"]) * MONTHS_PER_YEAR,
+                            "annual_volume": int(row["Masa Szarży [kg]"]) * float(row["Szarż / miesiąc (per aparat)"]) * MONTHS_PER_YEAR,
                             "recipe_product": st.session_state.tag_to_recipe_product.get(row["ID Urządzenia"]),
                             "shared_members": st.session_state.get("tag_to_shared_members", {}).get(row["ID Urządzenia"]),
                         })
@@ -4304,43 +4308,41 @@ with tab2:
                 p = st.session_state.mixer_tech_advanced_details[selected_mixer_tag]
                 with col:
                     if not plan_item["is_sim"]:
-                        st.checkbox("🔍 Pokaż symulację innej pojemności (osobna kolumna obok)",
-                                    key=f"sim_capacity_on_{selected_mixer_tag}")
+                        with st.container(height=110):
+                            st.checkbox("🔍 Pokaż symulację innej pojemności (osobna kolumna obok)",
+                                        key=f"sim_capacity_on_{selected_mixer_tag}")
                         render_comparison_column(real_mixer, p, selected_mixer_tag, selected_mixer_tag, show_editable_config=True)
                     else:
-                        sim_capacity_m3 = st.number_input(
-                            "Symulowana pojemność [m³]:", min_value=0.5, max_value=1000.0,
-                            value=real_mixer["capacity_m3"], step=1.0,
-                            key=f"sim_capacity_val_{selected_mixer_tag}",
-                            help="Przelicza masę i liczbę szarż tak, żeby roczny wolumen produktu został ten sam — "
-                                 "izoluje efekt SAMEJ zmiany pojemności, bez zmiany reszty konfiguracji technicznej "
-                                 "(edytowalnej tylko w kolumnie rzeczywistej, po lewej)."
-                        )
-                        density_sim = st.session_state.active_portfolio.get(real_mixer["product_family"], {}).get("density", 0.9)
-                        sim_mixer = dict(real_mixer)
-                        sim_mixer["capacity_m3"] = sim_capacity_m3
-                        sim_mixer["mass_per_batch"] = sim_capacity_m3 * density_sim * 1000.0 * st.session_state.get("mixer_fill_factor", 0.925)
-                        # Kotwiczymy symulację w DOKŁADNYM, ŻYWYM celu z receptury (Zakładka 1),
-                        # NIE w real_mixer["batches_count"] wprost - ta wartość pochodzi z
-                        # zatwierdzonej floty i MOŻE już nieść nadmiar z własnego zaokrąglenia w
-                        # górę (albo być nieaktualna względem obecnej receptury) - bez tej korekty
-                        # symulacja dziedziczyłaby ten sam błąd, tylko powiększony.
-                        live_target_kg = st.session_state.prod_dict.get(real_mixer["product_family"], {}).get("roczna", 0)
-                        real_implied_annual_kg = real_mixer["mass_per_batch"] * real_mixer["batches_count"] * MONTHS_PER_YEAR
-                        correction_factor = (live_target_kg / real_implied_annual_kg) if (live_target_kg > 0 and real_implied_annual_kg > 0) else 1.0
-                        if sim_mixer["mass_per_batch"] > 0:
-                            # Zaokrąglamy RAZ, na poziomie ROCZNYM - zaokrąglenie miesięczne,
-                            # a potem ×12, sztucznie 12-krotnie powiększałoby nadmiar (np. dla
-                            # dużego zbiornika: 4,6 szarży/miesiąc → zaokrąglone do 5 → ×12 = 60/rok,
-                            # zamiast 55/rok przy jednorazowym zaokrągleniu rocznym - różnica rzędu
-                            # kilkuset ton, nie do zaakceptowania w symulacji "co jeśli").
-                            target_annual_kg = real_mixer["mass_per_batch"] * real_mixer["batches_count"] * MONTHS_PER_YEAR * correction_factor
-                            sim_annual_batches = math.ceil(target_annual_kg / sim_mixer["mass_per_batch"])
-                            sim_mixer["batches_count"] = sim_annual_batches / MONTHS_PER_YEAR
-                        if abs(correction_factor - 1.0) > 0.02:
-                            st.caption(f"⚠️ Zatwierdzona flota odbiega od żywego celu receptury o {abs(correction_factor-1)*100:.0f}% "
-                                       "— symulacja skorygowana do dokładnego celu. Rozważ ponowne 'Zatwierdź i wyślij "
-                                       "konfigurację' w Zakładce 1, żeby to zsynchronizować na stałe.")
+                        with st.container(height=110):
+                            sim_capacity_m3 = st.number_input(
+                                "Symulowana pojemność [m³]:", min_value=0.5, max_value=1000.0,
+                                value=real_mixer["capacity_m3"], step=1.0,
+                                key=f"sim_capacity_val_{selected_mixer_tag}",
+                                help="Przelicza masę i liczbę szarż tak, żeby roczny wolumen produktu został ten sam — "
+                                     "izoluje efekt SAMEJ zmiany pojemności, bez zmiany reszty konfiguracji technicznej "
+                                     "(edytowalnej tylko w kolumnie rzeczywistej, po lewej)."
+                            )
+                            density_sim = st.session_state.active_portfolio.get(real_mixer["product_family"], {}).get("density", 0.9)
+                            sim_mixer = dict(real_mixer)
+                            sim_mixer["capacity_m3"] = sim_capacity_m3
+                            sim_mixer["mass_per_batch"] = sim_capacity_m3 * density_sim * 1000.0 * st.session_state.get("mixer_fill_factor", 0.925)
+                            # WAŻNE: obie kolumny (rzeczywista i symulowana) muszą używać TEJ SAMEJ
+                            # podstawy rocznego wolumenu - inaczej porównanie miesza dwa różne punkty
+                            # odniesienia naraz (np. rzeczywista = nieskorygowana flota, symulowana =
+                            # skorygowana do żywego celu), co dawało pozornie "sprzeczne" liczby przy
+                            # tej samej rocznej produkcji. Ta symulacja świadomie zachowuje DOKŁADNIE
+                            # roczny wolumen ZATWIERDZONEJ FLOTY (real_mixer) - jeśli ta flota jest
+                            # nieaktualna względem receptury, ostrzeżenie o tym pokazuje się RAZ, na
+                            # górze tej sekcji (nie osobno przy każdej symulowanej kolumnie).
+                            if sim_mixer["mass_per_batch"] > 0:
+                                # Zaokrąglamy RAZ, na poziomie ROCZNYM - zaokrąglenie miesięczne,
+                                # a potem ×12, sztucznie 12-krotnie powiększałoby nadmiar (np. dla
+                                # dużego zbiornika: 4,6 szarży/miesiąc → zaokrąglone do 5 → ×12 = 60/rok,
+                                # zamiast 55/rok przy jednorazowym zaokrągleniu rocznym - różnica rzędu
+                                # kilkuset ton, nie do zaakceptowania w symulacji "co jeśli").
+                                target_annual_kg = real_mixer["mass_per_batch"] * real_mixer["batches_count"] * MONTHS_PER_YEAR
+                                sim_annual_batches = math.ceil(target_annual_kg / sim_mixer["mass_per_batch"])
+                                sim_mixer["batches_count"] = sim_annual_batches / MONTHS_PER_YEAR
                         render_comparison_column(sim_mixer, p, f"{selected_mixer_tag} @ {sim_capacity_m3:.0f}m³ (symulacja)",
                                                   selected_mixer_tag, show_editable_config=False)
 
