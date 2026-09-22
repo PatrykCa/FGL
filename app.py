@@ -355,7 +355,7 @@ PROJECT_SAVE_KEYS = [
     "rampup_global_pct", "rampup_per_line_pct", "rampup_differentiate", "rampup_start_pct", "import_follows_rampup",
     "group_pricing", "pack_configs", "filling_lines_config", "opakowania_podzial",
     "qc_tests_by_product", "vsm_qc_config", "vsm_qc_queue_days", "vsm_oee", "direct_raw_materials",
-    "qc_equipment_count_override", "supplier_splits", "custom_qc_tests", "technical_properties", "hypothetical_mixer_variants",
+    "qc_equipment_count_override", "supplier_splits", "custom_qc_tests", "technical_properties",
     "tanker_capacity_t", "mixer_fill_factor", "days_of_stock_tab5", "max_single_tank_m3",
     "czas_skladowania_tab3", "cena_mwh_tab4", "cena_gazu_mwh", "sprawnosc_kotla_frac",
     "import_pallet_mass_kg", "capex_lump_sum", "boiler_capacity_installed_kw",
@@ -4082,55 +4082,7 @@ with tab2:
         st.caption("Wybierz 2-3 mieszalniki, żeby zobaczyć konfigurację (tryb pompy, typ procesu) i wyniki obok "
                    "siebie. Pola te zależą od siebie warunkowo, dlatego nie mieszczą się w tabeli powyżej.")
 
-        if "hypothetical_mixer_variants" not in st.session_state:
-            st.session_state.hypothetical_mixer_variants = []  # lista syntetycznych "mieszalników" - tylko do porównania, NIE wchodzą do floty
-
-        with st.expander("🔮 Dodaj wariant hipotetyczny (inna pojemność, do porównania obok prawdziwych)"):
-            st.caption("Bierze istniejący mieszalnik jako szablon (produkt, gęstość, konfiguracja techniczna) i "
-                       "przelicza go dla INNEJ pojemności — żeby zobaczyć np. 'ten sam produkt, ale w zbiorniku "
-                       "30 m³ zamiast 15 m³', bez dodawania niczego do floty.")
-            hc1, hc2, hc3 = st.columns([2, 1, 1])
-            with hc1:
-                _base_mixer_tags = [m["tag"] for m in st.session_state.confirmed_mixers]
-                hyp_base_tag = st.selectbox("Mieszalnik-szablon:", _base_mixer_tags, key="hyp_variant_base_tag") if _base_mixer_tags else None
-            with hc2:
-                hyp_capacity_m3 = st.number_input("Hipotetyczna pojemność [m³]:", min_value=0.5, value=30.0, step=1.0, key="hyp_variant_capacity")
-            with hc3:
-                st.markdown("&nbsp;")
-                if st.button("➕ Dodaj do porównania", key="btn_add_hyp_variant", disabled=hyp_base_tag is None):
-                    base_mixer = next(m for m in st.session_state.confirmed_mixers if m["tag"] == hyp_base_tag)
-                    density_hyp = st.session_state.active_portfolio.get(base_mixer["product_family"], {}).get("density", 0.9)
-                    hyp_tag = f"🔮 {hyp_base_tag} @ {hyp_capacity_m3:.0f}m³"
-                    hyp_mixer = dict(base_mixer)
-                    hyp_mixer["tag"] = hyp_tag
-                    hyp_mixer["capacity_m3"] = hyp_capacity_m3
-                    hyp_mixer["mass_per_batch"] = hyp_capacity_m3 * density_hyp * 1000.0 * st.session_state.get("mixer_fill_factor", 0.925)
-                    # Reskaluj liczbę szarż/miesiąc proporcjonalnie, żeby ROCZNY wolumen produktu
-                    # zostawał ten sam co u szablonu - tylko rozbity na inną wielkość/liczbę szarż.
-                    if hyp_mixer["mass_per_batch"] > 0:
-                        hyp_mixer["batches_count"] = math.ceil(
-                            (base_mixer["mass_per_batch"] * base_mixer["batches_count"]) / hyp_mixer["mass_per_batch"])
-                    st.session_state.hypothetical_mixer_variants = [
-                        v for v in st.session_state.hypothetical_mixer_variants if v["tag"] != hyp_tag
-                    ] + [hyp_mixer]
-                    # Kopiuje konfigurację techniczną szablonu bez zmian - hipotetyczny wariant
-                    # izoluje efekt SAMEJ zmiany pojemności, nie miesza go ze zmianą np. mieszadła.
-                    st.session_state.mixer_tech_advanced_details[hyp_tag] = dict(st.session_state.mixer_tech_advanced_details.get(hyp_base_tag, {}))
-                    st.rerun()
-
-            if st.session_state.hypothetical_mixer_variants:
-                for v in st.session_state.hypothetical_mixer_variants:
-                    vc1, vc2 = st.columns([5, 1])
-                    with vc1:
-                        st.caption(f"🔮 {v['tag']} — {v['mass_per_batch']/1000:.1f} t/szarżę, {v['batches_count']} szarż/mies.")
-                    with vc2:
-                        if st.button("🗑️", key=f"del_hyp_{v['tag']}"):
-                            st.session_state.hypothetical_mixer_variants = [
-                                x for x in st.session_state.hypothetical_mixer_variants if x["tag"] != v["tag"]]
-                            st.rerun()
-
-        _all_mixer_tags = [m["tag"] for m in st.session_state.confirmed_mixers] + \
-                           [v["tag"] for v in st.session_state.hypothetical_mixer_variants]
+        _all_mixer_tags = [m["tag"] for m in st.session_state.confirmed_mixers]
         compare_mixer_tags = st.multiselect(
             "Wybierz mieszalniki (max 3):", _all_mixer_tags,
             default=_all_mixer_tags[:min(2, len(_all_mixer_tags))], key="mixer_compare_select"
@@ -4152,11 +4104,29 @@ with tab2:
 
             compare_cols = st.columns(len(compare_mixer_tags))
             for col, selected_mixer_tag in zip(compare_cols, compare_mixer_tags):
-                mixer = next(m for m in st.session_state.confirmed_mixers + st.session_state.hypothetical_mixer_variants
-                             if m["tag"] == selected_mixer_tag)
+                real_mixer = next(m for m in st.session_state.confirmed_mixers if m["tag"] == selected_mixer_tag)
                 p = st.session_state.mixer_tech_advanced_details[selected_mixer_tag]
                 with col:
-                    st.markdown(f"**🔧 {selected_mixer_tag}** ({mixer['product_family']})")
+                    st.markdown(f"**🔧 {selected_mixer_tag}** ({real_mixer['product_family']})")
+
+                    sim_on = st.checkbox("🔍 Symuluj inną pojemność", key=f"sim_capacity_on_{selected_mixer_tag}")
+                    mixer = dict(real_mixer)
+                    if sim_on:
+                        sim_capacity_m3 = st.slider(
+                            "Symulowana pojemność [m³]:", min_value=max(0.5, real_mixer["capacity_m3"] * 0.2),
+                            max_value=real_mixer["capacity_m3"] * 3.0, value=real_mixer["capacity_m3"], step=0.5,
+                            key=f"sim_capacity_val_{selected_mixer_tag}",
+                            help="Przelicza masę i liczbę szarż tak, żeby roczny wolumen produktu został ten sam — "
+                                 "izoluje efekt SAMEJ zmiany pojemności, bez zmiany reszty konfiguracji technicznej."
+                        )
+                        density_sim = st.session_state.active_portfolio.get(real_mixer["product_family"], {}).get("density", 0.9)
+                        mixer["capacity_m3"] = sim_capacity_m3
+                        mixer["mass_per_batch"] = sim_capacity_m3 * density_sim * 1000.0 * st.session_state.get("mixer_fill_factor", 0.925)
+                        if mixer["mass_per_batch"] > 0:
+                            mixer["batches_count"] = math.ceil(
+                                (real_mixer["mass_per_batch"] * real_mixer["batches_count"]) / mixer["mass_per_batch"])
+                        st.caption(f"Symulacja: {real_mixer['capacity_m3']:.0f} m³ → **{sim_capacity_m3:.0f} m³** "
+                                   f"({real_mixer['batches_count']} → **{mixer['batches_count']} szarż/mies.**)")
 
                     batches_month_cmp = mixer["batches_count"]
                     batches_year_cmp = batches_month_cmp * MONTHS_PER_YEAR
