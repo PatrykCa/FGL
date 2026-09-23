@@ -7720,40 +7720,68 @@ with tab8:
             st.info("ℹ️ Brak zatwierdzonych zbiorników RM — odwiedź Zakładkę 2 (Magazynowanie), sekcję "
                     "'✅ Zatwierdź Zbiorniki RM'.")
         else:
+            truck_load_t = st.number_input(
+                "🚚 Ładunek jednej dostawy (cysterna) [t]", min_value=1.0, max_value=40.0,
+                value=24.0, step=1.0, key="rm_truck_load_t",
+                help="Liczba dostaw = zużycie roczne ÷ ładunek dostawy. Jeśli użyteczna pojemność zbiorników "
+                     "danego surowca jest mniejsza niż cysterna, dostawa jest ograniczona pojemnością zbiornika.")
+
             tanks_by_material_dash2 = {}
             for t in confirmed_rm_tanks_dash2:
                 tanks_by_material_dash2.setdefault(t["material"], []).append(t)
             rm_tank_tech_details_dash2 = st.session_state.get("rm_tank_tech_details", {})
+
+            rm_dash_detail_rows = []
             year_cols_tanks = st.columns(RAMPUP_YEARS)
             for year_idx, col in enumerate(year_cols_tanks):
                 active_tanks_n, inactive_tanks_n = 0, 0
                 total_material_t_year = 0.0
-                total_refills_year = 0
+                total_deliveries_year = 0
                 year_consumption = compute_rm_consumption_for_year(year_idx)
                 for material, tanks_this_material in tanks_by_material_dash2.items():
                     consumption_t = year_consumption.get(material, 0.0)
-                    is_active = consumption_t > 0
-                    if is_active:
+                    total_capacity_m3 = sum(t["capacity_m3"] for t in tanks_this_material)
+                    # Gęstość: z Karty Maszyn; domyślnie 880 kg/m³ = ta sama wartość co przy
+                    # wymiarowaniu zbiorników (tony ÷ OIL_FILL_FACTOR = 0.88).
+                    density_kg_m3 = rm_tank_tech_details_dash2.get(
+                        tanks_this_material[0]["tag"], {}).get("density_kg_m3", OIL_FILL_FACTOR * 1000.0)
+                    usable_t = total_capacity_m3 * TANK_SAFETY_FILL * density_kg_m3 / 1000.0
+
+                    if consumption_t > 0:
                         active_tanks_n += len(tanks_this_material)
                         total_material_t_year += consumption_t
-                        # Szacowana liczba uzupełnień/rok = roczne zużycie ÷ użyteczna pojemność
-                        # WSZYSTKICH zbiorników tego materiału razem (bufor bezpiecznego napełnienia
-                        # uwzględniony) - przybliżenie do porównania skali, nie dokładny harmonogram dostaw.
-                        total_capacity_m3 = sum(t["capacity_m3"] for t in tanks_this_material)
-                        density_kg_m3 = rm_tank_tech_details_dash2.get(tanks_this_material[0]["tag"], {}).get("density_kg_m3", 900.0)
-                        usable_t = total_capacity_m3 * TANK_SAFETY_FILL * density_kg_m3 / 1000.0
-                        if usable_t > 0:
-                            total_refills_year += math.ceil(consumption_t / usable_t)
+                        effective_delivery_t = min(truck_load_t, usable_t) if usable_t > 0 else truck_load_t
+                        deliveries = math.ceil(consumption_t / effective_delivery_t)
+                        total_deliveries_year += deliveries
+                        days_of_stock_equiv = usable_t / (consumption_t / WORKING_DAYS_YEAR)
                     else:
                         inactive_tanks_n += len(tanks_this_material)
+                        effective_delivery_t, deliveries, days_of_stock_equiv = 0.0, 0, 0.0
+
+                    rm_dash_detail_rows.append({
+                        "Rok": f"Rok {year_idx + 1}", "Surowiec": material,
+                        "Zbiorników": len(tanks_this_material),
+                        "Pojemność łączna [m³]": round(total_capacity_m3, 1),
+                        "Pojemność użyteczna [t]": round(usable_t, 1),
+                        "Zużycie [t/rok]": round(consumption_t, 1),
+                        "Dostawa [t]": round(effective_delivery_t, 1),
+                        "Dostaw/rok": deliveries,
+                        "Zapas w zbiornikach [dni rob.]": round(days_of_stock_equiv, 1),
+                        "Uwaga": ("⚠️ zbiornik mniejszy niż cysterna"
+                                  if 0 < usable_t < truck_load_t and consumption_t > 0 else ""),
+                    })
+
                 with col:
                     st.markdown(f"**Rok {year_idx + 1}**")
                     st.metric("🟢 Aktywne", f"{active_tanks_n} szt.")
                     st.metric("⚪ Nieaktywne", f"{inactive_tanks_n} szt.")
-                    st.metric("📦 Materiał w zbiornikach", f"{total_material_t_year:,.0f} t/rok")
-                    st.metric("🔄 Uzupełnienia (szac.)", f"{total_refills_year}/rok",
-                              help="Szacunkowa liczba dostaw/napełnień rocznie: zużycie ÷ użyteczna pojemność "
-                                   "zbiorników danego surowca — przybliżenie, nie harmonogram dostaw.")
+                    st.metric("📦 Zużycie surowców zbiornikowych", f"{total_material_t_year:,.0f} t/rok")
+                    st.metric("🚚 Dostawy cysterną", f"{total_deliveries_year}/rok",
+                              help=f"Suma po surowcach: zużycie ÷ ładunek dostawy ({truck_load_t:.0f} t lub mniej, "
+                                   "jeśli zbiornik nie przyjmie całej cysterny), zaokrąglone w górę per surowiec.")
+
+            with st.expander("🔍 Szczegóły per surowiec i rok (weryfikacja obliczeń)"):
+                st.dataframe(pd.DataFrame(rm_dash_detail_rows), hide_index=True, use_container_width=True)
 
         st.markdown("---")
         st.markdown("### 💰 CAPEX i ROI")
