@@ -142,7 +142,7 @@ RECIPE_RAW_MATERIALS = [
 
 # Grupy produktowe do wyboru (lista rozwijana w szablonie Excel + walidacja przy imporcie).
 RECIPE_PRODUCT_GROUPS = ["Cleaners", "Engine Oils", "Glycols", "Greases", "Hydraulic Oils", "Watermiscibles", "Waxes",
-                          "Preservative Oils", "Coolants", "Cutting Oils"]
+                          "Preservative Oils", "Coolants", "Cutting Oils", "Gear-Hydraulic Oils", "Automotive Oils"]
 
 # Domyślne właściwości fizykochemiczne i procesowe per grupa produktowa - używane do
 # automatycznego zasilenia floty (Zakładka 2) danymi z wgranej receptury (Zakładka 1),
@@ -159,6 +159,10 @@ GROUP_PHYSICAL_DEFAULTS = {
     "Preservative Oils": {"material": "Stal zwykła", "density": 0.85, "cp": 1.95, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 4},
     "Coolants": {"material": "Stal nierdzewna", "density": 1.02, "cp": 3.9, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.85, "cycle_h": 5},
     "Cutting Oils": {"material": "Stal zwykła", "density": 0.89, "cp": 1.95, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 5},
+    # Oleje przekładniowo-hydrauliczne (UTTO/STOU) - jak hydraulika, nieco wyższa lepkość i dłuższy cykl
+    "Gear-Hydraulic Oils": {"material": "Stal zwykła", "density": 0.88, "cp": 2.0, "oil_group": "Mineralne (Gr. I/II)", "water_content": 0.0, "cycle_h": 5},
+    # Oleje automotive (przekładniowe, ATF, płyny do skrzyń/osi) - zwykle bazy Gr. III i pakiety syntetyczne
+    "Automotive Oils": {"material": "Stal zwykła", "density": 0.87, "cp": 2.1, "oil_group": "Syntetyczne (Gr. III/IV)", "water_content": 0.0, "cycle_h": 5},
 }
 
 # Zestaw startowy active_portfolio - JEDYNA taksonomia w apce, wspólna dla trybu ręcznego i
@@ -3282,27 +3286,34 @@ tab1, tab5, tab2, tab3, tab4, tab6, tab8 = st.tabs([
 with tab1:
     st.header("📋 Receptury Produktów: Import z Excela")
 
-    st.markdown("### 💾 Zapisz / Wczytaj Projekt")
-    st.caption("Cała konfiguracja (receptura, flota, zbiorniki, ceny, rozruch, testy QC) w jednym pliku — pobierz go, "
-               "żeby nie uzupełniać wszystkiego od nowa przy następnej sesji, albo żeby zarządzać kilkoma zakładami "
-               "naraz (każdy jako osobny plik projektu).")
-    col_save1, col_save2 = st.columns(2)
-    with col_save1:
+    with st.expander("ℹ️ Jak działa import receptur i plik projektu", expanded=False):
+        st.markdown(
+            "- **Projekt (.json)** — cała konfiguracja (receptura, flota, zbiorniki, ceny, rozruch, testy QC) w jednym "
+            "pliku, żeby nie uzupełniać wszystkiego od nowa lub zarządzać kilkoma zakładami. **Nie** obejmuje "
+            "wygenerowanych raportów PDF/Excel — te przeliczą się same z wczytanej konfiguracji.\n"
+            "- **Szablon Excel** — dokładna struktura kolumn (nie zmieniaj nazw/kolejności), lista rozwijana grup "
+            "produktowych, dwa przykładowe wiersze i formuły kontrolne: 'Suma Udziałów Składników' podświetla się na "
+            "czerwono, jeśli odbiega od 1000 kg/t o więcej niż tolerancja, a 'Roczne Zapotrzebowanie Surowcowe' "
+            "uwzględnia straty procesowe. Opcjonalny arkusz 'Opakowania' predefiniuje typy opakowań i pojemności.\n"
+            "- **Receptury** zasilają wymiarowanie silosów **per surowiec** w Zakładce 4 oraz podpowiedź, dla których "
+            "surowców opłaca się dedykowany zbiornik, a które lepiej zostawić w beczkach/IBC/workach.")
+
+    col_proj, col_tpl, col_upl = st.columns(3, gap="large")
+
+    with col_proj:
+        st.markdown("#### 💾 Projekt")
         if st.session_state.get("recipes_df") is not None:
             st.download_button(
                 "⬇️ Pobierz projekt (.json)", data=export_project_bytes(),
                 file_name=f"projekt_{datetime.date.today().isoformat()}.json", mime="application/json",
-                key="download_project_btn"
+                key="download_project_btn", use_container_width=True
             )
         else:
-            st.caption("Wgraj/skonfiguruj recepturę poniżej, żeby móc zapisać projekt.")
-    with col_save2:
+            st.caption("Wgraj recepturę, żeby móc zapisać projekt.")
         uploaded_project_file = st.file_uploader("⬆️ Wczytaj projekt (.json)", type=["json"], key="upload_project_file")
         if uploaded_project_file is not None:
-            # Streamlit ZACHOWUJE wgrany plik między odświeżeniami strony - bez tego sprawdzenia,
-            # wywołanie st.rerun() poniżej powodowałoby wczytywanie TEGO SAMEGO pliku w nieskończonej
-            # pętli przy każdym kolejnym przebiegu skryptu (wyglądałoby to jak "nic się nie dzieje" -
-            # strona migocze/nie stabilizuje się, bo cały czas na nowo importuje i odświeża).
+            # Streamlit ZACHOWUJE wgrany plik między odświeżeniami - bez sprawdzenia sygnatury
+            # st.rerun() wczytywałby ten sam plik w nieskończonej pętli.
             file_sig = (uploaded_project_file.name, uploaded_project_file.size)
             if st.session_state.get("_last_loaded_project_sig") != file_sig:
                 success, msg = import_project_bytes(uploaded_project_file.getvalue())
@@ -3312,38 +3323,26 @@ with tab1:
                     st.rerun()
                 else:
                     st.error(f"❌ {msg}")
-    st.caption("⚠️ Obejmuje receptury, flotę, zbiorniki, ceny, ustawienia rozruchu i testów QC — **nie** obejmuje "
-               "wygenerowanych raportów PDF/Excel (te przeliczą się same z wczytanej konfiguracji).")
-    st.markdown("---")
 
-    st.caption("Wgraj plik Excel z listą produktów (przypisanych do grupy produktowej), rocznym zapotrzebowaniem "
-               "i dozowaniem surowców [kg/t] (bazy olejowe, dodatki, pakiety, zagęszczacze, smary stałe, woda DEMI, "
-               "biocyd). Dane z tej zakładki zasilają dodatkowo wymiarowanie silosów **per surowiec** w Zakładce 4 "
-               "oraz podpowiedź, dla których surowców opłaca się dedykowany zbiornik, a które lepiej zostawić "
-               "w beczkach/IBC/workach.")
+    with col_tpl:
+        st.markdown("#### 📥 Krok 1: Szablon")
+        st.caption("Pusty szablon z listą grup produktowych i formułami kontrolnymi.")
+        template_bytes = generate_recipe_template_bytes()
+        st.download_button(
+            label="⬇️ Pobierz szablon (Receptury_Szablon.xlsx)",
+            data=template_bytes,
+            file_name="Receptury_Szablon.xlsx",
+            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            key="btn_download_recipe_template", use_container_width=True
+        )
 
-    st.markdown("### 📥 Krok 1: Pobierz szablon")
-    st.caption("Szablon zawiera dokładną strukturę kolumn wymaganą przez aplikację (nie zmieniaj nazw/kolejności "
-               "kolumn), listę rozwijaną grup produktowych, dwa przykładowe wiersze pokazujące format oraz formuły "
-               "kontrolne — 'Suma Udziałów Składników' podświetla się na czerwono, jeśli odbiega od 1000 kg/t o "
-               "więcej niż tolerancja, a 'Roczne Zapotrzebowanie Surowcowe' wylicza się z uwzględnieniem strat "
-               "procesowych. Dodatkowy arkusz 'Opakowania' pozwala predefiniować typy opakowań i ich pojemności — "
-               "opcjonalny, wypełniony domyślnymi wartościami z aplikacji, można dopisać nowe wiersze lub zostawić bez zmian.")
-
-    template_bytes = generate_recipe_template_bytes()
-    st.download_button(
-        label="⬇️ Pobierz szablon Excel (Receptury_Szablon.xlsx)",
-        data=template_bytes,
-        file_name="Receptury_Szablon.xlsx",
-        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
-        key="btn_download_recipe_template"
-    )
+    with col_upl:
+        st.markdown("#### 📤 Krok 2: Wgraj receptury")
+        uploaded_recipe_file = st.file_uploader(
+            "Plik .xlsx z recepturami:", type=["xlsx"], key="recipe_uploader"
+        )
 
     st.markdown("---")
-    st.markdown("### 📤 Krok 2: Wgraj uzupełniony plik")
-    uploaded_recipe_file = st.file_uploader(
-        "Wybierz plik .xlsx z recepturami:", type=["xlsx"], key="recipe_uploader"
-    )
 
     if uploaded_recipe_file is not None:
         uploaded_recipe_file.seek(0)
