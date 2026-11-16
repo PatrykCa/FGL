@@ -1,190 +1,153 @@
-"""Chiba Plant CAPEX scope calculator.
+"""CAPEX scope calculator (Streamlit wrapper around page.html).
 
 Files next to this script:
-  budget.xlsx          the phased budget workbook (first sheet is read)
-  render_mapping.csv   item_id,render  -> first render on which the item is visible
-  renders/             PNG renders from Blender, named exactly as in RENDERS below
+  budget.xlsx   the phased budget workbook. First sheet = budget lines, with two extra columns:
+                  "Render"   first render on which the item is visible
+                  "Package"  object the item belongs to (Base, Tank Farm, Office ...)
+                Sheets "Packages", "Scalable items" and "Config" define the object buttons,
+                items built in steps (e.g. tanks) and extra exchange rates.
+  page.html     the calculator page (layout, styling and logic)
+  renders/      renders from Blender (PNG or JPG), named as in RENDERS below
 """
+import base64
+import io
+import json
 import re
 from pathlib import Path
 
-import pandas as pd
 import streamlit as st
+import streamlit.components.v1 as components
 from openpyxl import load_workbook
+from PIL import Image
 
 HERE = Path(__file__).parent
 BUDGET = HERE / "budget.xlsx"
-MAPPING = HERE / "render_mapping.csv"
+PAGE = HERE / "page.html"
 RENDER_DIR = HERE / "renders"
 
 # Cumulative renders, earliest build stage first.
 RENDERS = [f"{n} to Last Phase" for n in range(14, 1, -1)] + ["Last Phase"]
-
-_V = tuple(int(x) for x in st.__version__.split(".")[:2])
-FULL = {"width": "stretch"} if _V >= (1, 52) else {"use_container_width": True}
+FACTOR = 1.3  # the "1,3 ration" column of the budget sheet
 
 st.set_page_config(page_title="Chiba CAPEX Calculator", layout="wide")
+st.markdown(
+    """<style>
+    .block-container, [data-testid="stMainBlockContainer"]{padding:0 !important;max-width:100% !important}
+    header[data-testid="stHeader"], footer{display:none !important}
+    iframe{height:100vh !important;display:block}
+    </style>""",
+    unsafe_allow_html=True,
+)
+
+
+def _txt(v):
+    return "" if v is None else str(v).strip()
 
 
 @st.cache_data
 def load_budget(path: str, mtime: float):
-    """Read items, phase names and exchange rates from the budget sheet."""
-    ws = load_workbook(path, data_only=True).worksheets[0]
-    eur = float(ws["B5"].value or 186.73)   # 1 EUR = x JPY
-    pln = float(ws["B6"].value or 2.66)     # 100 JPY = x PLN
-    phases, rows = {}, []
-    for r in ws.iter_rows(min_row=1, max_col=10, values_only=True):
-        a = "" if r[0] is None else str(r[0]).strip()
-        head = re.match(r"^Phase\s+(\w+)\s*:\s*(.+)$", a)
+    """Read rates, budget lines, packages and scalable items from the workbook."""
+    wb = load_workbook(path, data_only=True)
+    ws = wb.worksheets[0]
+    rates = {"eur": float(ws["B5"].value or 186.73), "pln": float(ws["B6"].value or 2.66), "mult": FACTOR}
+
+    usd = None
+    if "Config" in wb.sheetnames:
+        for k, v, *_ in wb["Config"].iter_rows(min_row=2, max_col=3, values_only=True):
+            if _txt(k).upper().startswith("1 USD") and v:
+                usd = float(v)
+    to_jpy = {"JPY": 1.0, "EUR": rates["eur"], "USD": usd}
+
+    # budget lines
+    phase_names, items, col = {}, [], {}
+    for r in ws.iter_rows(min_row=1, max_col=20, values_only=True):
+        a = _txt(r[0])
+        if a == "ID":
+            heads = [_txt(h).lower() for h in r]
+            col = {name: heads.index(name) for name in ("render", "package") if name in heads}
+            continue
+        head = re.match(r"^Phase\s+\w+\s*:\s*(.+)$", a)
         if head and r[2] is None:
-            name = head.group(2)
-            inner = re.search(r"\(([^()]+)\)\s*$", name)   # keep the English name in brackets
-            phases[len(phases) + 1] = inner.group(1) if inner else name
+            name = head.group(1)
+            inner = re.search(r"\(([^()]+)\)\s*$", name)
+            phase_names[len(phase_names) + 1] = inner.group(1) if inner else name
             continue
         if re.match(r"^\d+\.\d+$", a) and r[2]:
-            rows.append({
-                "ID": a, "Phase": int(a.split(".")[0]), "Item": str(r[2]).strip(),
-                "Qty": float(r[3] or 0), "Unit": r[4] or "", "Unit price (JPY)": float(r[5] or 0),
-                "Note": r[9] if isinstance(r[9], str) else "",
+            ph = len(phase_names)
+            items.append({
+                "id": a, "desc": _txt(r[2]), "qty": float(r[3] or 0), "unit": _txt(r[4]), "price": float(r[5] or 0),
+                "flag": r[9] if isinstance(r[9], str) else "",
+                "stage": _txt(r[col["render"]]) if "render" in col else "",
+                "group": (_txt(r[col["package"]]) if "package" in col else "") or f"Phase {ph}: {phase_names.get(ph, '')}",
+                "scal": None,
             })
-    df = pd.DataFrame(rows)
-    df["Total (JPY)"] = df["Qty"] * df["Unit price (JPY)"]
-    return df, phases, eur, pln
+
+    # items built in steps
+    problems = []
+    if "Scalable items" in wb.sheetnames:
+        for r in wb["Scalable items"].iter_rows(min_row=2, max_col=9, values_only=True):
+            if not r[0] or not r[1] or not r[3]:
+                continue
+            cur = _txt(r[7]).upper() or "JPY"
+            if not to_jpy.get(cur):
+                problems.append(f"{r[0]}: no exchange rate for {cur} (sheet Config)")
+                continue
+            steps = []
+            for part in _txt(r[8]).split(";"):
+                m = re.match(r"^\s*(\d+)\s*=\s*(.+?)\s*$", part)
+                if m:
+                    steps.append([int(m.group(1)), m.group(2)])
+            unit_cost = float(r[6] or 0)
+            note = "" if cur == "JPY" else f"{cur} {unit_cost:,.0f} each at 1 {cur} = {to_jpy[cur]:g} JPY"
+            items.append({
+                "id": _txt(r[0]), "desc": _txt(r[2]), "qty": float(r[4] if r[4] is not None else r[3]), "unit": _txt(r[5]) or "pc",
+                "price": unit_cost * to_jpy[cur], "flag": "", "stage": "", "group": _txt(r[1]),
+                "scal": {"max": int(r[3]), "steps": sorted(steps), "note": note},
+            })
+
+    # packages: order and which are always included
+    order, locked = [], set()
+    if "Packages" in wb.sheetnames:
+        for r in wb["Packages"].iter_rows(min_row=2, max_col=2, values_only=True):
+            if r[0] and r[1] is not None:
+                order.append(_txt(r[0]))
+                if _txt(r[1]).upper() == "YES":
+                    locked.add(_txt(r[0]))
+    for it in items:
+        if it["group"] not in order:
+            order.append(it["group"])
+    groups = [{"name": g, "locked": g in locked, "items": [it for it in items if it["group"] == g]} for g in order]
+    return rates, [g for g in groups if g["items"]], problems
 
 
-@st.cache_data
-def load_mapping(path: str, mtime: float):
-    m = pd.read_csv(path, dtype=str).fillna("")
-    return dict(zip(m["item_id"].str.strip(), m["render"].str.strip()))
+@st.cache_data(show_spinner="Preparing renders...")
+def render_uri(path: str, mtime: float) -> str:
+    """Downscale a render and return it as a data URI, so the page loads quickly."""
+    im = Image.open(path).convert("RGB")
+    im.thumbnail((1600, 1600))
+    buf = io.BytesIO()
+    im.save(buf, "JPEG", quality=84)
+    return "data:image/jpeg;base64," + base64.b64encode(buf.getvalue()).decode()
 
 
-if not BUDGET.exists():
-    st.error(f"Budget file not found: {BUDGET.name}. Upload it next to app.py.")
+if not BUDGET.exists() or not PAGE.exists():
+    st.error("budget.xlsx and page.html must sit next to app.py.")
     st.stop()
 
-items, phase_names, eur_default, pln_default = load_budget(str(BUDGET), BUDGET.stat().st_mtime)
-mapping = load_mapping(str(MAPPING), MAPPING.stat().st_mtime) if MAPPING.exists() else {}
-items["Render"] = items["ID"].map(mapping).fillna("")
-ids = items["ID"].tolist()
+rates, groups, problems = load_budget(str(BUDGET), BUDGET.stat().st_mtime)
 
-# ---------- scope state ----------
-ss = st.session_state
-if "scope" not in ss:
-    ss.scope = {i: True for i in ids}
-    ss.base_scope = dict(ss.scope)
-    ss.editor_version = 0
+files = {" ".join(p.stem.lower().replace("_", " ").split()): p for p in RENDER_DIR.glob("*") if p.suffix.lower() in (".png", ".jpg", ".jpeg")} if RENDER_DIR.exists() else {}
+images = {name: render_uri(str(files[name.lower()]), files[name.lower()].stat().st_mtime) for name in RENDERS if name.lower() in files}
 
+linked = {it["stage"] for g in groups for it in g["items"] if it["stage"]}
+linked |= {s[1] for g in groups for it in g["items"] if it["scal"] for s in it["scal"]["steps"]}
+unknown = sorted(linked - set(RENDERS))
+if unknown:
+    problems.append("Render names in budget.xlsx that match no render: " + ", ".join(unknown))
+if problems:
+    st.warning("  \n".join(problems))
 
-def set_scope(new_scope):
-    """Change the scope from a button: reset the table so it shows the new ticks."""
-    ss.scope = new_scope
-    ss.base_scope = dict(new_scope)
-    ss.editor_version += 1
-
-
-def stage_of(item_id):
-    r = mapping.get(item_id, "")
-    return RENDERS.index(r) if r in RENDERS else None
-
-
-# ---------- sidebar ----------
-with st.sidebar:
-    st.header("Scope shortcuts")
-    c1, c2 = st.columns(2)
-    if c1.button("Select all", **FULL):
-        set_scope({i: True for i in ids})
-    if c2.button("Clear all", **FULL):
-        set_scope({i: False for i in ids})
-    used = [r for r in RENDERS if r in set(mapping.values())]
-    if used:
-        target = st.selectbox("Build up to render", used, index=len(used) - 1)
-        if st.button("Apply build stage", **FULL):
-            t = RENDERS.index(target)
-            set_scope({i: (ss.scope[i] if stage_of(i) is None else stage_of(i) <= t) for i in ids})
-    st.header("Exchange rates")
-    eur = st.number_input("1 EUR = ... JPY", value=eur_default, min_value=0.01, step=0.01, format="%.2f")
-    pln = st.number_input("100 JPY = ... PLN", value=pln_default, min_value=0.0, step=0.01, format="%.2f")
-    factor = st.number_input("Factor (column '1,3 ration')", value=1.3, min_value=0.0, step=0.05, format="%.2f")
-    st.caption("Rates start from cells B5 and B6 of the budget file.")
-
-# ---------- page ----------
-st.title("CAPEX Calculator, Chiba Plant")
-st.caption("Tick the scope in the table. The cost and the 3D view change together.")
-
-left, right = st.columns([3, 2], gap="large")
-
-with left:
-    table = items[["ID", "Phase", "Item", "Qty", "Unit", "Unit price (JPY)", "Total (JPY)", "Note"]].copy()
-    table.insert(0, "In scope", [ss.base_scope[i] for i in ids])
-    table["Phase"] = table["Phase"].map(lambda n: f"{n}. {phase_names.get(n, '')}")
-    edited = st.data_editor(
-        table,
-        key=f"scope_editor_{ss.editor_version}",
-        hide_index=True,
-        height=38 + 35 * len(table),
-        disabled=[c for c in table.columns if c != "In scope"],
-        column_config={
-            "In scope": st.column_config.CheckboxColumn("In scope", width="small"),
-            "ID": st.column_config.TextColumn("ID", width="small"),
-            "Item": st.column_config.TextColumn("Item", width="large"),
-            "Qty": st.column_config.NumberColumn("Qty", format="localized"),
-            "Unit price (JPY)": st.column_config.NumberColumn("Unit price (JPY)", format="localized"),
-            "Total (JPY)": st.column_config.NumberColumn("Total (JPY)", format="localized"),
-        },
-        **FULL,
-    )
-    ss.scope = dict(zip(ids, edited["In scope"].astype(bool)))
-
-sel = items["ID"].map(ss.scope)
-total_jpy = float(items.loc[sel, "Total (JPY)"].sum())
-full_jpy = float(items["Total (JPY)"].sum())
-
-# Renders are cumulative: show the furthest one whose items, and all earlier renders' items, are in scope.
-current, blocked, missing = None, None, []
-for idx, name in enumerate(RENDERS):
-    its = [i for i in ids if mapping.get(i) == name]
-    if not its:
-        continue
-    miss = [i for i in its if not ss.scope[i]]
-    if miss:
-        blocked, missing = name, miss
-        break
-    current = name
-
-with right:
-    if current is None:
-        st.info("No render for this scope yet: it does not cover the first rendered stage.")
-    else:
-        img = RENDER_DIR / f"{current}.png"
-        if img.exists():
-            st.image(str(img), **FULL)
-        else:
-            st.warning(f"Render file missing: renders/{current}.png")
-        st.markdown(f"**{current}**  ·  stage {RENDERS.index(current) + 1} of {len(RENDERS)}")
-    if blocked:
-        st.caption(f"Missing for the '{blocked}' view: {', '.join(missing)}")
-    elif not mapping:
-        st.caption("No render mapping found (render_mapping.csv).")
-
-    m1, m2 = st.columns(2)
-    m1.metric("Selected scope (EUR)", f"€{total_jpy / eur:,.0f}")
-    m2.metric(f"With factor x{factor:g} (EUR)", f"€{total_jpy / eur * factor:,.0f}")
-    m3, m4 = st.columns(2)
-    m3.metric("Selected scope (JPY)", f"¥{total_jpy:,.0f}")
-    m4.metric("Selected scope (PLN)", f"{total_jpy * pln / 100:,.0f} PLN")
-    st.caption(f"{int(sel.sum())} of {len(ids)} items selected. Full budget: €{full_jpy / eur:,.0f}.")
-
-    by_phase = items.assign(sel=sel).groupby("Phase").apply(
-        lambda g: g.loc[g["sel"], "Total (JPY)"].sum(), include_groups=False)
-    summary = pd.DataFrame({
-        "Phase": [f"{n}. {phase_names.get(n, '')}" for n in by_phase.index],
-        "JPY": by_phase.values,
-        "EUR": by_phase.values / eur,
-        "PLN": by_phase.values * pln / 100,
-    })
-    st.dataframe(
-        summary, hide_index=True,
-        column_config={c: st.column_config.NumberColumn(c, format="localized") for c in ("JPY", "EUR", "PLN")},
-        **FULL,
-    )
-    st.bar_chart(summary.assign(**{"EUR (selected)": summary["EUR"].round(0)}).set_index("Phase")[["EUR (selected)"]])
+data = {"rates": rates, "groups": groups, "renders": RENDERS, "images": images}
+payload = "const DATA = " + json.dumps(data, ensure_ascii=False).replace("</", "<\\/") + ";"
+html = PAGE.read_text(encoding="utf-8").replace("/*__DATA__*/", payload)
+components.html(html, height=900, scrolling=True)

@@ -1,0 +1,408 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Chiba CAPEX Calculator</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
+<style>
+:root{
+  /* layout: budget table on the left, sticky render + totals panel on the right; stacks on narrow screens */
+  --bg:#edf0f3;
+  --surface:#ffffff;
+  --sunken:#f4f6f8;
+  --ink:#16202a;
+  --muted:#5a6775;
+  --line:#d3dae1;
+  --accent:#0a5c8f;
+  --accent-soft:#dcebf5;
+  --warn:#9a5b00;
+  --warn-soft:#fbefd9;
+  --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
+  --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
+  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
+}
+@media (prefers-color-scheme: dark){
+  :root:not([data-theme="light"]){
+    color-scheme:dark;
+    --bg:#10151a;--surface:#192027;--sunken:#141a20;--ink:#e5eaef;--muted:#93a0ad;--line:#2b353f;
+    --accent:#62b5e8;--accent-soft:#17364a;--warn:#e9b057;--warn-soft:#3a2c12;
+  }
+}
+:root[data-theme="dark"]{
+  color-scheme:dark;
+  --bg:#10151a;--surface:#192027;--sunken:#141a20;--ink:#e5eaef;--muted:#93a0ad;--line:#2b353f;
+  --accent:#62b5e8;--accent-soft:#17364a;--warn:#e9b057;--warn-soft:#3a2c12;
+}
+*{box-sizing:border-box}
+html,body{margin:0}
+body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:14px;line-height:1.45}
+.wrap{max-width:1480px;margin:0 auto;padding:20px 20px 48px}
+header{display:flex;flex-wrap:wrap;gap:8px 24px;align-items:flex-end;justify-content:space-between;margin-bottom:16px}
+h1{font-family:var(--display);font-weight:600;font-size:34px;line-height:1.05;margin:0;letter-spacing:.01em;text-wrap:balance}
+.sub{color:var(--muted);margin:4px 0 0}
+h2{font-family:var(--display);font-weight:600;font-size:17px;letter-spacing:.06em;text-transform:uppercase;margin:0 0 10px;color:var(--muted)}
+button{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer}
+button:hover{border-color:var(--accent)}
+button:focus-visible,input:focus-visible,select:focus-visible,label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:1px}
+.actions{display:flex;flex-wrap:wrap;gap:8px}
+.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(420px,34%);gap:20px;align-items:start}
+.panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px}
+.side{position:sticky;top:16px;display:flex;flex-direction:column;gap:16px;max-height:calc(100vh - 32px);overflow:auto}
+@media (max-width:1040px){
+  .grid{grid-template-columns:minmax(0,1fr)}
+  .side{position:static;max-height:none;order:-1}
+}
+
+/* render viewer */
+.viewer{position:relative;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:var(--sunken);border:1px solid var(--line)}
+.viewer.drag{outline:2px dashed var(--accent);outline-offset:-6px}
+.viewer img{display:block;width:100%;height:100%;object-fit:cover}
+.ph{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:16px;text-align:center;
+  background-image:repeating-linear-gradient(135deg,transparent 0 14px,var(--line) 14px 15px)}
+.ph b{font-family:var(--mono);font-weight:500;font-size:15px;background:var(--surface);padding:4px 10px;border-radius:4px;border:1px solid var(--line)}
+.ph span{color:var(--muted);background:var(--surface);padding:2px 8px;border-radius:4px;max-width:34ch}
+.cap{display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-top:10px}
+.cap strong{font-family:var(--display);font-size:20px;font-weight:600}
+.cap small{color:var(--muted)}
+.strip{display:grid;grid-template-columns:repeat(14,minmax(0,1fr));gap:3px;margin-top:10px}
+.strip button{padding:5px 0;font-family:var(--mono);font-size:10px;letter-spacing:-.02em;border-radius:4px;background:var(--sunken)}
+.strip button.done{background:var(--accent-soft);border-color:var(--accent-soft)}
+.strip button.cur{background:var(--accent);border-color:var(--accent);color:var(--surface);font-weight:500}
+.strip button.empty{opacity:.45;cursor:default;border-style:dashed}
+.striphelp{margin:6px 0 0;color:var(--muted);font-size:12px}
+.hint{margin:10px 0 0;padding:8px 10px;border-radius:6px;background:var(--warn-soft);color:var(--warn);font-size:13px}
+.hint.ok{background:var(--accent-soft);color:var(--accent)}
+.filebtn{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer;background:var(--surface)}
+.filebtn:hover{border-color:var(--accent)}
+.filebtn input{position:absolute;opacity:0;width:1px;height:1px}
+.viewer-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;color:var(--muted);font-size:12px}
+
+/* totals */
+.total-main{font-family:var(--display);font-weight:600;font-size:44px;line-height:1;font-variant-numeric:tabular-nums}
+.total-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
+.total-row div{background:var(--sunken);border-radius:6px;padding:8px 10px}
+.total-row small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
+.total-row b{font-family:var(--mono);font-weight:500;font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
+.count{color:var(--muted);margin:6px 0 0}
+.bars{display:flex;flex-direction:column;gap:7px;margin-top:14px}
+.bar span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.bar{display:grid;grid-template-columns:120px minmax(0,1fr) 100px;gap:8px;align-items:center;font-size:12px}
+.bar .track{height:8px;background:var(--sunken);border-radius:4px;overflow:hidden}
+.bar .fill{height:100%;background:var(--accent);border-radius:4px;width:0}
+.bar .v{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+.rates{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
+.rates label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
+input[type=number]{font-family:var(--mono);font-size:13px;color:var(--ink);background:var(--sunken);border:1px solid var(--line);border-radius:5px;padding:5px 7px;width:100%;text-align:right;font-variant-numeric:tabular-nums}
+input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;margin:0;vertical-align:middle}
+
+/* object cards */
+.maincol{display:flex;flex-direction:column;gap:16px;min-width:0}
+.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;align-items:start}
+.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;border-left:4px solid var(--line)}
+.card.on{border-left-color:var(--accent)}
+.card.part{border-left-color:var(--warn)}
+.card label.top{display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;font-size:15px;line-height:1.2}
+.card.locked label.top{cursor:default}
+.card .cost{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums}
+.card.off .cost{color:var(--muted)}
+.card small{color:var(--muted);font-size:12px}
+.card input[type=range]{width:100%;accent-color:var(--accent);margin:2px 0 0}
+.card .scal{display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--line);padding-top:8px;margin-top:2px}
+.card .scal b{font-weight:500;font-size:13px}
+.lock{display:inline-block;padding:0 7px;border-radius:9px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:500}
+.tog{font:inherit;background:none;border:0;padding:0 6px 0 0;cursor:pointer;color:var(--muted);font-size:12px}
+tr.item.hid{display:none}
+/* table */
+.tablewrap{overflow-x:auto;padding:0}
+table{border-collapse:collapse;width:100%;min-width:900px}
+th,td{padding:6px 6px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
+thead th{position:sticky;top:0;background:var(--surface);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;white-space:nowrap}
+.num{text-align:right;font-size:12.5px;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
+tr.phase th{background:var(--sunken);font-weight:600;font-size:14px;border-top:1px solid var(--line)}
+tr.phase th small{display:block;font-weight:400;color:var(--muted);font-size:12px}
+tr.phase th.num{font-family:var(--mono);font-weight:500;font-size:13px}
+tr.item.off td{color:var(--muted)}
+tr.item.off td.val{text-decoration:line-through;text-decoration-color:var(--line)}
+td.id{font-family:var(--mono);color:var(--muted);white-space:nowrap}
+td.qty input{width:74px}
+td.desc{min-width:230px}
+td.price input{width:100px}
+.pill{display:inline-block;margin-left:6px;padding:0 7px;border-radius:9px;background:var(--warn-soft);color:var(--warn);font-size:11px;font-weight:500}
+.mapcol{display:none}
+table.mapping .mapcol{display:table-cell}
+select{font:inherit;font-size:12px;color:var(--ink);background:var(--sunken);border:1px solid var(--line);border-radius:5px;padding:4px 6px}
+tfoot td{font-weight:600;border-bottom:0;background:var(--sunken)}
+.mapbar{display:none;margin:0;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--accent-soft);gap:10px;flex-wrap:wrap;align-items:center}
+.mapbar.on{display:flex}
+.mapbar p{margin:0;flex:1 1 320px;max-width:70ch}
+#copyout{display:none;width:100%;min-height:120px;font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px}
+@media (prefers-reduced-motion:no-preference){.bar .fill{transition:width .25s ease}}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <div>
+      <h1>CAPEX Calculator, Chiba Plant</h1>
+      <p class="sub">Choose what to build. The cost and the 3D view follow. Open an object to see or change its budget lines; the budget file stays the source.</p>
+    </div>
+    <div class="actions">
+      <button id="btnAll" type="button">Build everything</button>
+      <button id="btnNone" type="button">Base only</button>
+      <button id="btnOpen" type="button">Show all lines</button>
+      <button id="btnReset" type="button">Restore values from the file</button>
+    </div>
+  </header>
+
+  <div class="grid">
+    <div class="maincol">
+    <section class="cards" id="cards" aria-label="Objects to build"></section>
+    <section class="panel tablewrap" aria-label="Budget items">
+      <table id="tbl">
+        <thead>
+          <tr>
+            <th></th><th>ID</th><th>Scope</th><th class="num">Qty</th><th>Unit</th>
+            <th class="num">Unit price (JPY)</th><th class="num">Total JPY</th><th class="num">EUR</th><th class="num">PLN</th>
+          </tr>
+        </thead>
+        <tbody id="tbody"></tbody>
+        <tfoot>
+          <tr><td></td><td colspan="5">Total selected scope</td><td class="num" id="fJ"></td><td class="num" id="fE"></td><td class="num" id="fP"></td></tr>
+        </tfoot>
+      </table>
+    </section>
+    </div>
+
+    <aside class="side">
+      <section class="panel">
+        <h2>View for the selected scope</h2>
+        <div class="viewer" id="viewer"></div>
+        <div class="cap"><strong id="capTitle"></strong><small id="capStep"></small></div>
+        <div class="strip" id="strip" role="group" aria-label="Build stages"></div>
+        <p class="striphelp">Click a stage to walk through the build sequence.</p>
+        <p class="hint" id="hint"></p>
+      </section>
+
+      <section class="panel">
+        <h2>Cost of the selected scope</h2>
+        <div class="total-main" id="tE"></div>
+        <p class="count" id="count"></p>
+        <div class="total-row">
+          <div><small>JPY</small><b id="tJ"></b></div>
+          <div><small>PLN</small><b id="tP"></b></div>
+          <div><small id="multLabel">EUR × 1.3</small><b id="tM"></b></div>
+        </div>
+        <div class="bars" id="bars"></div>
+      </section>
+
+      <section class="panel">
+        <h2>Exchange rates and factor</h2>
+        <div class="rates">
+          <label for="rEur">1 EUR = … JPY<input id="rEur" type="number" step="0.01" min="0"></label>
+          <label for="rPln">100 JPY = … PLN<input id="rPln" type="number" step="0.01" min="0"></label>
+          <label for="rMult">Factor (column “1,3 ration”)<input id="rMult" type="number" step="0.05" min="0"></label>
+        </div>
+      </section>
+    </aside>
+  </div>
+</div>
+
+<script>
+/*__DATA__*/
+const GROUPS = DATA.groups, STAGES = DATA.renders, IMG = DATA.images;
+const ITEMS = [];
+GROUPS.forEach((g, gi) => g.items.forEach(it => ITEMS.push(Object.assign({ g:gi }, it))));
+const SCAL = ITEMS.filter(it => it.scal);
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
+const kid = id => id.replace(/[^0-9a-zA-Z]/g, "_");
+const inGroup = gi => ITEMS.filter(it => it.g === gi);
+
+function freshState(){
+  const s = { rates:Object.assign({}, DATA.rates), items:{} };
+  ITEMS.forEach(it => s.items[it.id] = { sel:true, qty:it.qty, price:it.price });
+  return s;
+}
+let S = freshState();
+const open = GROUPS.map(() => false);
+let pinned = null;
+
+const nf = new Intl.NumberFormat("en-US", { maximumFractionDigits:0 });
+const fJ = v => "¥" + nf.format(v);
+const fE = v => "€" + nf.format(v);
+const fP = v => nf.format(v) + " PLN";
+const $ = id => document.getElementById(id);
+const num = v => { const x = parseFloat(String(v).replace(",", ".")); return isFinite(x) ? x : 0; };
+const short = name => name.replace(/ to Last Phase$/i, "").replace(/^Last Phase$/i, "Last");
+
+function build(){
+  /* object cards */
+  $("cards").innerHTML = GROUPS.map((g, gi) => {
+    const sc = inGroup(gi).filter(it => it.scal).map(it => { const k = kid(it.id);
+      return '<div class="scal"><b id="sb' + k + '"></b><input type="range" id="sl' + k + '" data-slide="' + it.id + '" min="0" max="' + it.scal.max +
+        '" step="1" aria-label="' + esc(it.desc) + '"><small>' + esc(it.desc) + (it.scal.note ? ". " + esc(it.scal.note) : "") + "</small></div>"; }).join("");
+    return '<div class="card' + (g.locked ? " locked" : "") + '" id="card' + gi + '"><label class="top" for="cg' + gi + '">' +
+      (g.locked ? "" : '<input type="checkbox" id="cg' + gi + '" data-group="' + gi + '">') + "<span>" + esc(g.name) + "</span></label>" +
+      '<span class="cost" id="cc' + gi + '"></span>' + (g.locked ? '<span><span class="lock">always included</span></span>' : "") + sc + "</div>";
+  }).join("");
+  /* budget lines, grouped by object */
+  let h = "";
+  GROUPS.forEach((g, gi) => {
+    h += '<tr class="phase"><th>' + (g.locked ? "" : '<input type="checkbox" id="ph' + gi + '" data-group="' + gi + '" aria-label="' + esc(g.name) + '">') + "</th>" +
+      '<th colspan="5"><button type="button" class="tog" data-open="' + gi + '" id="tg' + gi + '" aria-expanded="false"></button>' + esc(g.name) + "</th>" +
+      '<th class="num" id="pJ' + gi + '"></th><th class="num" id="pE' + gi + '"></th><th class="num" id="pP' + gi + '"></th></tr>';
+    inGroup(gi).forEach(it => {
+      const st = S.items[it.id], k = kid(it.id);
+      h += '<tr class="item" id="row' + k + '" data-g="' + gi + '">' +
+        '<td><input type="checkbox" id="c' + k + '" data-item="' + it.id + '"' + (st.sel ? " checked" : "") + ' aria-label="Item ' + esc(it.id) + '"></td>' +
+        '<td class="id">' + esc(it.id) + "</td>" +
+        '<td class="desc">' + esc(it.desc) + (it.flag ? '<span class="pill">' + esc(it.flag) + "</span>" : "") + (it.scal ? '<span class="pill">built in steps</span>' : "") + "</td>" +
+        '<td class="qty"><input type="number" id="q' + k + '" data-qty="' + it.id + '" value="' + st.qty + '" min="0"' + (it.scal ? ' max="' + it.scal.max + '" step="1"' : ' step="any"') + ' aria-label="Quantity ' + esc(it.id) + '"></td>' +
+        "<td>" + esc(it.unit) + "</td>" +
+        '<td class="price"><input type="number" id="p' + k + '" data-price="' + it.id + '" value="' + Math.round(st.price * 100) / 100 + '" min="0" step="any" aria-label="Unit price ' + esc(it.id) + '"></td>' +
+        '<td class="num val" id="vJ' + k + '"></td><td class="num val" id="vE' + k + '"></td><td class="num val" id="vP' + k + '"></td></tr>';
+    });
+  });
+  $("tbody").innerHTML = h;
+  $("rEur").value = S.rates.eur; $("rPln").value = S.rates.pln; $("rMult").value = S.rates.mult;
+  $("strip").style.gridTemplateColumns = "repeat(" + STAGES.length + ",minmax(0,1fr))";
+  $("strip").innerHTML = STAGES.map((s, i) => '<button type="button" data-idx="' + i + '" title="' + esc(s) + '">' + esc(short(s)) + "</button>").join("");
+}
+
+/* what each render needs: fixed items linked to it, and step items at or above a unit count */
+function needs(i){
+  const out = [];
+  ITEMS.forEach(it => {
+    const st = S.items[it.id];
+    if (it.scal) it.scal.steps.forEach(([n, r]) => { if (r === STAGES[i]) out.push({ ok: st.sel && st.qty >= n, label: it.id + " ≥ " + n + " " + it.unit }); });
+    else if (it.stage === STAGES[i]) out.push({ ok: st.sel, label: it.id });
+  });
+  return out;
+}
+/* renders are cumulative: show the last one before the first render that still misses something */
+function stageInfo(){
+  let missing = [], next = -1, any = false;
+  for (let i = 0; i < STAGES.length; i++) {
+    const n = needs(i); if (n.length) any = true;
+    const miss = n.filter(x => !x.ok);
+    if (miss.length) { missing = miss; next = i; break; }
+  }
+  let cur = next >= 0 ? next - 1 : STAGES.length - 1;
+  if (pinned !== null) cur = pinned;
+  return { cur, missing, next, any };
+}
+function applyStage(idx){
+  pinned = idx;
+  ITEMS.forEach(it => {
+    const st = S.items[it.id];
+    if (it.scal) {
+      const reached = it.scal.steps.filter(([n, r]) => STAGES.indexOf(r) >= 0 && STAGES.indexOf(r) <= idx).map(x => x[0]);
+      if (it.scal.steps.length) { st.qty = reached.length ? Math.max(...reached) : 0; st.sel = st.qty > 0; }
+    } else if (it.stage) st.sel = STAGES.indexOf(it.stage) <= idx;
+  });
+  update();
+}
+
+let shown = null;
+function update(){
+  const eur = S.rates.eur || 1, pln = S.rates.pln / 100;
+  let T = 0, n = 0; const per = [];
+  GROUPS.forEach((g, gi) => {
+    let sub = 0, selCount = 0; const its = inGroup(gi);
+    its.forEach(it => {
+      const st = S.items[it.id], k = kid(it.id), v = st.qty * st.price;
+      $("vJ" + k).textContent = fJ(v); $("vE" + k).textContent = fE(v / eur); $("vP" + k).textContent = fP(v * pln);
+      const row = $("row" + k); row.classList.toggle("off", !st.sel); row.classList.toggle("hid", !open[gi]);
+      $("c" + k).checked = st.sel;
+      if (document.activeElement !== $("q" + k)) $("q" + k).value = st.qty;
+      if (st.sel) { sub += v; selCount++; n++; }
+      if (it.scal) {
+        const sl = $("sl" + k); sl.value = st.sel ? st.qty : 0;
+        $("sb" + k).textContent = (st.sel ? st.qty : 0) + " of " + it.scal.max + " installed (" + Math.round((st.sel ? st.qty : 0) / it.scal.max * 100) + "%)";
+      }
+    });
+    per[gi] = sub; T += sub;
+    $("pJ" + gi).textContent = fJ(sub); $("pE" + gi).textContent = fE(sub / eur); $("pP" + gi).textContent = fP(sub * pln);
+    const all = selCount === its.length, some = selCount > 0 && !all;
+    [$("ph" + gi), $("cg" + gi)].forEach(c => { if (c) { c.checked = all; c.indeterminate = some; } });
+    $("card" + gi).className = "card" + (g.locked ? " locked" : "") + (all ? " on" : some ? " part" : " off");
+    $("cc" + gi).textContent = fE(sub / eur) + (some ? "  ·  partly selected" : "");
+    const tg = $("tg" + gi); tg.textContent = open[gi] ? "▾" : "▸"; tg.setAttribute("aria-expanded", open[gi]);
+    tg.setAttribute("aria-label", (open[gi] ? "Hide lines of " : "Show lines of ") + g.name);
+  });
+  $("fJ").textContent = fJ(T); $("fE").textContent = fE(T / eur); $("fP").textContent = fP(T * pln);
+  $("tE").textContent = fE(T / eur); $("tJ").textContent = fJ(T); $("tP").textContent = fP(T * pln);
+  $("tM").textContent = fE(T / eur * S.rates.mult);
+  $("multLabel").textContent = "EUR × " + String(S.rates.mult);
+  $("count").textContent = n + " of " + ITEMS.length + " budget lines selected";
+  const max = Math.max(1, ...per);
+  $("bars").innerHTML = GROUPS.map((g, gi) => '<div class="bar"><span title="' + esc(g.name) + '">' + esc(g.name) + '</span><span class="track"><span class="fill" style="display:block;width:' +
+    (per[gi] / max * 100).toFixed(1) + '%"></span></span><span class="v">' + fE(per[gi] / eur) + "</span></div>").join("");
+  $("btnOpen").textContent = open.every(Boolean) ? "Hide all lines" : "Show all lines";
+
+  const info = stageInfo();
+  [...$("strip").children].forEach((b, i) => {
+    b.className = i === info.cur ? "cur" : i < info.cur ? "done" : "";
+    b.setAttribute("aria-current", i === info.cur ? "step" : "false");
+  });
+  const v = $("viewer"), hint = $("hint");
+  if (info.cur < 0) {
+    shown = null;
+    v.innerHTML = '<div class="ph"><b>no view</b><span>The selected scope does not yet cover the first rendered stage.</span></div>';
+    $("capTitle").textContent = "No view"; $("capStep").textContent = "";
+  } else {
+    const s = STAGES[info.cur];
+    if (IMG[s]) {
+      if (shown !== s) { v.innerHTML = ""; const im = new Image(); im.alt = "Render: " + s; im.src = IMG[s]; v.appendChild(im); }
+    } else {
+      v.innerHTML = '<div class="ph"><b>' + esc(s) + '.png</b><span>Render file not found in the renders folder.</span></div>';
+    }
+    shown = s;
+    $("capTitle").textContent = s;
+    $("capStep").textContent = "stage " + (info.cur + 1) + " of " + STAGES.length;
+  }
+  if (!info.any) {
+    hint.className = "hint"; hint.textContent = "No items are linked to renders yet. Fill the Render column in budget.xlsx.";
+  } else if (pinned !== null) {
+    hint.className = "hint ok";
+    hint.textContent = "Build stage picked on the strip. Scope set to everything built up to this render.";
+  } else if (info.next >= 0) {
+    hint.className = "hint";
+    hint.textContent = "Nearest render shown. Missing for the “" + STAGES[info.next] + "” view: " + info.missing.map(m => m.label).join(", ");
+  } else {
+    hint.className = "hint ok";
+    hint.textContent = "The selected scope covers every linked render.";
+  }
+}
+
+function setGroup(gi, v){ inGroup(gi).forEach(it => { S.items[it.id].sel = v; }); }
+document.addEventListener("change", e => {
+  const t = e.target;
+  if (t.dataset.item) S.items[t.dataset.item].sel = t.checked;
+  else if (t.dataset.group) setGroup(+t.dataset.group, t.checked);
+  else return;
+  pinned = null; update();
+});
+document.addEventListener("input", e => {
+  const t = e.target;
+  if (t.dataset.qty) { const it = ITEMS.find(x => x.id === t.dataset.qty); let q = num(t.value); if (it.scal) q = Math.min(it.scal.max, Math.max(0, Math.round(q))); S.items[it.id].qty = q; }
+  else if (t.dataset.price) S.items[t.dataset.price].price = num(t.value);
+  else if (t.dataset.slide) { const st = S.items[t.dataset.slide]; st.qty = +t.value; st.sel = st.qty > 0; }
+  else return;
+  pinned = null; update();
+});
+[["rEur","eur"],["rPln","pln"],["rMult","mult"]].forEach(([id, k]) => $(id).addEventListener("input", e => { S.rates[k] = num(e.target.value); update(); }));
+$("tbody").addEventListener("click", e => { const b = e.target.closest("[data-open]"); if (b) { open[+b.dataset.open] = !open[+b.dataset.open]; update(); } });
+$("btnAll").addEventListener("click", () => { pinned = null; ITEMS.forEach(it => { S.items[it.id].sel = true; if (it.scal) S.items[it.id].qty = it.scal.max; }); update(); });
+$("btnNone").addEventListener("click", () => { pinned = null; GROUPS.forEach((g, gi) => setGroup(gi, g.locked)); update(); });
+$("btnOpen").addEventListener("click", () => { const v = !open.every(Boolean); open.fill(v); update(); });
+$("btnReset").addEventListener("click", () => { pinned = null; S = freshState(); build(); update(); });
+$("strip").addEventListener("click", e => { const b = e.target.closest("button"); if (b) applyStage(+b.dataset.idx); });
+
+build();
+update();
+</script>
+</body>
+</html>
