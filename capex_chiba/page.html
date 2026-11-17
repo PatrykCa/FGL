@@ -17,7 +17,7 @@
 *{box-sizing:border-box}
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:14px;line-height:1.45}
-.wrap{max-width:1560px;margin:0 auto;padding:22px 22px 48px;display:flex;flex-direction:column;gap:16px}
+.wrap{max-width:1760px;margin:0 auto;padding:22px 22px 48px;display:flex;flex-direction:column;gap:16px}
 h1{font-family:var(--display);font-weight:600;font-size:34px;line-height:1.05;margin:0;text-wrap:balance}
 h2{font-family:var(--display);font-weight:600;font-size:17px;letter-spacing:.06em;text-transform:uppercase;margin:0;color:var(--muted)}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px}
@@ -28,61 +28,68 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .btn{min-height:40px;padding:6px 14px;border-radius:6px;border:1px solid var(--line);background:var(--surface);cursor:pointer}
 .btn:hover{border-color:var(--accent)}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
-.kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:2px}
-.kpi b{font-family:var(--display);font-weight:600;font-size:30px;font-variant-numeric:tabular-nums;line-height:1.1}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:10px 14px;display:flex;flex-direction:column;gap:2px}
+.kpi b{font-family:var(--display);font-weight:600;font-size:26px;font-variant-numeric:tabular-nums;line-height:1.1}
 /* plan grid */
 .planwrap{overflow-x:auto}
-.plan{min-width:1180px;display:flex;flex-direction:column;gap:4px}
-.g{display:grid;grid-template-columns:330px repeat(var(--n),minmax(70px,1fr)) 96px;column-gap:0;align-items:stretch;position:relative}
-.yr{min-height:96px;cursor:pointer;padding:9px 20px 9px 22px;text-align:left;display:flex;flex-direction:column;gap:2px;border:0;margin-right:-10px;
+.plan{min-width:930px;display:flex;flex-direction:column;gap:0}
+.g{display:grid;grid-template-columns:280px repeat(var(--n),minmax(56px,1fr)) 74px;column-gap:0;align-items:stretch;position:relative}
+.yr{min-height:62px;cursor:pointer;padding:7px 12px 7px 17px;text-align:left;display:flex;flex-direction:column;gap:2px;border:0;margin-right:-10px;
   clip-path:polygon(0 0,calc(100% - 14px) 0,100% 50%,calc(100% - 14px) 100%,0 100%,14px 50%);background:#f4f6f8}
-.yr.first{padding-left:12px;clip-path:polygon(0 0,calc(100% - 14px) 0,100% 50%,calc(100% - 14px) 100%,0 100%)}
-.yr .y{font-family:var(--display);font-weight:600;font-size:22px;line-height:1}
+.yr.first{padding-left:10px;clip-path:polygon(0 0,calc(100% - 14px) 0,100% 50%,calc(100% - 14px) 100%,0 100%)}
+.yr .y{font-family:var(--display);font-weight:600;font-size:17px;line-height:1}
 .yr .bar{display:block;height:5px;border-radius:3px;background:#d3dae1;overflow:hidden;margin-top:2px}
 .yr .bar span{display:block;height:5px;border-radius:3px;background:var(--accent)}
 .yr.per{background:#e2e8ee}.yr.past{background:#dcebf5}.yr.per.past{background:#c9def0}
 .yr.on{background:var(--accent);color:#fff}.yr.on .bar{background:rgba(255,255,255,.3)}.yr.on .bar span{background:#fff}
-.yr.over .t{color:var(--bad);font-weight:600}.yr.on.over .t{color:#ffd4d0}
-.all{margin-left:14px;border-radius:8px;cursor:pointer;font-weight:600;border:1px solid var(--accent);background:var(--surface);color:var(--accent);font-size:13px}
+.yr.over{box-shadow:inset 0 -3px 0 var(--bad)}.yr.over .s{color:var(--bad);font-weight:600}.yr.on.over .s{color:#ffd4d0}
+.all{margin-left:12px;min-height:62px;border-radius:8px;cursor:pointer;font-weight:600;border:1px solid var(--accent);background:var(--surface);color:var(--accent);font-size:13px}
 .all.on{background:var(--accent);color:#fff}
 .hcell{display:flex;align-items:flex-end;padding:0 10px 6px 0}
-.row{min-height:58px;border-top:1px solid #eef1f4}
+.row{min-height:40px;border-top:1px solid #eef1f4}
 .cell{grid-row:1}
 .yc{grid-row:1;border-left:1px solid #eef1f4}
 .yc.per{background:#f7f9fb}.yc.sel{background:#e7f1f9}
-.name{grid-column:1;grid-row:1;display:flex;align-items:center;gap:10px;padding:8px 10px 8px 4px;min-width:0}
-.name input{width:18px;height:18px;accent-color:var(--accent);flex:none;cursor:pointer}
-.nmbtn{flex:1 1 auto;min-width:0;border:0;background:none;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:1px;padding:4px 0;min-height:44px}
-.nmbtn b{font-size:14px;line-height:1.25}
+.name{grid-column:1;grid-row:1;display:flex;align-items:center;gap:8px;padding:2px 8px 2px 2px;min-width:0}
+.name input{width:16px;height:16px;accent-color:var(--accent);flex:none;cursor:pointer}
+.nmbtn{flex:1 1 auto;min-width:0;border:0;background:none;cursor:pointer;text-align:left;display:flex;align-items:center;gap:8px;padding:2px 0;min-height:36px}
+.nmbtn b{font-size:13px;line-height:1.2;font-weight:600;flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.nmbtn .c{flex:none;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.sdot{flex:none;width:9px;height:9px;border-radius:5px}
+.s-done{background:var(--accent)}.s-part{background:#d98b1c}.s-none{box-shadow:inset 0 0 0 1.5px #8a96a3}.s-off{background:#c7cfd7}
 .pill{padding:1px 8px;border-radius:10px;font-size:11px;font-weight:500;white-space:nowrap}
 .p-done{background:var(--accent-soft);color:#06416a}.p-part{background:var(--warn-soft);color:var(--warn)}.p-none{background:#eef1f4;color:#4a5663}.p-off{background:#eef1f4;color:#4a5663;text-decoration:line-through}
-.bar2{grid-row:1;align-self:center;height:30px;margin:0 4px;border-radius:6px;display:flex;align-items:center;padding:0 8px;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;z-index:2}
+.bar2{grid-row:1;align-self:center;height:22px;margin:0 3px;border-radius:5px;padding:0 6px !important;font-size:11px !important;display:flex;align-items:center;padding:0 8px;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;z-index:2}
 .bar2.in{background:var(--accent);color:#fff}.bar2.out{background:#6d8fa8;color:#fff}.bar2.excl{background:repeating-linear-gradient(135deg,#e6ebf0 0 6px,#f4f6f8 6px 12px);color:var(--muted);border:1px solid var(--line)}
-.ghost{grid-row:1;align-self:center;height:30px;margin:0 4px;border-radius:6px;border:1.5px dashed #8a96a3;z-index:1}
-.act{grid-column:-2;grid-row:1;display:flex;gap:6px;align-items:center;justify-content:flex-end;padding-left:8px}
-.act button{width:40px;height:36px;border-radius:6px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:13px}
+.ghost{grid-row:1;align-self:center;height:22px;margin:0 3px;border-radius:5px;border:1.5px dashed #8a96a3;z-index:1}
+.act{grid-column:-2;grid-row:1;display:flex;gap:4px;align-items:center;justify-content:flex-end;padding-left:8px}
+.act button{width:32px;height:30px;border-radius:6px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:13px}
 .act button:hover:not(:disabled){border-color:var(--accent)}
 .act button:disabled{opacity:.35;cursor:default}
-.lines{grid-column:1/-1;grid-row:2;background:#fafbfc;border-top:1px solid #eef1f4;padding:6px 12px 10px 34px}
-.ln{display:grid;grid-template-columns:52px minmax(0,1fr) 110px 100px;gap:12px;padding:5px 0;border-bottom:1px solid #eef1f4;font-size:13px}
+.lines{grid-column:1/-1;grid-row:2;background:#fafbfc;border-top:1px solid #eef1f4;padding:4px 12px 8px 28px}
+.ln{display:grid;grid-template-columns:44px minmax(0,1fr) 96px 80px;gap:10px;padding:4px 0;font-size:12px !important;border-bottom:1px solid #eef1f4;font-size:13px}
 .ln .r{text-align:right;font-size:12px}
 .legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);padding-top:6px}
 .legend span{display:flex;align-items:center;gap:6px}
 .sw{display:inline-block;width:22px;height:10px;border-radius:3px}
 /* bottom */
-.bottom{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
-.view{flex:2.2 1 620px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.main{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.left{flex:1.6 1 820px;min-width:0}
+.right{flex:1 1 460px;min-width:0;position:sticky;top:10px;display:flex;flex-direction:column;gap:12px}
+.figs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end}
+.view{display:flex;flex-direction:column;gap:8px}
 .view img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
 .ph{aspect-ratio:16/9;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;color:var(--muted);
   background-image:repeating-linear-gradient(135deg,transparent 0 14px,var(--line) 14px 15px)}
 .side{flex:1 1 320px;min-width:0;display:flex;flex-direction:column;gap:12px}
 .fig{display:flex;flex-direction:column;gap:2px}
-.fig b{font-family:var(--mono);font-weight:500;font-size:20px}
+.fig b{font-family:var(--mono);font-weight:500;font-size:17px}
 .lim{display:block;height:10px;border-radius:5px;background:#e6ebf0;overflow:hidden}
 .lim span{display:block;height:10px;border-radius:5px}
 .chg{display:flex;flex-direction:column;gap:6px;font-size:13px}
 .chg div{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid #eef1f4;padding-bottom:5px}
-@media (max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
+@media (max-width:1300px){.right{position:static}}
+@media (max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.figs{grid-template-columns:1fr}}
 </style>
 </head>
 <body>
@@ -93,29 +100,29 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
     <button class="btn" id="reset" type="button">Back to the base plan</button>
   </div>
   <div class="kpis" id="kpis"></div>
-  <section class="panel" aria-label="Investment plan" style="display:flex;flex-direction:column;gap:10px">
-    <div style="display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:space-between;align-items:baseline">
+  <div class="main">
+  <section class="panel left" aria-label="Investment plan" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;flex-wrap:wrap;gap:4px 16px;justify-content:space-between;align-items:baseline">
       <h2 id="planTitle">Investment plan</h2><span class="small muted" id="planNote"></span>
     </div>
     <div class="planwrap"><div class="plan" id="plan"></div></div>
     <div class="legend">
-      <span><span class="sw" style="background:var(--accent)"></span>In the budget period</span>
-      <span><span class="sw" style="background:#6d8fa8"></span>After the budget period</span>
-      <span><span class="sw" style="border:1.5px dashed #8a96a3"></span>Base plan, where a basket was moved from</span>
-      <span><span class="sw" style="background:repeating-linear-gradient(135deg,#e6ebf0 0 6px,#f4f6f8 6px 12px);border:1px solid var(--line)"></span>Left out</span>
+      <span><span class="sw" style="background:var(--accent)"></span>Budget period</span>
+      <span><span class="sw" style="background:#6d8fa8"></span>After it</span>
+      <span><span class="sw" style="border:1.5px dashed #8a96a3"></span>Base plan position</span>
+      <span><span class="sdot s-done"></span>Complete</span><span><span class="sdot s-part"></span>In progress</span><span><span class="sdot s-none"></span>Not yet</span>
     </div>
   </section>
-  <div class="bottom">
-    <section class="panel view" aria-label="Plant view">
+  <aside class="right" aria-label="Plant view and budget">
+    <section class="panel view">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
-        <strong style="font-family:var(--display);font-size:26px;font-weight:600" id="viewTitle"></strong><span class="small muted" id="renderName"></span>
+        <strong style="font-family:var(--display);font-size:24px;font-weight:600" id="viewTitle"></strong><span class="small muted" id="renderName"></span>
       </div>
       <div id="viewer"></div>
+      <div class="figs" id="spend"></div>
     </section>
-    <section class="side" aria-label="Budget for the selected year">
-      <div class="panel" style="display:flex;flex-direction:column;gap:12px" id="spend"></div>
-      <div class="panel" style="display:flex;flex-direction:column;gap:8px"><h2>Changes vs base plan</h2><div class="chg" id="changes"></div></div>
-    </section>
+    <section class="panel" style="display:flex;flex-direction:column;gap:6px"><h2>Changes vs base plan</h2><div class="chg" id="changes"></div></section>
+  </aside>
   </div>
 </div>
 <script>
@@ -169,13 +176,13 @@ function update() {
     '<div class="kpi"><span class="small muted">After the budget period, ' + (pend + 1) + '–' + YN + '</span><b>' + M(m.after) + '</b><span class="small muted">incl. ×' + C.factor + ', outside the current budget</span></div>' +
     '<div class="kpi"><span class="small muted">Changes vs base plan</span><b>' + moved.length + '</b><span class="small muted">' + (moved.length ? "baskets moved or left out" : "the plan is as in the budget file") + '</span></div>';
   $("planTitle").textContent = "Investment plan " + Y0 + " – " + YN;
-  $("planNote").textContent = "Click a year to see the plant and the budget at its end · ◀ ▶ move a basket by one year · costs incl. ×" + C.factor;
+  $("planNote").textContent = "Click a year: the plant on the right shows its end · ◀ ▶ move a basket by one year";
   const mx = Math.max(...m.sp, 1);
   let h = '<div class="g" style="--n:' + H + '"><div class="hcell cell" style="grid-column:1"><span class="small muted">Basket · cost · status at the end of ' + y + '</span></div>';
   YEARS.forEach((yy, k) => {
     const per = k < P, cls = ["yr", "cell", k === 0 ? "first" : "", per ? "per" : "", (S.all || k < S.sel) ? "past" : "", (!S.all && k === S.sel) ? "on" : "", per && m.cum[k] > LIM ? "over" : ""].join(" ");
-    h += '<button type="button" class="' + cls + '" style="grid-column:' + (k + 2) + '" data-y="' + k + '" aria-pressed="' + (!S.all && k === S.sel) + '"><span class="y">' + yy + '</span><span class="mono small">' + (m.sp[k] > 0 ? M(m.sp[k]) : "–") +
-      '</span><span class="bar"><span style="width:' + (m.sp[k] / mx * 100).toFixed(1) + '%"></span></span><span class="t" style="font-size:11px;opacity:.9">' + (per ? Math.round(m.cum[k] / LIM * 100) + "% of limit" : "after budget") + '</span></button>';
+    h += '<button type="button" class="' + cls + '" style="grid-column:' + (k + 2) + '" data-y="' + k + '" aria-pressed="' + (!S.all && k === S.sel) + '" title="' + (per ? Math.round(m.cum[k] / LIM * 100) + "% of the limit used by the end of " + yy : "After the budget period") + '"><span class="y">' + yy + '</span><span class="mono s" style="font-size:10px">' + (m.sp[k] > 0 ? M(m.sp[k]) : "–") +
+      '</span><span class="bar"><span style="width:' + (m.sp[k] / mx * 100).toFixed(1) + '%"></span></span></button>';
   });
   h += '<button type="button" class="all cell' + (S.all ? " on" : "") + '" style="grid-column:' + (H + 2) + '" id="allbtn" aria-pressed="' + S.all + '">Whole plan</button></div>';
   DATA.baskets.forEach((b, bi) => {
@@ -183,8 +190,7 @@ function update() {
     h += '<div class="g row" style="--n:' + H + '">';
     YEARS.forEach((yy, k) => { h += '<div class="yc' + (k < P ? " per" : "") + (!S.all && k === S.sel ? " sel" : "") + '" style="grid-column:' + (k + 2) + '"></div>'; });
     h += '<div class="name"><input type="checkbox" data-incl="' + bi + '"' + (v.incl ? " checked" : "") + ' aria-label="Include ' + esc(b.name) + '">' +
-      '<button type="button" class="nmbtn" data-open="' + bi + '" aria-expanded="' + open + '"><b>' + (open ? "▾ " : "▸ ") + esc(b.name) + '</b><span class="small muted">' + M(COST[b.name] * C.factor) + ' · ' + (LINES[b.name] || []).length + ' lines · ' + esc(b.pkg) + '</span></button>' +
-      '<span class="pill ' + st[0] + '">' + st[1] + '</span></div>';
+      '<button type="button" class="nmbtn" data-open="' + bi + '" aria-expanded="' + open + '" title="' + esc(b.desc) + '"><span class="sdot s-' + st[2] + '" aria-label="' + st[1] + '"></span><b>' + (open ? "▾ " : "▸ ") + esc(b.name) + '</b><span class="c">' + M(COST[b.name] * C.factor) + '</span></button></div>';
     const col = s => Math.max(2, Math.min(H + 1, s - Y0 + 2));
     if (base.start && (base.start !== v.start) && base.start <= YN) h += '<div class="ghost" style="grid-column:' + col(base.start) + ' / span ' + Math.max(1, Math.min(b.dur, YN - base.start + 1)) + '"></div>';
     if (v.start && v.start <= YN) {
@@ -201,8 +207,7 @@ function update() {
   $("renderName").textContent = rn ? "Closest render: " + rn : "";
   $("viewer").innerHTML = rn && DATA.images[rn] ? '<img src="' + DATA.images[rn] + '" alt="Render: ' + esc(rn) + '">' : '<div class="ph">' + (rn ? esc(rn) + ": render file not found in the renders folder" : "Nothing built yet that appears on a render") + '</div>';
   const inPer = i < P && !S.all, cumNow = inPer ? m.cum[i] : m.within, bad = cumNow > LIM;
-  $("spend").innerHTML = '<h2>' + (S.all ? "Whole plan" : "End of " + y) + '</h2>' +
-    '<div class="fig"><span class="small muted">' + (S.all ? "Whole plan" : "Spend in " + y) + ', incl. ×' + C.factor + '</span><b>' + M(S.all ? m.cum[H - 1] : m.sp[i]) + '</b></div>' +
+  $("spend").innerHTML = '<div class="fig"><span class="small muted">' + (S.all ? "Whole plan" : "Spend in " + y) + ', incl. ×' + C.factor + '</span><b>' + M(S.all ? m.cum[H - 1] : m.sp[i]) + '</b></div>' +
     '<div class="fig"><span class="small muted">Cumulative, incl. ×' + C.factor + '</span><b>' + M(m.cum[i]) + '</b></div>' +
     '<div class="fig" style="gap:6px"><span class="small" style="font-weight:500;color:' + (bad ? "var(--bad)" : "var(--good)") + '">' + (inPer ? (bad ? "Over the limit by " + M(cumNow - LIM) : "Headroom " + M(LIM - cumNow)) : (bad ? "Budget period over by " + M(cumNow - LIM) : "Budget period closes with " + M(LIM - cumNow) + " left")) +
     '</span><span class="lim"><span style="width:' + Math.min(100, cumNow / LIM * 100).toFixed(1) + '%;background:' + (bad ? "var(--bad)" : "var(--accent)") + '"></span></span><span class="small muted">Budget period ' + Y0 + '–' + pend + ' vs ' + M(LIM) + ' limit</span></div>';
