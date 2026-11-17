@@ -32,8 +32,8 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .kpi b{font-family:var(--display);font-weight:600;font-size:26px;font-variant-numeric:tabular-nums;line-height:1.1}
 /* plan grid */
 .planwrap{overflow-x:auto}
-.plan{min-width:930px;display:flex;flex-direction:column;gap:0}
-.g{display:grid;grid-template-columns:280px repeat(var(--n),minmax(56px,1fr)) 74px;column-gap:0;align-items:stretch;position:relative}
+.plan{min-width:860px;display:flex;flex-direction:column;gap:0}
+.g{display:grid;grid-template-columns:240px repeat(var(--n),minmax(50px,1fr)) 132px;column-gap:0;align-items:stretch;position:relative}
 .yr{min-height:62px;cursor:pointer;padding:7px 12px 7px 17px;text-align:left;display:flex;flex-direction:column;gap:2px;border:0;margin-right:-10px;
   clip-path:polygon(0 0,calc(100% - 14px) 0,100% 50%,calc(100% - 14px) 100%,0 100%,14px 50%);background:#f4f6f8}
 .yr.first{padding-left:10px;clip-path:polygon(0 0,calc(100% - 14px) 0,100% 50%,calc(100% - 14px) 100%,0 100%)}
@@ -62,10 +62,34 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .bar2{grid-row:1;align-self:center;height:22px;margin:0 3px;border-radius:5px;padding:0 6px !important;font-size:11px !important;display:flex;align-items:center;padding:0 8px;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;z-index:2}
 .bar2.in{background:var(--accent);color:#fff}.bar2.out{background:#6d8fa8;color:#fff}.bar2.excl{background:repeating-linear-gradient(135deg,#e6ebf0 0 6px,#f4f6f8 6px 12px);color:var(--muted);border:1px solid var(--line)}
 .ghost{grid-row:1;align-self:center;height:22px;margin:0 3px;border-radius:5px;border:1.5px dashed #8a96a3;z-index:1}
-.act{grid-column:-2;grid-row:1;display:flex;gap:4px;align-items:center;justify-content:flex-end;padding-left:8px}
-.act button{width:32px;height:30px;border-radius:6px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:13px}
+.act{grid-column:-2;grid-row:1;display:flex;gap:3px;align-items:center;justify-content:flex-end;padding-left:8px}
+.act button{width:30px;height:30px;border-radius:6px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:13px}
 .act button:hover:not(:disabled){border-color:var(--accent)}
 .act button:disabled{opacity:.35;cursor:default}
+.act .sep{width:6px}
+.row.sub{min-height:30px;border-top:1px dotted #e3e8ed}
+.row.sub .yc{background:#fbfcfd}.row.sub .yc.sel{background:#eef5fb}
+.subn{grid-column:1;grid-row:1;display:flex;align-items:center;gap:8px;padding:2px 8px 2px 30px;min-width:0;font-size:12px}
+.subn .sn{flex:1 1 auto;min-width:0;overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
+.subn .c{flex:none;font-family:var(--mono);font-size:11px;color:var(--muted)}
+.bar3{grid-row:1;align-self:center;height:6px;margin:0 3px;border-radius:3px;background:#7fa9c7}.bar3.excl{background:#d3dae1}
+.thb{width:50px;height:28px;padding:0;border:1px solid var(--line);border-radius:4px;overflow:hidden;cursor:pointer;background:none}
+.thb img{width:100%;height:100%;object-fit:cover;display:block}.thb:hover{border-color:var(--accent)}
+.subdesc{padding:4px 8px 4px 30px;font-size:12px;color:var(--muted);border-top:1px dotted #e3e8ed}
+.strip{display:grid;grid-template-columns:repeat(7,minmax(0,1fr));gap:6px}
+.th{padding:0;border:2px solid transparent;border-radius:6px;background:var(--sunken);cursor:pointer;display:flex;flex-direction:column;overflow:hidden;text-align:left}
+.th img,.th .noimg{width:100%;aspect-ratio:16/9;object-fit:cover;display:block}
+.th .noimg{background-image:repeating-linear-gradient(135deg,transparent 0 6px,var(--line) 6px 7px)}
+.th span{font-size:10px;padding:2px 4px;font-family:var(--mono);white-space:nowrap;overflow:hidden;text-overflow:ellipsis}
+.th.inyear{border-color:#d98b1c}.th.cur{border-color:var(--accent);box-shadow:0 0 0 1px var(--accent)}
+.th.notyet img{opacity:.4;filter:grayscale(1)}
+.nav{display:flex;align-items:center;gap:6px;font-size:12px;color:var(--muted)}
+.nav button{width:32px;height:30px;border-radius:6px;border:1px solid var(--line);background:var(--surface);cursor:pointer}
+.nav button:disabled{opacity:.35;cursor:default}
+.settings{display:flex;flex-wrap:wrap;gap:10px 18px;align-items:flex-end}
+.settings label{display:flex;flex-direction:column;gap:3px;font-size:12px;color:var(--muted)}
+.settings input{width:110px;font-family:var(--mono);font-size:14px;color:var(--ink);background:var(--sunken);border:1px solid var(--line);border-radius:6px;padding:7px 8px;min-height:40px}
+.settings input.chg{border-color:var(--accent);background:var(--accent-soft)}
 .lines{grid-column:1/-1;grid-row:2;background:#fafbfc;border-top:1px solid #eef1f4;padding:4px 12px 8px 28px}
 .ln{display:grid;grid-template-columns:44px minmax(0,1fr) 96px 80px;gap:10px;padding:4px 0;font-size:12px !important;border-bottom:1px solid #eef1f4;font-size:13px}
 .ln .r{text-align:right;font-size:12px}
@@ -74,7 +98,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .sw{display:inline-block;width:22px;height:10px;border-radius:3px}
 /* bottom */
 .main{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
-.left{flex:1.6 1 820px;min-width:0}
+.left{flex:1.75 1 860px;min-width:0}
 .right{flex:1 1 460px;min-width:0;position:sticky;top:10px;display:flex;flex-direction:column;gap:12px}
 .figs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end}
 .view{display:flex;flex-direction:column;gap:8px}
@@ -99,6 +123,14 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
       <p class="muted" style="margin:4px 0 0">The investment path from the budget file. Move a basket in time or leave an option out; spend per year, the budget limit and the plant view follow.</p></div>
     <button class="btn" id="reset" type="button">Back to the base plan</button>
   </div>
+  <section class="panel settings" aria-label="Plan settings">
+    <h2 style="flex-basis:100%">Plan settings</h2>
+    <label for="sStart">Start year<input id="sStart" type="number" step="1"></label>
+    <label for="sPeriod">Budget period, years<input id="sPeriod" type="number" min="1" max="10" step="1"></label>
+    <label for="sLimit">Budget limit, M<input id="sLimit" type="number" min="0" step="0.5"></label>
+    <label for="sHor">Timeline, years<input id="sHor" type="number" min="1" max="10" step="1"></label>
+    <span class="small muted" style="flex:1 1 260px;align-self:center">Changing the start year moves the whole plan. These are what-if values; the budget file stays the source.</span>
+  </section>
   <div class="kpis" id="kpis"></div>
   <div class="main">
   <section class="panel left" aria-label="Investment plan" style="display:flex;flex-direction:column;gap:8px">
@@ -116,9 +148,12 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
   <aside class="right" aria-label="Plant view and budget">
     <section class="panel view">
       <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
-        <strong style="font-family:var(--display);font-size:24px;font-weight:600" id="viewTitle"></strong><span class="small muted" id="renderName"></span>
+        <strong style="font-family:var(--display);font-size:24px;font-weight:600" id="viewTitle"></strong><span class="nav" id="stageNav"></span>
       </div>
+      <span class="small muted" id="renderName"></span>
       <div id="viewer"></div>
+      <div class="strip" id="strip" aria-label="Build stages"></div>
+      <span class="small muted">Orange frame: stages reached in the selected year. Click a stage to show it; the year under each one follows the plan.</span>
       <div class="figs" id="spend"></div>
     </section>
     <section class="panel" style="display:flex;flex-direction:column;gap:6px"><h2>Changes vs base plan</h2><div class="chg" id="changes"></div></section>
@@ -127,110 +162,186 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 </div>
 <script>
 /*__DATA__*/
-const C = DATA.cfg, H = C.horizon, P = Math.min(C.period, H), Y0 = C.start, YEARS = Array.from({ length: H }, (_, i) => Y0 + i), YN = YEARS[H - 1];
+const C = DATA.cfg;
 const $ = id => document.getElementById(id);
 const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const nf = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const sym = { EUR: "€", USD: "$", JPY: "¥", GBP: "£" }[C.report] || C.report + " ";
 const M = v => sym + (v / 1e6).toFixed(2) + "M";
-const BASE = {}; DATA.baskets.forEach(b => BASE[b.name] = { start: b.start, incl: b.incl });
+const short = n => n.replace(/ to Last Phase$/i, "").replace(/^Last Phase$/i, "Last");
 const LINES = {}; DATA.lines.forEach(l => (LINES[l.basket] = LINES[l.basket] || []).push(l));
 const COST = {}; DATA.baskets.forEach(b => COST[b.name] = (LINES[b.name] || []).reduce((a, l) => a + l.qty * l.price, 0));
-let S;
-function fresh() { const B = {}; DATA.baskets.forEach(b => B[b.name] = { start: b.start, incl: b.incl }); return { sel: Math.min(H - 1, 2), all: false, B, open: {} }; }
-S = fresh();
+const BASE = {}; DATA.baskets.forEach(b => BASE[b.name] = { start: b.start, dur: b.dur, incl: b.incl });
+const BASECFG = { start: C.start, period: C.period, limit: C.limit, horizon: C.horizon };
+let S, Y0, H, P, YN, YEARS, LIM;
+function fresh() {
+  const B = {}; DATA.baskets.forEach(b => B[b.name] = { start: b.start, dur: b.dur, incl: b.incl });
+  return { cfg: Object.assign({}, BASECFG), B, sel: 2, all: false, open: {}, view: null };
+}
+function applyCfg(st) {
+  Y0 = st.cfg.start; H = Math.max(1, Math.min(10, st.cfg.horizon)); P = Math.max(1, Math.min(st.cfg.period, H));
+  YEARS = Array.from({ length: H }, (_, i) => Y0 + i); YN = YEARS[H - 1]; LIM = st.cfg.limit;
+  st.sel = Math.max(0, Math.min(H - 1, st.sel));
+}
+S = fresh(); applyCfg(S);
 
-function model(state) {
-  const sp = new Array(H).fill(0);
+function model(st) {
+  const y0 = st.cfg.start, h = Math.max(1, Math.min(10, st.cfg.horizon)), p = Math.max(1, Math.min(st.cfg.period, h));
+  const sp = new Array(h).fill(0);
   DATA.baskets.forEach(b => {
-    const v = state.B[b.name]; if (!v.incl || !v.start) return;
-    for (let i = 0; i < H; i++) { const y = Y0 + i; if (y >= v.start && y < v.start + b.dur) sp[i] += COST[b.name] / b.dur * C.factor; }
+    const v = st.B[b.name]; if (!v.incl || !v.start) return;
+    for (let i = 0; i < h; i++) { const y = y0 + i; if (y >= v.start && y < v.start + v.dur) sp[i] += COST[b.name] / v.dur * C.factor; }
   });
   let c = 0; const cum = sp.map(x => c += x);
-  return { sp, cum, within: cum[P - 1], after: cum[H - 1] - cum[P - 1] };
+  const tot = DATA.baskets.reduce((a, b) => a + (st.B[b.name].incl && st.B[b.name].start ? COST[b.name] * C.factor : 0), 0);
+  return { sp, cum, within: cum[p - 1], after: cum[h - 1] - cum[p - 1], outside: tot - cum[h - 1] };
 }
 function status(b, y) {
   const v = S.B[b.name];
-  if (!v.incl) return ["p-off", "Left out", "off"];
-  if (!v.start || y < v.start) return ["p-none", "Not yet", "none"];
-  if (y < v.start + b.dur - 1) return ["p-part", "In progress", "part"];
-  return ["p-done", "Complete", "done"];
+  if (!v.incl) return ["Left out", "off"];
+  if (!v.start || y < v.start) return ["Not yet", "none"];
+  if (y < v.start + v.dur - 1) return ["In progress", "part"];
+  return ["Complete", "done"];
 }
 function renderIndex(y) {
-  const built = l => status(DATA.baskets.find(b => b.name === l.basket) || { name: l.basket, dur: 1 }, y)[2] === "done";
+  const byName = {}; DATA.baskets.forEach(b => byName[b.name] = b);
+  const built = l => byName[l.basket] && status(byName[l.basket], y)[1] === "done";
   for (let k = 0; k < DATA.renders.length; k++) {
-    const need = DATA.lines.filter(l => l.render === DATA.renders[k]);
-    if (need.some(l => !built(l))) return k - 1;
+    if (DATA.lines.some(l => l.render === DATA.renders[k] && !built(l))) return k - 1;
   }
   return DATA.renders.length - 1;
 }
+function changes() {
+  const out = [];
+  const sh = S.cfg.start - BASECFG.start;
+  if (sh) out.push(["Start year", BASECFG.start + " → " + S.cfg.start + " (whole plan)"]);
+  if (S.cfg.period !== BASECFG.period) out.push(["Budget period", BASECFG.period + " → " + S.cfg.period + " years"]);
+  if (S.cfg.limit !== BASECFG.limit) out.push(["Budget limit", M(BASECFG.limit) + " → " + M(S.cfg.limit)]);
+  if (S.cfg.horizon !== BASECFG.horizon) out.push(["Timeline", BASECFG.horizon + " → " + S.cfg.horizon + " years"]);
+  DATA.baskets.forEach(b => {
+    const v = S.B[b.name], base = BASE[b.name], parts = [];
+    if (v.incl !== base.incl) parts.push(v.incl ? "added back" : "left out");
+    const d = (v.start || 0) - ((base.start || 0) + sh);
+    if (v.incl && d) parts.push((d > 0 ? "+" : "") + d + " yr → " + v.start);
+    if (v.dur !== base.dur) parts.push(base.dur + " → " + v.dur + " yr long");
+    if (parts.length) out.push([b.name, parts.join(", ")]);
+  });
+  return out;
+}
+function setInputs() {
+  [["sStart", "start", 1], ["sPeriod", "period", 1], ["sLimit", "limit", 1e6], ["sHor", "horizon", 1]].forEach(([id, k, f]) => {
+    const el = $(id); if (document.activeElement !== el) el.value = +(S.cfg[k] / f).toFixed(2);
+    el.classList.toggle("chg", S.cfg[k] !== BASECFG[k]);
+  });
+}
 
 function update() {
-  const m = model(S), mb = model(fresh()), i = S.all ? H - 1 : S.sel, y = Y0 + i, LIM = C.limit, over = m.within > LIM;
-  const pend = Y0 + P - 1;
-  const moved = DATA.baskets.filter(b => S.B[b.name].start !== BASE[b.name].start || S.B[b.name].incl !== BASE[b.name].incl);
+  applyCfg(S); setInputs();
+  const base = fresh();
+  const m = model(S), mb = model(base), i = S.all ? H - 1 : S.sel, y = Y0 + i, over = m.within > LIM, pend = Y0 + P - 1;
+  const ch = changes();
   $("title").textContent = "CAPEX Calculator, " + C.project;
   $("kpis").innerHTML =
     '<div class="kpi"><span class="small muted">Budget period ' + Y0 + '–' + pend + ', incl. ×' + C.factor + '</span><b>' + M(m.within) + '</b><span class="small muted">of ' + M(LIM) + ' limit</span></div>' +
-    '<div class="kpi"><span class="small muted">' + (over ? "Over the limit by" : "Headroom in the budget period") + '</span><b style="color:' + (over ? "var(--bad)" : "var(--good)") + '">' + M(Math.abs(LIM - m.within)) + '</b><span class="small muted">base plan: ' + M(LIM - mb.within) + ' headroom</span></div>' +
-    '<div class="kpi"><span class="small muted">After the budget period, ' + (pend + 1) + '–' + YN + '</span><b>' + M(m.after) + '</b><span class="small muted">incl. ×' + C.factor + ', outside the current budget</span></div>' +
-    '<div class="kpi"><span class="small muted">Changes vs base plan</span><b>' + moved.length + '</b><span class="small muted">' + (moved.length ? "baskets moved or left out" : "the plan is as in the budget file") + '</span></div>';
+    '<div class="kpi"><span class="small muted">' + (over ? "Over the limit by" : "Headroom in the budget period") + '</span><b style="color:' + (over ? "var(--bad)" : "var(--good)") + '">' + M(Math.abs(LIM - m.within)) + '</b><span class="small muted">base plan: ' + M(BASECFG.limit - mb.within) + ' headroom</span></div>' +
+    '<div class="kpi"><span class="small muted">After the budget period' + (P < H ? ', ' + (pend + 1) + '–' + YN : '') + '</span><b>' + M(m.after) + '</b><span class="small muted">' + (m.outside > 1 ? M(m.outside) + " more falls after " + YN : "incl. ×" + C.factor + ", outside the current budget") + '</span></div>' +
+    '<div class="kpi"><span class="small muted">Changes vs base plan</span><b>' + ch.length + '</b><span class="small muted">' + (ch.length ? "see the list under the plant view" : "the plan is as in the budget file") + '</span></div>';
   $("planTitle").textContent = "Investment plan " + Y0 + " – " + YN;
-  $("planNote").textContent = "Click a year: the plant on the right shows its end · ◀ ▶ move a basket by one year";
+  $("planNote").textContent = "Click a year: the plant on the right shows its end · ◀ ▶ move · − + shorten or lengthen";
   const mx = Math.max(...m.sp, 1);
-  let h = '<div class="g" style="--n:' + H + '"><div class="hcell cell" style="grid-column:1"><span class="small muted">Basket · cost · status at the end of ' + y + '</span></div>';
+  let h = '<div class="g" style="--n:' + H + '"><div class="hcell cell" style="grid-column:1"><span class="small muted">Basket, cost incl. ×' + C.factor + ', status end of ' + y + '</span></div>';
   YEARS.forEach((yy, k) => {
     const per = k < P, cls = ["yr", "cell", k === 0 ? "first" : "", per ? "per" : "", (S.all || k < S.sel) ? "past" : "", (!S.all && k === S.sel) ? "on" : "", per && m.cum[k] > LIM ? "over" : ""].join(" ");
-    h += '<button type="button" class="' + cls + '" style="grid-column:' + (k + 2) + '" data-y="' + k + '" aria-pressed="' + (!S.all && k === S.sel) + '" title="' + (per ? Math.round(m.cum[k] / LIM * 100) + "% of the limit used by the end of " + yy : "After the budget period") + '"><span class="y">' + yy + '</span><span class="mono s" style="font-size:10px">' + (m.sp[k] > 0 ? M(m.sp[k]) : "–") +
-      '</span><span class="bar"><span style="width:' + (m.sp[k] / mx * 100).toFixed(1) + '%"></span></span></button>';
+    h += '<button type="button" class="' + cls + '" style="grid-column:' + (k + 2) + '" data-y="' + k + '" aria-pressed="' + (!S.all && k === S.sel) + '" title="' + (per ? Math.round(m.cum[k] / LIM * 100) + "% of the limit used by the end of " + yy : "After the budget period") + '"><span class="y">' + yy +
+      '</span><span class="mono s" style="font-size:10px">' + (m.sp[k] > 0 ? M(m.sp[k]) : "–") + '</span><span class="bar"><span style="width:' + (m.sp[k] / mx * 100).toFixed(1) + '%"></span></span></button>';
   });
   h += '<button type="button" class="all cell' + (S.all ? " on" : "") + '" style="grid-column:' + (H + 2) + '" id="allbtn" aria-pressed="' + S.all + '">Whole plan</button></div>';
+  const col = s => s - Y0 + 2;
   DATA.baskets.forEach((b, bi) => {
-    const v = S.B[b.name], st = status(b, y), open = !!S.open[b.name], base = BASE[b.name];
+    const v = S.B[b.name], st = status(b, y), open = !!S.open[b.name];
+    const bs = BASE[b.name].start ? BASE[b.name].start + (S.cfg.start - BASECFG.start) : null, bd = BASE[b.name].dur;
     h += '<div class="g row" style="--n:' + H + '">';
     YEARS.forEach((yy, k) => { h += '<div class="yc' + (k < P ? " per" : "") + (!S.all && k === S.sel ? " sel" : "") + '" style="grid-column:' + (k + 2) + '"></div>'; });
     h += '<div class="name"><input type="checkbox" data-incl="' + bi + '"' + (v.incl ? " checked" : "") + ' aria-label="Include ' + esc(b.name) + '">' +
-      '<button type="button" class="nmbtn" data-open="' + bi + '" aria-expanded="' + open + '" title="' + esc(b.desc) + '"><span class="sdot s-' + st[2] + '" aria-label="' + st[1] + '"></span><b>' + (open ? "▾ " : "▸ ") + esc(b.name) + '</b><span class="c">' + M(COST[b.name] * C.factor) + '</span></button></div>';
-    const col = s => Math.max(2, Math.min(H + 1, s - Y0 + 2));
-    if (base.start && (base.start !== v.start) && base.start <= YN) h += '<div class="ghost" style="grid-column:' + col(base.start) + ' / span ' + Math.max(1, Math.min(b.dur, YN - base.start + 1)) + '"></div>';
-    if (v.start && v.start <= YN) {
-      const endY = v.start + b.dur - 1, cls = !v.incl ? "excl" : (endY <= Y0 + P - 1 ? "in" : "out");
-      h += '<div class="bar2 ' + cls + '" style="grid-column:' + col(v.start) + ' / span ' + Math.max(1, Math.min(b.dur, YN - v.start + 1)) + '" title="' + esc(b.desc) + '">' + v.start + (b.dur > 1 ? "–" + String(endY).slice(2) : "") + '</div>';
+      '<button type="button" class="nmbtn" data-open="' + bi + '" aria-expanded="' + open + '" title="' + esc(b.desc) + '"><span class="sdot s-' + st[1] + '" aria-label="' + st[0] + '"></span><b>' + (open ? "▾ " : "▸ ") + esc(b.name) + '</b><span class="c">' + M(COST[b.name] * C.factor) + '</span></button></div>';
+    const span = (s, d) => { const a = Math.max(s, Y0), e = Math.min(s + d - 1, YN); return e < a ? null : col(a) + " / span " + (e - a + 1); };
+    if (bs && (bs !== v.start || bd !== v.dur)) { const g = span(bs, bd); if (g) h += '<div class="ghost" style="grid-column:' + g + '"></div>'; }
+    if (v.start) {
+      const endY = v.start + v.dur - 1, g = span(v.start, v.dur), cls = !v.incl ? "excl" : (endY <= pend ? "in" : "out");
+      if (g) h += '<div class="bar2 ' + cls + '" style="grid-column:' + g + '" title="' + esc(b.desc) + '">' + v.start + (v.dur > 1 ? "–" + String(endY).slice(2) : "") + '</div>';
     }
-    h += '<div class="act">' + (b.move ? '<button type="button" data-mv="' + bi + '" data-d="-1" aria-label="Move ' + esc(b.name) + ' one year earlier"' + (!v.start || v.start <= Y0 ? " disabled" : "") + '>◀</button><button type="button" data-mv="' + bi + '" data-d="1" aria-label="Move ' + esc(b.name) + ' one year later"' + (!v.start || v.start + b.dur - 1 >= YN ? " disabled" : "") + '>▶</button>' : '<span class="small muted">fixed</span>') + '</div>';
-    if (open) h += '<div class="lines">' + (b.desc ? '<div class="small muted" style="padding:2px 0 6px">' + esc(b.desc) + '</div>' : "") + (LINES[b.name] || []).map(l => '<div class="ln"><span class="mono small muted">' + esc(l.id) + '</span><span>' + esc(l.desc) + '</span><span class="r mono">' + nf.format(l.qty) + " " + esc(l.unit) + '</span><span class="r mono">' + M(l.qty * l.price * C.factor) + '</span></div>').join("") + '</div>';
+    const dis = c => c ? " disabled" : "";
+    h += '<div class="act">' + (b.move ?
+      '<button type="button" data-mv="' + bi + '" data-d="-1" aria-label="Move ' + esc(b.name) + ' one year earlier"' + dis(!v.start || v.start <= Y0) + '>◀</button>' +
+      '<button type="button" data-mv="' + bi + '" data-d="1" aria-label="Move ' + esc(b.name) + ' one year later"' + dis(!v.start || v.start + v.dur - 1 >= YN) + '>▶</button><span class="sep"></span>' +
+      '<button type="button" data-du="' + bi + '" data-d="-1" aria-label="Shorten ' + esc(b.name) + ' by one year" title="Shorter"' + dis(v.dur <= 1) + '>−</button>' +
+      '<button type="button" data-du="' + bi + '" data-d="1" aria-label="Lengthen ' + esc(b.name) + ' by one year" title="Longer"' + dis(!v.start || v.start + v.dur - 1 >= YN || v.dur >= 6) + '>+</button>'
+      : '<span class="small muted">fixed</span>') + '</div>';
     h += '</div>';
+    if (open) {
+      h += '<div class="subdesc">' + (b.desc ? esc(b.desc) + ' · ' : '') + v.dur + (v.dur > 1 ? " years, " + M(COST[b.name] * C.factor / v.dur) + " per year" : " year") + '</div>';
+      (LINES[b.name] || []).forEach(l => {
+        h += '<div class="g row sub" style="--n:' + H + '">';
+        YEARS.forEach((yy, k) => { h += '<div class="yc' + (!S.all && k === S.sel ? " sel" : "") + '" style="grid-column:' + (k + 2) + '"></div>'; });
+        h += '<div class="subn"><span class="mono muted" style="font-size:11px">' + esc(l.id) + '</span><span class="sn" title="' + esc(l.desc) + ' · ' + nf.format(l.qty) + ' ' + esc(l.unit) + '">' + esc(l.desc) + '</span><span class="c">' + M(l.qty * l.price * C.factor) + '</span></div>';
+        if (v.start) { const g = span(v.start, v.dur); if (g) h += '<div class="bar3' + (v.incl ? "" : " excl") + '" style="grid-column:' + g + '"></div>'; }
+        const ri = l.render ? DATA.renders.indexOf(l.render) : -1;
+        h += '<div class="act">' + (ri >= 0 ? '<button type="button" class="thb" data-th="' + ri + '" title="Show the render where this appears: ' + esc(l.render) + '">' + (DATA.images[l.render] ? '<img src="' + DATA.images[l.render] + '" alt="">' : '<span class="small">' + esc(short(l.render)) + '</span>') + '</button>' : '') + '</div></div>';
+      });
+    }
   });
   $("plan").innerHTML = h;
-  const k = renderIndex(y), rn = k >= 0 ? DATA.renders[k] : null;
-  $("viewTitle").textContent = S.all ? "Plant at the end of the plan (" + y + ")" : "Plant at the end of " + y;
-  $("renderName").textContent = rn ? "Closest render: " + rn : "";
+  const NR = DATA.renders.length, reach = new Array(NR).fill(null);
+  for (let q = 0; q < H; q++) { const idx = renderIndex(Y0 + q); for (let r = 0; r <= idx; r++) if (reach[r] === null) reach[r] = q; }
+  const curIdx = renderIndex(y), prevIdx = (S.all || i === 0) ? -1 : renderIndex(y - 1);
+  const shown = S.view !== null ? S.view : curIdx, rn = shown >= 0 ? DATA.renders[shown] : null;
+  const yearOf = r => reach[r] === null ? null : Y0 + reach[r];
+  if (S.view !== null) {
+    $("viewTitle").textContent = "Stage " + (S.view + 1) + " of " + NR + (yearOf(S.view) ? ", reached in " + yearOf(S.view) : ", not reached by " + YN);
+  } else $("viewTitle").textContent = S.all ? "Plant at the end of the plan (" + y + ")" : "Plant at the end of " + y;
+  $("renderName").textContent = rn ? rn + ((DATA.renderShows || [])[shown] ? ": " + DATA.renderShows[shown] : "") : "";
+  $("stageNav").innerHTML = '<button type="button" data-nav="-1" aria-label="Previous stage"' + (shown <= 0 ? " disabled" : "") + '>◀</button><span class="mono">' + (shown + 1) + ' / ' + NR + '</span><button type="button" data-nav="1" aria-label="Next stage"' + (shown >= NR - 1 ? " disabled" : "") + '>▶</button>';
   $("viewer").innerHTML = rn && DATA.images[rn] ? '<img src="' + DATA.images[rn] + '" alt="Render: ' + esc(rn) + '">' : '<div class="ph">' + (rn ? esc(rn) + ": render file not found in the renders folder" : "Nothing built yet that appears on a render") + '</div>';
+  $("strip").innerHTML = DATA.renders.map((r, q) => {
+    const cls = ["th", q === shown ? "cur" : "", (q > prevIdx && q <= curIdx) ? "inyear" : "", q > curIdx ? "notyet" : ""].join(" ");
+    return '<button type="button" class="' + cls + '" data-th="' + q + '" title="' + esc(r + ((DATA.renderShows || [])[q] ? ": " + DATA.renderShows[q] : "")) + '">' + (DATA.images[r] ? '<img src="' + DATA.images[r] + '" alt="">' : '<span class="noimg"></span>') +
+      '<span>' + esc(short(r)) + ' · ' + (yearOf(q) || "–") + '</span></button>';
+  }).join("");
   const inPer = i < P && !S.all, cumNow = inPer ? m.cum[i] : m.within, bad = cumNow > LIM;
   $("spend").innerHTML = '<div class="fig"><span class="small muted">' + (S.all ? "Whole plan" : "Spend in " + y) + ', incl. ×' + C.factor + '</span><b>' + M(S.all ? m.cum[H - 1] : m.sp[i]) + '</b></div>' +
     '<div class="fig"><span class="small muted">Cumulative, incl. ×' + C.factor + '</span><b>' + M(m.cum[i]) + '</b></div>' +
     '<div class="fig" style="gap:6px"><span class="small" style="font-weight:500;color:' + (bad ? "var(--bad)" : "var(--good)") + '">' + (inPer ? (bad ? "Over the limit by " + M(cumNow - LIM) : "Headroom " + M(LIM - cumNow)) : (bad ? "Budget period over by " + M(cumNow - LIM) : "Budget period closes with " + M(LIM - cumNow) + " left")) +
-    '</span><span class="lim"><span style="width:' + Math.min(100, cumNow / LIM * 100).toFixed(1) + '%;background:' + (bad ? "var(--bad)" : "var(--accent)") + '"></span></span><span class="small muted">Budget period ' + Y0 + '–' + pend + ' vs ' + M(LIM) + ' limit</span></div>';
-  $("changes").innerHTML = moved.length ? moved.map(b => {
-    const v = S.B[b.name], base = BASE[b.name];
-    const what = v.incl !== base.incl ? (v.incl ? "added back" : "left out") : (v.start > base.start ? "+" : "") + (v.start - base.start) + " yr → " + v.start;
-    return '<div><span>' + esc(b.name) + '</span><span class="mono small">' + what + '</span></div>';
-  }).join("") + '<div style="border:0"><span class="muted small">Budget period effect</span><span class="mono small" style="color:' + (m.within > mb.within ? "var(--bad)" : "var(--good)") + '">' + (m.within >= mb.within ? "+" : "−") + M(Math.abs(m.within - mb.within)) + '</span></div>'
-    : '<span class="small muted">No changes. Move a basket with ◀ ▶ or untick it to leave it out.</span>';
+    '</span><span class="lim"><span style="width:' + Math.min(100, LIM ? cumNow / LIM * 100 : 100).toFixed(1) + '%;background:' + (bad ? "var(--bad)" : "var(--accent)") + '"></span></span><span class="small muted">' + Y0 + '–' + pend + ' vs ' + M(LIM) + ' limit</span></div>';
+  $("changes").innerHTML = ch.length ? ch.map(c => '<div><span>' + esc(c[0]) + '</span><span class="mono small">' + esc(c[1]) + '</span></div>').join("") +
+    '<div style="border:0"><span class="muted small">Budget period spend vs base plan</span><span class="mono small" style="color:' + (m.within > mb.within ? "var(--bad)" : "var(--good)") + '">' + (m.within >= mb.within ? "+" : "−") + M(Math.abs(m.within - mb.within)) + '</span></div>'
+    : '<span class="small muted">No changes. Move a basket with ◀ ▶, change its length with − +, or untick it to leave it out.</span>';
 }
 
+function refocus(sel) { const el = document.querySelector(sel); if (el && !el.disabled) el.focus(); }
 document.addEventListener("click", e => {
   const t = e.target;
-  const yb = t.closest("[data-y]"); if (yb) { S.sel = +yb.dataset.y; S.all = false; return update(); }
-  if (t.closest("#allbtn")) { S.all = true; return update(); }
+  const yb = t.closest("[data-y]"); if (yb) { S.sel = +yb.dataset.y; S.all = false; S.view = null; return update(); }
+  if (t.closest("#allbtn")) { S.all = true; S.view = null; return update(); }
+  const th = t.closest("[data-th]"); if (th) { S.view = +th.dataset.th; return update(); }
+  const nv = t.closest("[data-nav]");
+  if (nv && !nv.disabled) { const cur = S.view !== null ? S.view : renderIndex(S.all ? Y0 + H - 1 : Y0 + S.sel); S.view = Math.max(0, Math.min(DATA.renders.length - 1, cur + +nv.dataset.nav)); update(); return refocus('[data-nav="' + nv.dataset.nav + '"]'); }
   const mv = t.closest("[data-mv]");
-  if (mv && !mv.disabled) { const b = DATA.baskets[+mv.dataset.mv], v = S.B[b.name]; v.start = Math.max(Y0, Math.min(YN - b.dur + 1, v.start + +mv.dataset.d)); update();
-    const again = document.querySelector('[data-mv="' + mv.dataset.mv + '"][data-d="' + mv.dataset.d + '"]'); if (again && !again.disabled) again.focus(); return; }
+  if (mv && !mv.disabled) { const b = DATA.baskets[+mv.dataset.mv], v = S.B[b.name]; v.start = Math.max(Y0, Math.min(YN - v.dur + 1, v.start + +mv.dataset.d)); update();
+    return refocus('[data-mv="' + mv.dataset.mv + '"][data-d="' + mv.dataset.d + '"]'); }
+  const du = t.closest("[data-du]");
+  if (du && !du.disabled) { const b = DATA.baskets[+du.dataset.du], v = S.B[b.name]; v.dur = Math.max(1, Math.min(6, YN - v.start + 1, v.dur + +du.dataset.d)); update();
+    return refocus('[data-du="' + du.dataset.du + '"][data-d="' + du.dataset.d + '"]'); }
   const ob = t.closest("[data-open]"); if (ob) { const n = DATA.baskets[+ob.dataset.open].name; S.open[n] = !S.open[n]; return update(); }
 });
 document.addEventListener("change", e => {
   const t = e.target;
-  if (t.dataset.incl) { S.B[DATA.baskets[+t.dataset.incl].name].incl = t.checked; update(); }
+  if (t.dataset.incl) { S.B[DATA.baskets[+t.dataset.incl].name].incl = t.checked; return update(); }
+  const v = parseFloat(t.value);
+  if (t.id === "sStart" && isFinite(v)) { const d = Math.round(v) - S.cfg.start; S.cfg.start += d; DATA.baskets.forEach(b => { if (S.B[b.name].start) S.B[b.name].start += d; }); return update(); }
+  if (t.id === "sPeriod" && isFinite(v)) { S.cfg.period = Math.max(1, Math.min(10, Math.round(v))); if (S.cfg.horizon < S.cfg.period) S.cfg.horizon = S.cfg.period; return update(); }
+  if (t.id === "sLimit" && isFinite(v) && v >= 0) { S.cfg.limit = v * 1e6; return update(); }
+  if (t.id === "sHor" && isFinite(v)) { S.cfg.horizon = Math.max(1, Math.min(10, Math.round(v))); if (S.cfg.period > S.cfg.horizon) S.cfg.period = S.cfg.horizon; return update(); }
+  if (["sStart", "sPeriod", "sLimit", "sHor"].includes(t.id)) setInputs();
 });
 $("reset").addEventListener("click", () => { S = fresh(); update(); });
 update();

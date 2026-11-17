@@ -84,8 +84,10 @@ def load_project(path: str, mtime: float):
                       "qty": num(bd.cell(r, 6).value), "unit": txt(bd.cell(r, 7).value),
                       "price": num(bd.cell(r, 8).value) * rates.get(cur, 0) / rates[report], "render": txt(bd.cell(r, 10).value)})
     rd = wb["Renders"]
-    renders = [txt(rd.cell(r, 2).value) for r in range(4, 40) if txt(rd.cell(r, 2).value)]
-    return {"cfg": cfg, "baskets": baskets, "lines": lines, "renders": renders}, problems
+    rrows = [r for r in range(4, 40) if txt(rd.cell(r, 2).value)]
+    renders = [txt(rd.cell(r, 2).value) for r in rrows]
+    shows = [txt(rd.cell(r, 3).value) for r in rrows]
+    return {"cfg": cfg, "baskets": baskets, "lines": lines, "renders": renders, "renderShows": shows}, problems
 
 
 @st.cache_data(show_spinner="Preparing renders...")
