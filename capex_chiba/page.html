@@ -152,13 +152,18 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
   </section>
   <div class="kpis" id="kpis"></div>
   <div class="main">
-    <section class="panel left" aria-label="Scope and cost" style="display:flex;flex-direction:column;gap:8px">
-      <div style="display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:space-between;align-items:center">
-        <h2>Scope and cost</h2>
-        <div style="display:flex;gap:8px;align-items:center"><span class="small muted" id="tblNote"></span><button class="btn" type="button" id="expand">Show all lines</button></div>
-      </div>
-      <div class="tbl" id="tbl"></div>
-    </section>
+    <section class="panel left" aria-label="Investment plan" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;flex-wrap:wrap;gap:4px 16px;justify-content:space-between;align-items:baseline">
+      <h2 id="planTitle">Investment plan</h2><span class="small muted" id="planNote"></span>
+    </div>
+    <div class="planwrap"><div class="plan" id="plan"></div></div>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--accent)"></span>Budget period</span>
+      <span><span class="sw" style="background:#6d8fa8"></span>After it</span>
+      <span><span class="sw" style="border:1.5px dashed #8a96a3"></span>Base plan position</span>
+      <span><span class="sdot s-done"></span>Complete</span><span><span class="sdot s-part"></span>In progress</span><span><span class="sdot s-none"></span>Not yet</span>
+    </div>
+  
     <aside class="right" aria-label="Plant view and budget">
       <section class="panel view">
         <div class="ypills" id="ypills" aria-label="Year"></div>
@@ -174,18 +179,13 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
       <section class="panel" style="display:flex;flex-direction:column;gap:6px"><h2>Changes vs base plan</h2><div class="chg" id="changes"></div></section>
     </aside>
   </div>
-  <section class="panel" aria-label="Investment plan" style="display:flex;flex-direction:column;gap:8px">
-    <div style="display:flex;flex-wrap:wrap;gap:4px 16px;justify-content:space-between;align-items:baseline">
-      <h2 id="planTitle">Investment plan</h2><span class="small muted" id="planNote"></span>
-    </div>
-    <div class="planwrap"><div class="plan" id="plan"></div></div>
-    <div class="legend">
-      <span><span class="sw" style="background:var(--accent)"></span>Budget period</span>
-      <span><span class="sw" style="background:#6d8fa8"></span>After it</span>
-      <span><span class="sw" style="border:1.5px dashed #8a96a3"></span>Base plan position</span>
-      <span><span class="sdot s-done"></span>Complete</span><span><span class="sdot s-part"></span>In progress</span><span><span class="sdot s-none"></span>Not yet</span>
-    </div>
-  </section>
+  </section><section class="panel" aria-label="Scope and cost" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:space-between;align-items:center">
+        <h2>Scope and cost</h2>
+        <div style="display:flex;gap:8px;align-items:center"><span class="small muted" id="tblNote"></span><button class="btn" type="button" id="expand">Show all lines</button></div>
+      </div>
+      <div class="tbl" id="tbl"></div>
+    </section>
 </div>
 <script>
 /*__DATA__*/
