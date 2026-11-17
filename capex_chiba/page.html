@@ -82,27 +82,32 @@ input[type=range]{width:100%;accent-color:var(--accent)}
 .lim{display:block;height:10px;border-radius:5px;background:#e6ebf0;overflow:hidden}
 .lim span{display:block;height:10px;border-radius:5px;background:var(--accent)}
 .note{font-size:12px;color:#b45309}
-@media (max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.spend{grid-template-columns:1fr}.row{grid-template-columns:minmax(0,1fr) 60px 70px}.row .c{display:none}}
+.mods{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
+.mod{border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;background:var(--surface)}
+.mod.off{opacity:.55}
+.tr{display:grid;grid-template-columns:28px minmax(0,1fr) 44px 86px;gap:8px;align-items:center;font-size:13px}
+.tr b{font-weight:600;color:var(--muted);font-size:12px}
+select{font:inherit;font-size:13px;color:var(--ink);background:var(--sunken);border:1px solid var(--line);border-radius:5px;padding:4px 6px;min-height:32px}
+.row.ed{grid-template-columns:minmax(0,1fr) 70px 86px 56px 80px}
+.row input[type=number]{padding:3px 5px;min-height:30px}
+.shift{display:flex;gap:8px;align-items:center;padding:8px 0 4px;font-size:12px;color:var(--muted)}
+.shift button{min-height:32px;padding:2px 10px;border-radius:5px;border:1px solid var(--line);background:var(--surface);cursor:pointer}
+@media (max-width:900px){.row.ed{grid-template-columns:minmax(0,1fr) 86px 56px}.row.ed .q,.row.ed .c{display:none}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.spend{grid-template-columns:1fr}.row{grid-template-columns:minmax(0,1fr) 60px 70px}.row .c{display:none}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div style="display:flex;flex-wrap:wrap;gap:8px 24px;align-items:flex-end;justify-content:space-between">
-    <div><h1 id="title">CAPEX Calculator</h1><p class="sub">Set the production plan. Modules, spend per year and the plant view follow. Changes here are a what-if; the budget file stays the source.</p></div>
+    <div><h1 id="title">CAPEX Calculator</h1><p class="sub">Plan what is built and when. Spend per year, the budget limit and the plant view follow. Changes here are a what-if; the budget file stays the source.</p></div>
     <button class="btn" id="reset" type="button">Restore values from the file</button>
   </div>
   <div class="kpis" id="kpis"></div>
-  <section class="panel basis" aria-label="Plant basis">
-    <div style="flex:1 1 320px">
-      <h2>Plant basis</h2>
-      <label for="target" style="display:flex;justify-content:space-between;font-weight:500"><span>Target capacity</span><span class="mono" id="targetTxt"></span></label>
-      <input id="target" type="range" step="250">
-      <span class="small muted">Site, buildings and utilities are designed for this capacity.</span>
-      <span style="font-weight:500;margin-top:6px">Production, % of target</span>
-      <div class="ramp" id="ramp"></div>
+  <section class="panel" aria-label="Modules" style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:space-between;align-items:baseline">
+      <h2>Modules: when and how many</h2>
+      <span class="small muted">Tranche 1 and tranche 2: number of units and the year they are installed. Fixed objects: open them below to change start year and duration.</span>
     </div>
-    <div style="flex:1 1 240px"><span style="font-weight:500">Product mix at target</span><div id="mix" style="display:flex;flex-direction:column;gap:8px"></div></div>
-    <div style="flex:1.2 1 320px"><span style="font-weight:500" id="modsTitle"></span><div id="mods" style="display:flex;flex-direction:column;gap:9px"></div></div>
+    <div class="mods" id="mods"></div>
   </section>
   <section class="panel" aria-label="Timeline" style="display:flex;flex-direction:column;gap:12px">
     <div style="display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:space-between;align-items:baseline">
@@ -137,51 +142,40 @@ const cur = { EUR: "€", USD: "$", JPY: "¥", GBP: "£" }[C.report] || "";
 const M = v => (cur || C.report + " ") + (v / 1e6).toFixed(2) + "M";
 const kt = t => (t / 1000).toFixed(1) + " kt";
 let S;
-function fresh() { return { sel: Math.min(H - 1, 2), all: false, target: DATA.target, ramp: DATA.ramp.slice(), off: {}, open: {} }; }
+function fresh() {
+  const L = {};
+  DATA.lines.forEach(l => { L[l.id] = { start: l.start, dur: l.dur, t1u: l.t1u || 0, t1y: l.t1y || C.start + 2, t2u: l.t2u || 0, t2y: l.t2y || C.start + P }; });
+  return { sel: Math.min(H - 1, 2), all: false, L, off: {}, open: {} };
+}
 S = fresh();
 
 function model() {
-  const W = DATA.wh, R = DATA.rules;
-  const prod = S.ramp.map(r => S.target * (r || 0));
-  const pos = prod.map(p => p <= 0 ? 0 : Math.ceil(p * W.fgDays / 365 / W.fgTpp * W.peak) + Math.ceil(p * W.rmShare * W.rmDays / 365 / W.rmTpp * W.peak));
-  const units = {}, first = {};
-  for (const id in R) {
-    const r = R[id];
-    units[id] = prod.map((p, i) => {
-      if (p <= 0 && r.driver !== "trigger") return 0;
-      if (r.driver === "trigger") return pos[i] > W.posMain ? 1 : 0;
-      const d = r.driver === "pos" ? pos[i] : p;
-      return Math.min(r.max, Math.max(r.min, Math.ceil(d / r.cap)));
-    });
-    const k = units[id].findIndex(u => u > 0); first[id] = k < 0 ? null : k;
-  }
-  const cap = prod.map((p, i) => {
-    const c = Object.keys(R).filter(id => R[id].driver === "prod" && units[id][i] > 0).map(id => units[id][i] * R[id].cap);
-    return c.length ? Math.min(...c) : 0;
-  });
   const spend = new Array(H).fill(0);
   const L = DATA.lines.map(l => {
-    const on = !S.off[l.pkg];
-    const o = { l, on, spend: new Array(H).fill(0), inst: new Array(H).fill(0), start: null };
+    const on = !S.off[l.pkg], v = S.L[l.id];
+    const o = { l, v, on, spend: new Array(H).fill(0), inst: new Array(H).fill(0), start: null };
     if (l.type === "Per unit") {
       let tot = 0;
       for (let i = 0; i < H; i++) {
-        const add = l.rule ? Math.max(0, units[l.rule][i] - (i ? units[l.rule][i - 1] : 0)) : (l.manual[i] || 0);
+        const y = C.start + i, add = (v.t1y === y ? v.t1u : 0) + (v.t2y === y ? v.t2u : 0);
         tot += add; o.inst[i] = tot; o.spend[i] = on ? add * l.price : 0;
       }
     } else {
-      o.start = l.rule ? (first[l.rule] === null ? null : C.start + first[l.rule]) : l.start;
+      o.start = v.start;
       for (let i = 0; i < H; i++) {
         const y = C.start + i;
-        if (on && o.start !== null && y >= o.start && y < o.start + l.dur) o.spend[i] = l.qty * l.price / l.dur;
+        if (on && o.start && y >= o.start && y < o.start + v.dur) o.spend[i] = l.qty * l.price / v.dur;
       }
     }
-    o.spend.forEach((v, i) => spend[i] += v);
+    o.spend.forEach((x, i) => spend[i] += x);
     return o;
   });
-  const sp = spend.map(v => v * C.factor);
-  let c = 0; const cum = sp.map(v => c += v);
-  return { prod, pos, units, first, cap, L, sp, cum, within: cum[Math.min(P, H) - 1], after: cum[H - 1] - cum[Math.min(P, H) - 1] };
+  const capL = L.filter(o => o.l.type === "Per unit" && o.l.cap > 0 && o.on);
+  const cap = YEARS.map((_, i) => { const c = capL.filter(o => o.inst[i] > 0).map(o => o.inst[i] * o.l.cap); return c.length ? Math.min(...c) : 0; });
+  const sp = spend.map(x => x * C.factor);
+  let c = 0; const cum = sp.map(x => c += x);
+  const pe = Math.min(P, H) - 1;
+  return { L, cap, sp, cum, within: cum[pe], after: cum[H - 1] - cum[pe] };
 }
 
 function lineState(o, i) {
@@ -192,9 +186,9 @@ function lineState(o, i) {
     const ys = o.spend.map((v, k) => v > 0 ? "'" + String(C.start + k).slice(2) : null).filter(Boolean);
     return { st: n >= mx ? "done" : n > 0 ? "part" : "none", built: o.spend.slice(0, i + 1).reduce((a, b) => a + b, 0) * C.factor, qty: nf.format(n) + " / " + nf.format(mx), when: ys.join(", ") || "–" };
   }
-  if (o.start === null) return { st: "none", built: 0, qty: fmtQty(l), when: l.rule ? "not needed" : "not planned" };
-  const share = y < o.start ? 0 : Math.min(1, (y - o.start + 1) / l.dur);
-  return { st: share >= 1 ? "done" : share > 0 ? "part" : "none", built: l.qty * l.price * share * C.factor, qty: fmtQty(l), when: l.dur > 1 ? o.start + "–" + String(o.start + l.dur - 1).slice(2) : String(o.start) };
+  if (!o.start) return { st: "none", built: 0, qty: fmtQty(l), when: "not planned" };
+  const d = o.v.dur, share = y < o.start ? 0 : Math.min(1, (y - o.start + 1) / d);
+  return { st: share >= 1 ? "done" : share > 0 ? "part" : "none", built: l.qty * l.price * share * C.factor, qty: fmtQty(l), when: d > 1 ? o.start + "–" + String(o.start + d - 1).slice(2) : String(o.start) };
 }
 function fmtQty(l) { return (l.qty === 1 && /^(set|ls)$/.test(l.unit)) ? "1 " + l.unit : nf.format(l.qty) + " " + l.unit; }
 
@@ -214,37 +208,33 @@ function renderStage(m, i) {
 
 function build() {
   $("title").textContent = "CAPEX Calculator, " + C.project;
-  const vals = DATA.ramp.map(r => r || 0);
-  const t = $("target"); t.min = Math.round(DATA.target * 0.5); t.max = Math.round(DATA.target * 1.5); t.value = S.target;
-  $("ramp").innerHTML = YEARS.map((y, i) => '<label for="r' + i + '">' + y + '<input type="number" id="r' + i + '" data-r="' + i + '" min="0" max="150" step="5" value="' + Math.round(S.ramp[i] * 100) + '"></label>').join("");
   $("tlTitle").textContent = "Timeline " + YEARS[0] + " – " + YEARS[H - 1];
-  $("tlNote").textContent = "Production · spend incl. ×" + C.factor + " · darker = budget period " + C.start + "–" + (C.start + P - 1);
+  $("tlNote").textContent = "Spend incl. ×" + C.factor + " · bar = spend · darker = budget period " + C.start + "–" + (C.start + P - 1);
 }
+const yearOpts = (sel, blank) => (blank ? '<option value=""' + (sel ? "" : " selected") + '>not planned</option>' : "") + YEARS.map(y => '<option' + (y === sel ? " selected" : "") + '>' + y + '</option>').join("");
 
 function update() {
   const m = model(), all = S.all, i = all ? H - 1 : S.sel, y = C.start + i, LIM = C.limit;
-  const over = m.within > LIM, short = m.prod[i] > m.cap[i];
-  $("targetTxt").textContent = nf.format(S.target) + " t/yr";
+  const over = m.within > LIM;
+  const capNote = m.cap[i] > 0 ? "Limited by the module with the lowest capacity" : "No modules installed yet";
   $("kpis").innerHTML =
     '<div class="kpi"><span class="small muted">Budget period ' + C.start + '–' + (C.start + P - 1) + ', incl. ×' + C.factor + '</span><b>' + M(m.within) + '</b><span class="small muted">of ' + M(LIM) + ' limit</span></div>' +
     '<div class="kpi"><span class="small muted">' + (over ? "Over the limit by" : "Headroom in the budget period") + '</span><b style="color:' + (over ? "var(--bad)" : "var(--good)") + '">' + M(Math.abs(LIM - m.within)) + '</b><span class="small muted">after ' + (C.start + P - 1) + '</span></div>' +
-    '<div class="kpi"><span class="small muted">Growth CAPEX ' + (C.start + P) + '–' + YEARS[H - 1] + ', incl. ×' + C.factor + '</span><b>' + M(m.after) + '</b><span class="small muted">outside the current budget</span></div>' +
-    '<div class="kpi"><span class="small muted">Production / capacity in ' + y + '</span><b style="color:' + (short ? "var(--bad)" : "var(--ink)") + '">' + (m.prod[i] > 0 ? kt(m.prod[i]) + " / " + kt(m.cap[i]) : "no production") + '</b><span class="small muted">' + (short ? "Capacity short: modules at maximum" : m.prod[i] > 0 ? "Utilisation " + Math.round(m.prod[i] / m.cap[i] * 100) + "%" : "Construction") + '</span></div>';
-  const mx = Math.max(...DATA.mix.map(g => g[1]), 0.0001);
-  $("mix").innerHTML = DATA.mix.map(g => '<div class="meter"><span>' + esc(g[0]) + '</span><span class="mono small">' + nf.format(S.target * g[1]) + ' t</span><span class="track"><span style="width:' + (g[1] / mx * 100).toFixed(0) + '%"></span></span></div>').join("");
-  $("modsTitle").textContent = "Modules needed at the end of " + y;
-  const R = DATA.rules;
-  $("mods").innerHTML = Object.keys(R).map(id => {
-    const r = R[id], u = m.units[id][i];
-    if (r.driver === "trigger") return '<div class="meter"><span>' + esc(r.name.replace(/ \(trigger\)/, "")) + '</span><span class="mono">' + (m.first[id] === null ? "not needed" : "from " + (C.start + m.first[id])) + '</span><span class="small muted" style="grid-column:1/3">Needed when pallet positions exceed ' + nf.format(DATA.wh.posMain) + '</span></div>';
-    const atMax = u >= r.max && (r.driver === "prod" ? m.prod[i] > u * r.cap : m.pos[i] > u * r.cap);
-    return '<div class="meter"><span>' + esc(r.name) + '</span><span class="mono" style="font-weight:500">' + u + ' / ' + r.max + '</span><span class="track"><span style="width:' + (r.max ? u / r.max * 100 : 0).toFixed(0) + '%;background:' + (atMax ? "var(--bad)" : "var(--accent)") + '"></span></span><span class="small muted" style="grid-column:1/3">' + nf.format(r.cap) + (r.driver === "pos" ? " pallet positions" : " t/yr") + ' per unit, min ' + r.min + (atMax ? " · at maximum" : "") + '</span></div>';
-  }).join("") + '<div class="meter"><span>Pallet positions</span><span class="mono">' + nf.format(m.pos[i]) + ' / ' + nf.format(DATA.wh.posMain) + '</span><span class="track"><span style="width:' + Math.min(100, m.pos[i] / DATA.wh.posMain * 100).toFixed(0) + '%;background:' + (m.pos[i] > DATA.wh.posMain ? "#d98b1c" : "var(--accent)") + '"></span></span></div>';
+    '<div class="kpi"><span class="small muted">After the budget period, ' + (C.start + P) + '–' + YEARS[H - 1] + '</span><b>' + M(m.after) + '</b><span class="small muted">incl. ×' + C.factor + ', outside the current budget</span></div>' +
+    '<div class="kpi"><span class="small muted">Installed capacity, end of ' + y + '</span><b>' + (m.cap[i] > 0 ? kt(m.cap[i]) + "/yr" : "–") + '</b><span class="small muted">' + capNote + '</span></div>';
+  $("mods").innerHTML = m.L.filter(o => o.l.type === "Per unit").map(o => {
+    const l = o.l, v = o.v, mx = l.max, k = esc(l.id);
+    const tr = (n, u, yy, lim) => '<div class="tr"><b>T' + n + '</b><input type="range" min="0" max="' + lim + '" step="1" value="' + u + '" data-mod="' + k + '" data-f="t' + n + 'u" aria-label="' + esc(l.desc) + ' tranche ' + n + ' units"><span class="mono" style="text-align:right">' + u + '</span><select data-mod="' + k + '" data-f="t' + n + 'y" aria-label="' + esc(l.desc) + ' tranche ' + n + ' year">' + yearOpts(yy) + '</select></div>';
+    const cost = (v.t1u + v.t2u) * l.price * C.factor;
+    return '<div class="mod' + (o.on ? "" : " off") + '"><div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline"><b style="font-size:14px">' + esc(l.desc) + '</b><span class="mono small" style="white-space:nowrap;flex:none">' + (v.t1u + v.t2u) + ' / ' + mx + '</span></div>' +
+      tr(1, v.t1u, v.t1y, mx - v.t2u) + tr(2, v.t2u, v.t2y, mx - v.t1u) +
+      '<span class="small muted">' + M(cost) + ' incl. ×' + C.factor + ' · ' + esc(l.pkg) + (l.cap ? ' · ' + nf.format(l.cap) + ' t/yr per unit' : '') + (o.on ? '' : ' · object excluded') + '</span></div>';
+  }).join("");
   const mxs = Math.max(...m.sp, 1);
   $("years").innerHTML = YEARS.map((yy, k) => {
-    const per = k < P, cls = ["yr", per ? "per" : "", (all || k < S.sel) ? "past" : "", (!all && k === S.sel) ? "on" : "", m.prod[k] > m.cap[k] ? "short" : ""].join(" ");
+    const per = k < P, cls = ["yr", per ? "per" : "", (all || k < S.sel) ? "past" : "", (!all && k === S.sel) ? "on" : ""].join(" ");
     return '<button type="button" class="' + cls + '" data-y="' + k + '" aria-pressed="' + (!all && k === S.sel) + '"><span class="y">' + yy + '</span><span class="small p">' +
-      (m.prod[k] > 0 ? kt(m.prod[k]) + " · " + Math.round(S.ramp[k] * 100) + "%" : "construction") + '</span><span class="mono small">' + (m.sp[k] > 0 ? M(m.sp[k]) : "–") +
+      (m.cap[k] > 0 ? kt(m.cap[k]) + " capacity" : "construction") + '</span><span class="mono small">' + (m.sp[k] > 0 ? M(m.sp[k]) : "–") +
       '</span><span class="bar"><span style="width:' + (m.sp[k] / mxs * 100).toFixed(1) + '%"></span></span><span style="font-size:11px;opacity:.85">' + (per ? Math.round(m.cum[k] / LIM * 100) + "% of limit" : "after budget") + '</span></button>';
   }).join("") + '<button type="button" class="all' + (all ? " on" : "") + '" id="allbtn" aria-pressed="' + all + '">Whole plan</button>';
   $("objNote").textContent = "Built by the end of " + y + ", incl. ×" + C.factor;
@@ -255,13 +245,17 @@ function update() {
     const off = !!S.off[p.name];
     const st = off ? ["p-off", "Excluded"] : nd === rows.length ? ["p-done", "Complete"] : na ? ["p-part", "Partly built"] : ["p-none", "Not yet"];
     const open = !!S.open[p.name];
-    let sub = rows.length + " lines";
-    const trig = os.find(o => o.l.rule && R[o.l.rule] && R[o.l.rule].driver === "trigger");
-    if (trig) sub = trig.start ? "Triggered in " + trig.start + " when storage exceeds the main building" : "Not needed within the horizon";
+    const fixedStarts = os.filter(o => o.l.type !== "Per unit" && o.start).map(o => o.start);
+    let sub = rows.length + " lines" + (fixedStarts.length ? " · from " + Math.min(...fixedStarts) : "");
     return '<div class="obj"><div class="objhead">' + (p.locked ? '<span style="width:18px"></span>' : '<input type="checkbox" data-pkg="' + pi + '" aria-label="Include ' + esc(p.name) + '"' + (off ? "" : " checked") + '>') +
       '<button type="button" class="objtog" data-open="' + pi + '" aria-expanded="' + open + '"><span class="chev" aria-hidden="true">' + (open ? "▼" : "▶") + '</span><span class="nm"><b>' + esc(p.name) + '</b><span class="small muted">' + esc(p.locked ? "Always included · " + sub : sub) +
       '</span></span><span class="rt"><span class="mono">' + M(built) + '</span><span class="pill ' + st[0] + '">' + st[1] + '</span></span></button></div>' +
-      (open ? '<div class="rows">' + rows.map(r => '<div class="row"><span class="n"><span class="dot d-' + r.st + '" aria-hidden="true"></span><span>' + esc(r.o.l.desc) + '</span></span><span class="r mono">' + esc(r.qty) + '</span><span class="r">' + esc(r.when) + '</span><span class="r mono c">' + (r.built > 0 ? M(r.built) : "–") + '</span></div>').join("") +
+      (open ? '<div class="rows"><div class="shift">Move all fixed lines <button type="button" data-shift="' + pi + '" data-d="-1">◀ 1 year</button><button type="button" data-shift="' + pi + '" data-d="1">1 year ▶</button></div>' + rows.map(r => {
+        const l = r.o.l, k = esc(l.id);
+        const ctl = l.type === "Per unit" ? '<span class="r" style="grid-column:span 2">' + esc(r.when) + ' (modules panel)</span>' :
+          '<select data-line="' + k + '" data-f="start" aria-label="Start year ' + esc(l.desc) + '">' + yearOpts(r.o.v.start, true) + '</select><input type="number" min="1" max="5" step="1" value="' + r.o.v.dur + '" data-line="' + k + '" data-f="dur" aria-label="Duration in years ' + esc(l.desc) + '" title="Duration (years)">';
+        return '<div class="row ed"><span class="n"><span class="dot d-' + r.st + '" aria-hidden="true"></span><span>' + esc(l.desc) + '</span></span><span class="r mono q">' + esc(r.qty) + '</span>' + ctl + '<span class="r mono c">' + (r.built > 0 ? M(r.built) : "–") + '</span></div>';
+      }).join("") +
       '<div class="legend"><span><span class="dot d-done"></span>Complete</span><span><span class="dot d-part"></span>In progress or partly installed</span><span><span class="dot d-none"></span>Not yet</span></div></div>' : "") + '</div>';
   }).join("");
   const k = renderStage(m, i), rn = k >= 0 ? DATA.renders[k] : null;
@@ -278,19 +272,31 @@ function update() {
 document.addEventListener("click", e => {
   const yb = e.target.closest("[data-y]"); if (yb) { S.sel = +yb.dataset.y; S.all = false; return update(); }
   if (e.target.closest("#allbtn")) { S.all = true; return update(); }
+  const sh = e.target.closest("[data-shift]");
+  if (sh) { const n = DATA.packages[+sh.dataset.shift].name, d = +sh.dataset.d;
+    DATA.lines.filter(l => l.pkg === n && l.type !== "Per unit").forEach(l => { const v = S.L[l.id]; if (v.start) v.start = Math.max(YEARS[0], Math.min(YEARS[H - 1], v.start + d)); });
+    return update(); }
   const ob = e.target.closest("[data-open]"); if (ob) { const n = DATA.packages[+ob.dataset.open].name; S.open[n] = !S.open[n]; return update(); }
 });
+function setField(t) {
+  if (t.dataset.mod) { const v = S.L[t.dataset.mod], f = t.dataset.f; v[f] = f.endsWith("y") ? +t.value : Math.max(0, Math.round(+t.value)); return true; }
+  if (t.dataset.line) { const v = S.L[t.dataset.line];
+    if (t.dataset.f === "start") v.start = t.value ? +t.value : null;
+    else { const d = Math.round(+t.value); if (!isFinite(d) || d < 1) return false; v.dur = Math.min(10, d); }
+    return true; }
+  return false;
+}
 document.addEventListener("change", e => {
   const t = e.target;
-  if (t.dataset.pkg) { const n = DATA.packages[+t.dataset.pkg].name; S.off[n] = !t.checked; update(); }
+  if (t.dataset.pkg) { const n = DATA.packages[+t.dataset.pkg].name; S.off[n] = !t.checked; return update(); }
+  if (t.tagName === "SELECT" || t.type === "number") { if (setField(t)) update(); }
 });
 document.addEventListener("input", e => {
   const t = e.target;
-  if (t.id === "target") { S.target = +t.value; update(); }
-  else if (t.dataset.r) { const v = parseFloat(t.value); S.ramp[+t.dataset.r] = isFinite(v) ? Math.max(0, v) / 100 : 0; update(); }
+  if (t.type === "range" && t.dataset.mod) { setField(t); const keep = t.dataset.mod + t.dataset.f; update();
+    const el = document.querySelector('[data-mod="' + CSS.escape(t.dataset.mod) + '"][data-f="' + t.dataset.f + '"]'); if (el) el.focus(); }
 });
 $("reset").addEventListener("click", () => { S = fresh(); build(); update(); });
-DATA.packages.forEach(p => { if (p.name === "Production & Warehouse") S.open[p.name] = true; });
 build(); update();
 </script>
 </body>

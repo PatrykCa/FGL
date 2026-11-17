@@ -1,8 +1,8 @@
-"""CAPEX calculator, production-driven (Streamlit wrapper around page.html).
+"""CAPEX calculator: investment scope and timing (Streamlit wrapper around page.html).
 
 Files next to this script:
   budget.xlsx   project budget in the standard template (sheets Config, Packages, Renders,
-                Budget, Plant basis, Sizing rules, Timeline)
+                Budget, Timeline)
   page.html     the calculator page (layout, styling and logic)
   renders/      renders from Blender (PNG or JPG), named as in the Renders sheet
 """
@@ -46,7 +46,7 @@ def num(v, default=0.0):
 @st.cache_data
 def load_project(path: str, mtime: float):
     wb = load_workbook(path, data_only=True)
-    need = ["Config", "Packages", "Renders", "Budget", "Plant basis", "Sizing rules", "Timeline"]
+    need = ["Config", "Packages", "Renders", "Budget", "Timeline"]
     missing = [s for s in need if s not in wb.sheetnames]
     if missing:
         raise ValueError("Sheets missing in budget.xlsx: " + ", ".join(missing))
@@ -66,30 +66,14 @@ def load_project(path: str, mtime: float):
         "period": int(num(cf["B11"].value, 5)), "limit": num(cf["B12"].value),
         "horizon": max(1, min(10, int(num(cf["B13"].value, 10)))),
     }
-    H = cfg["horizon"]
-
     pk = wb["Packages"]
     packages = [{"name": txt(pk.cell(r, 1).value), "locked": txt(pk.cell(r, 2).value).upper() == "YES"}
                 for r in range(4, 16) if txt(pk.cell(r, 1).value)]
     rd = wb["Renders"]
     renders = [txt(rd.cell(r, 2).value) for r in range(4, 31) if txt(rd.cell(r, 2).value)]
 
-    pb = wb["Plant basis"]
-    mix = [[txt(pb.cell(r, 1).value), num(pb.cell(r, 2).value)] for r in range(7, 16) if txt(pb.cell(r, 1).value)]
-    ramp = [num(pb.cell(21, 2 + k).value) for k in range(H)]
-
-    sz = wb["Sizing rules"]
-    wh = {k: num(sz.cell(5 + i, 2).value) for i, k in enumerate(["fgDays", "fgTpp", "rmShare", "rmDays", "rmTpp", "peak", "posMain"])}
-    rules = {}
-    for r in range(22, 31):
-        rid = txt(sz.cell(r, 1).value)
-        if not rid:
-            break
-        cap = sz.cell(r, 3).value
-        unit = txt(sz.cell(r, 4).value).lower()
-        rules[rid] = {"name": txt(sz.cell(r, 2).value), "cap": num(cap), "min": num(sz.cell(r, 5).value),
-                      "max": num(sz.cell(r, 6).value),
-                      "driver": "trigger" if cap in (None, "") else ("pos" if "pallet" in unit else "prod")}
+    def year(v):
+        return int(num(v)) if v not in (None, "") else None
 
     bd, tl = wb["Budget"], wb["Timeline"]
     lines, problems = [], []
@@ -108,26 +92,23 @@ def load_project(path: str, mtime: float):
                 n, name = part.split("=", 1)
                 if n.strip().isdigit():
                     steps.append([int(n), name.strip()])
-        rule = txt(bd.cell(r, 18).value)
-        if rule and rule not in rules:
-            problems.append(f"{lid}: sizing rule {rule} not found")
-            rule = ""
         tr = r + 3  # Timeline rows mirror Budget rows
+        typ = txt(bd.cell(r, 5).value) or "Fixed"
+        qty, mx = num(bd.cell(r, 6).value), num(bd.cell(r, 7).value)
         lines.append({
-            "id": lid, "phase": txt(bd.cell(r, 2).value), "pkg": txt(bd.cell(r, 3).value) or "Base",
-            "desc": txt(bd.cell(r, 4).value), "type": txt(bd.cell(r, 5).value) or "Fixed",
-            "qty": num(bd.cell(r, 6).value), "max": num(bd.cell(r, 7).value), "unit": txt(bd.cell(r, 8).value),
+            "id": lid, "pkg": txt(bd.cell(r, 3).value) or "Base", "desc": txt(bd.cell(r, 4).value), "type": typ,
+            "qty": qty, "max": mx or qty, "unit": txt(bd.cell(r, 8).value),
             "price": num(bd.cell(r, 9).value) * to_rep(cur), "render": txt(bd.cell(r, 11).value), "steps": sorted(steps),
-            "rule": rule, "start": int(num(tl.cell(tr, 8).value)) if tl.cell(tr, 8).value not in (None, "") else None,
-            "dur": max(1, int(num(tl.cell(tr, 9).value, 1))),
-            "manual": [num(tl.cell(tr, 24 + k).value) for k in range(H)],
+            "cap": num(bd.cell(r, 18).value),
+            "start": year(tl.cell(tr, 8).value), "dur": max(1, int(num(tl.cell(tr, 9).value, 1))),
+            "t1u": num(tl.cell(tr, 10).value), "t1y": year(tl.cell(tr, 11).value),
+            "t2u": num(tl.cell(tr, 12).value), "t2y": year(tl.cell(tr, 13).value),
         })
     names = [p["name"] for p in packages]
     for ln in lines:
         if ln["pkg"] not in names:
             packages.append({"name": ln["pkg"], "locked": False}); names.append(ln["pkg"])
-    return {"cfg": cfg, "packages": packages, "renders": renders, "mix": mix, "ramp": ramp,
-            "target": num(pb["B4"].value), "wh": wh, "rules": rules, "lines": lines}, problems
+    return {"cfg": cfg, "packages": packages, "renders": renders, "lines": lines}, problems
 
 
 @st.cache_data(show_spinner="Preparing renders...")
