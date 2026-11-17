@@ -3,406 +3,295 @@
 <head>
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1">
-<title>Chiba CAPEX Calculator</title>
+<title>CAPEX Calculator</title>
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
-  /* layout: budget table on the left, sticky render + totals panel on the right; stacks on narrow screens */
-  --bg:#edf0f3;
-  --surface:#ffffff;
-  --sunken:#f4f6f8;
-  --ink:#16202a;
-  --muted:#5a6775;
-  --line:#d3dae1;
-  --accent:#0a5c8f;
-  --accent-soft:#dcebf5;
-  --warn:#9a5b00;
-  --warn-soft:#fbefd9;
-  --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;
-  --body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;
-  --mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
-}
-@media (prefers-color-scheme: dark){
-  :root:not([data-theme="light"]){
-    color-scheme:dark;
-    --bg:#10151a;--surface:#192027;--sunken:#141a20;--ink:#e5eaef;--muted:#93a0ad;--line:#2b353f;
-    --accent:#62b5e8;--accent-soft:#17364a;--warn:#e9b057;--warn-soft:#3a2c12;
-  }
-}
-:root[data-theme="dark"]{
-  color-scheme:dark;
-  --bg:#10151a;--surface:#192027;--sunken:#141a20;--ink:#e5eaef;--muted:#93a0ad;--line:#2b353f;
-  --accent:#62b5e8;--accent-soft:#17364a;--warn:#e9b057;--warn-soft:#3a2c12;
+  /* layout: KPIs, plant basis, timeline, then objects (left) and plant view (right) */
+  --bg:#edf0f3;--surface:#ffffff;--sunken:#f4f6f8;--ink:#16202a;--muted:#5a6775;--line:#d3dae1;
+  --accent:#0a5c8f;--accent-soft:#dcebf5;--warn:#7a4700;--warn-soft:#fbefd9;--bad:#b3261e;--good:#1b6b3a;
+  --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;--body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
 }
 *{box-sizing:border-box}
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:14px;line-height:1.45}
-.wrap{max-width:1480px;margin:0 auto;padding:20px 20px 48px}
-header{display:flex;flex-wrap:wrap;gap:8px 24px;align-items:flex-end;justify-content:space-between;margin-bottom:16px}
-h1{font-family:var(--display);font-weight:600;font-size:34px;line-height:1.05;margin:0;letter-spacing:.01em;text-wrap:balance}
+.wrap{max-width:1480px;margin:0 auto;padding:22px 22px 48px;display:flex;flex-direction:column;gap:16px}
+h1{font-family:var(--display);font-weight:600;font-size:34px;line-height:1.05;margin:0}
+h2{font-family:var(--display);font-weight:600;font-size:17px;letter-spacing:.06em;text-transform:uppercase;margin:0;color:var(--muted)}
 .sub{color:var(--muted);margin:4px 0 0}
-h2{font-family:var(--display);font-weight:600;font-size:17px;letter-spacing:.06em;text-transform:uppercase;margin:0 0 10px;color:var(--muted)}
-button{font:inherit;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer}
-button:hover{border-color:var(--accent)}
-button:focus-visible,input:focus-visible,select:focus-visible,label.filebtn:focus-within{outline:2px solid var(--accent);outline-offset:1px}
-.actions{display:flex;flex-wrap:wrap;gap:8px}
-.grid{display:grid;grid-template-columns:minmax(0,1fr) minmax(420px,34%);gap:20px;align-items:start}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px}
-.side{position:sticky;top:16px;display:flex;flex-direction:column;gap:16px;max-height:calc(100vh - 32px);overflow:auto}
-@media (max-width:1040px){
-  .grid{grid-template-columns:minmax(0,1fr)}
-  .side{position:static;max-height:none;order:-1}
-}
-
-/* render viewer */
-.viewer{position:relative;aspect-ratio:16/9;border-radius:8px;overflow:hidden;background:var(--sunken);border:1px solid var(--line)}
-.viewer.drag{outline:2px dashed var(--accent);outline-offset:-6px}
-.viewer img{display:block;width:100%;height:100%;object-fit:cover}
-.ph{position:absolute;inset:0;display:flex;flex-direction:column;align-items:center;justify-content:center;gap:6px;padding:16px;text-align:center;
+button{font:inherit;color:var(--ink)}
+button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
+.mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
+.muted{color:var(--muted)}
+.small{font-size:12px}
+.kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
+.kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:2px}
+.kpi b{font-family:var(--display);font-weight:600;font-size:30px;font-variant-numeric:tabular-nums;line-height:1.1}
+.basis{display:flex;flex-wrap:wrap;gap:24px}
+.basis>div{display:flex;flex-direction:column;gap:8px}
+.ramp{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:6px}
+.ramp label{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted)}
+input[type=number]{font-family:var(--mono);font-size:13px;color:var(--ink);background:var(--sunken);border:1px solid var(--line);border-radius:5px;padding:5px 6px;width:100%;text-align:right}
+input[type=range]{width:100%;accent-color:var(--accent)}
+.meter{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;align-items:center;font-size:13px}
+.track{grid-column:1/3;display:block;height:6px;border-radius:3px;background:#e6ebf0;overflow:hidden}
+.track span{display:block;height:6px;border-radius:3px;background:var(--accent)}
+.btn{min-height:40px;padding:6px 14px;border-radius:6px;border:1px solid var(--line);background:var(--surface);cursor:pointer}
+.btn:hover{border-color:var(--accent)}
+.years{display:flex;gap:4px;flex-wrap:wrap}
+.yr{flex:1 1 104px;min-height:104px;cursor:pointer;padding:10px 24px 10px 26px;text-align:left;display:flex;flex-direction:column;gap:3px;border:0;
+  clip-path:polygon(0 0,calc(100% - 16px) 0,100% 50%,calc(100% - 16px) 100%,0 100%,16px 50%);background:#f4f6f8}
+.yr:first-child{padding-left:14px;clip-path:polygon(0 0,calc(100% - 16px) 0,100% 50%,calc(100% - 16px) 100%,0 100%)}
+.yr .y{font-family:var(--display);font-weight:600;font-size:24px;line-height:1}
+.yr .bar{display:block;height:6px;border-radius:3px;background:#d3dae1;overflow:hidden}
+.yr .bar span{display:block;height:6px;border-radius:3px;background:var(--accent)}
+.yr.per{background:#e2e8ee}.yr.past{background:#dcebf5}.yr.per.past{background:#c9def0}
+.yr.on{background:var(--accent);color:#fff}.yr.on .bar{background:rgba(255,255,255,.3)}.yr.on .bar span{background:#fff}
+.yr.short .p{color:var(--bad);font-weight:600}.yr.on.short .p{color:#ffd4d0}
+.all{flex:0 1 110px;min-height:104px;border-radius:8px;cursor:pointer;font-weight:600;border:1px solid var(--accent);background:var(--surface);color:var(--accent)}
+.all.on{background:var(--accent);color:#fff}
+.main{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start}
+.left{flex:1 1 460px;min-width:0;display:flex;flex-direction:column;gap:10px}
+.right{flex:1.7 1 600px;min-width:0;display:flex;flex-direction:column;gap:12px}
+.obj{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
+.objhead{display:flex;align-items:center;gap:10px;padding:10px 14px}
+.objhead input{width:18px;height:18px;accent-color:var(--accent);flex:none;cursor:pointer}
+.objtog{flex:1 1 auto;min-width:0;border:0;background:none;cursor:pointer;text-align:left;display:flex;align-items:center;gap:10px;padding:4px 0;min-height:44px}
+.objtog .chev{flex:none;width:12px;color:var(--muted);font-size:11px}
+.objtog .nm{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-width:0}
+.objtog .nm b{font-size:15px;line-height:1.25}
+.objtog .rt{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
+.pill{padding:1px 9px;border-radius:10px;font-size:12px;font-weight:500}
+.p-done{background:var(--accent-soft);color:#06416a}.p-part{background:var(--warn-soft);color:var(--warn)}.p-none{background:#eef1f4;color:#4a5663}.p-off{background:#eef1f4;color:#4a5663;text-decoration:line-through}
+.rows{border-top:1px solid var(--line);padding:6px 14px 12px;background:#fafbfc}
+.row{display:grid;grid-template-columns:minmax(0,1fr) 72px 92px 86px;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid #eef1f4;font-size:13px}
+.row .n{display:flex;align-items:center;gap:8px;min-width:0}
+.dot{flex:none;width:8px;height:8px;border-radius:4px}
+.d-done{background:var(--accent)}.d-part{background:#d98b1c}.d-none{box-shadow:inset 0 0 0 1.5px #8a96a3}
+.row .r{text-align:right;font-size:12px;color:#4a5663}
+.legend{display:flex;gap:14px;flex-wrap:wrap;padding-top:8px;font-size:12px;color:var(--muted)}
+.legend span{display:flex;align-items:center;gap:6px}
+.view img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
+.ph{aspect-ratio:16/9;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;color:var(--muted);
   background-image:repeating-linear-gradient(135deg,transparent 0 14px,var(--line) 14px 15px)}
-.ph b{font-family:var(--mono);font-weight:500;font-size:15px;background:var(--surface);padding:4px 10px;border-radius:4px;border:1px solid var(--line)}
-.ph span{color:var(--muted);background:var(--surface);padding:2px 8px;border-radius:4px;max-width:34ch}
-.cap{display:flex;justify-content:space-between;gap:12px;align-items:baseline;margin-top:10px}
-.cap strong{font-family:var(--display);font-size:20px;font-weight:600}
-.cap small{color:var(--muted)}
-.strip{display:grid;grid-template-columns:repeat(14,minmax(0,1fr));gap:3px;margin-top:10px}
-.strip button{padding:5px 0;font-family:var(--mono);font-size:10px;letter-spacing:-.02em;border-radius:4px;background:var(--sunken)}
-.strip button.done{background:var(--accent-soft);border-color:var(--accent-soft)}
-.strip button.cur{background:var(--accent);border-color:var(--accent);color:var(--surface);font-weight:500}
-.strip button.empty{opacity:.45;cursor:default;border-style:dashed}
-.striphelp{margin:6px 0 0;color:var(--muted);font-size:12px}
-.hint{margin:10px 0 0;padding:8px 10px;border-radius:6px;background:var(--warn-soft);color:var(--warn);font-size:13px}
-.hint.ok{background:var(--accent-soft);color:var(--accent)}
-.filebtn{display:inline-flex;align-items:center;border:1px solid var(--line);border-radius:6px;padding:6px 12px;cursor:pointer;background:var(--surface)}
-.filebtn:hover{border-color:var(--accent)}
-.filebtn input{position:absolute;opacity:0;width:1px;height:1px}
-.viewer-tools{display:flex;flex-wrap:wrap;gap:8px;align-items:center;margin-top:10px;color:var(--muted);font-size:12px}
-
-/* totals */
-.total-main{font-family:var(--display);font-weight:600;font-size:44px;line-height:1;font-variant-numeric:tabular-nums}
-.total-row{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px;margin-top:12px}
-.total-row div{background:var(--sunken);border-radius:6px;padding:8px 10px}
-.total-row small{display:block;color:var(--muted);font-size:11px;text-transform:uppercase;letter-spacing:.05em}
-.total-row b{font-family:var(--mono);font-weight:500;font-size:12.5px;font-variant-numeric:tabular-nums;white-space:nowrap}
-.count{color:var(--muted);margin:6px 0 0}
-.bars{display:flex;flex-direction:column;gap:7px;margin-top:14px}
-.bar span:first-child{overflow:hidden;text-overflow:ellipsis;white-space:nowrap}
-.bar{display:grid;grid-template-columns:120px minmax(0,1fr) 100px;gap:8px;align-items:center;font-size:12px}
-.bar .track{height:8px;background:var(--sunken);border-radius:4px;overflow:hidden}
-.bar .fill{height:100%;background:var(--accent);border-radius:4px;width:0}
-.bar .v{text-align:right;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
-.rates{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:10px}
-.rates label{display:flex;flex-direction:column;gap:4px;font-size:12px;color:var(--muted)}
-input[type=number]{font-family:var(--mono);font-size:13px;color:var(--ink);background:var(--sunken);border:1px solid var(--line);border-radius:5px;padding:5px 7px;width:100%;text-align:right;font-variant-numeric:tabular-nums}
-input[type=checkbox]{width:16px;height:16px;accent-color:var(--accent);cursor:pointer;margin:0;vertical-align:middle}
-
-/* object cards */
-.maincol{display:flex;flex-direction:column;gap:16px;min-width:0}
-.cards{display:grid;grid-template-columns:repeat(auto-fill,minmax(210px,1fr));gap:12px;align-items:start}
-.card{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:12px 14px;display:flex;flex-direction:column;gap:6px;border-left:4px solid var(--line)}
-.card.on{border-left-color:var(--accent)}
-.card.part{border-left-color:var(--warn)}
-.card label.top{display:flex;align-items:center;gap:10px;cursor:pointer;font-weight:600;font-size:15px;line-height:1.2}
-.card.locked label.top{cursor:default}
-.card .cost{font-family:var(--mono);font-size:13px;font-variant-numeric:tabular-nums}
-.card.off .cost{color:var(--muted)}
-.card small{color:var(--muted);font-size:12px}
-.card input[type=range]{width:100%;accent-color:var(--accent);margin:2px 0 0}
-.card .scal{display:flex;flex-direction:column;gap:2px;border-top:1px solid var(--line);padding-top:8px;margin-top:2px}
-.card .scal b{font-weight:500;font-size:13px}
-.lock{display:inline-block;padding:0 7px;border-radius:9px;background:var(--accent-soft);color:var(--accent);font-size:11px;font-weight:500}
-.tog{font:inherit;background:none;border:0;padding:0 6px 0 0;cursor:pointer;color:var(--muted);font-size:12px}
-tr.item.hid{display:none}
-/* table */
-.tablewrap{overflow-x:auto;padding:0}
-table{border-collapse:collapse;width:100%;min-width:900px}
-th,td{padding:6px 6px;text-align:left;border-bottom:1px solid var(--line);vertical-align:middle}
-thead th{position:sticky;top:0;background:var(--surface);font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;white-space:nowrap}
-.num{text-align:right;font-size:12.5px;font-family:var(--mono);font-variant-numeric:tabular-nums;white-space:nowrap}
-tr.phase th{background:var(--sunken);font-weight:600;font-size:14px;border-top:1px solid var(--line)}
-tr.phase th small{display:block;font-weight:400;color:var(--muted);font-size:12px}
-tr.phase th.num{font-family:var(--mono);font-weight:500;font-size:13px}
-tr.item.off td{color:var(--muted)}
-tr.item.off td.val{text-decoration:line-through;text-decoration-color:var(--line)}
-td.id{font-family:var(--mono);color:var(--muted);white-space:nowrap}
-td.qty input{width:74px}
-td.desc{min-width:230px}
-td.price input{width:100px}
-.pill{display:inline-block;margin-left:6px;padding:0 7px;border-radius:9px;background:var(--warn-soft);color:var(--warn);font-size:11px;font-weight:500}
-.mapcol{display:none}
-table.mapping .mapcol{display:table-cell}
-select{font:inherit;font-size:12px;color:var(--ink);background:var(--sunken);border:1px solid var(--line);border-radius:5px;padding:4px 6px}
-tfoot td{font-weight:600;border-bottom:0;background:var(--sunken)}
-.mapbar{display:none;margin:0;padding:10px 16px;border-bottom:1px solid var(--line);background:var(--accent-soft);gap:10px;flex-wrap:wrap;align-items:center}
-.mapbar.on{display:flex}
-.mapbar p{margin:0;flex:1 1 320px;max-width:70ch}
-#copyout{display:none;width:100%;min-height:120px;font-family:var(--mono);font-size:12px;color:var(--ink);background:var(--surface);border:1px solid var(--line);border-radius:6px;padding:8px}
-@media (prefers-reduced-motion:no-preference){.bar .fill{transition:width .25s ease}}
+.spend{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end}
+.spend b{font-family:var(--mono);font-weight:500;font-size:20px}
+.lim{display:block;height:10px;border-radius:5px;background:#e6ebf0;overflow:hidden}
+.lim span{display:block;height:10px;border-radius:5px;background:var(--accent)}
+.note{font-size:12px;color:#b45309}
+@media (max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.spend{grid-template-columns:1fr}.row{grid-template-columns:minmax(0,1fr) 60px 70px}.row .c{display:none}}
 </style>
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <div>
-      <h1>CAPEX Calculator, Chiba Plant</h1>
-      <p class="sub">Choose what to build. The cost and the 3D view follow. Open an object to see or change its budget lines; the budget file stays the source.</p>
+  <div style="display:flex;flex-wrap:wrap;gap:8px 24px;align-items:flex-end;justify-content:space-between">
+    <div><h1 id="title">CAPEX Calculator</h1><p class="sub">Set the production plan. Modules, spend per year and the plant view follow. Changes here are a what-if; the budget file stays the source.</p></div>
+    <button class="btn" id="reset" type="button">Restore values from the file</button>
+  </div>
+  <div class="kpis" id="kpis"></div>
+  <section class="panel basis" aria-label="Plant basis">
+    <div style="flex:1 1 320px">
+      <h2>Plant basis</h2>
+      <label for="target" style="display:flex;justify-content:space-between;font-weight:500"><span>Target capacity</span><span class="mono" id="targetTxt"></span></label>
+      <input id="target" type="range" step="250">
+      <span class="small muted">Site, buildings and utilities are designed for this capacity.</span>
+      <span style="font-weight:500;margin-top:6px">Production, % of target</span>
+      <div class="ramp" id="ramp"></div>
     </div>
-    <div class="actions">
-      <button id="btnAll" type="button">Build everything</button>
-      <button id="btnNone" type="button">Base only</button>
-      <button id="btnOpen" type="button">Show all lines</button>
-      <button id="btnReset" type="button">Restore values from the file</button>
+    <div style="flex:1 1 240px"><span style="font-weight:500">Product mix at target</span><div id="mix" style="display:flex;flex-direction:column;gap:8px"></div></div>
+    <div style="flex:1.2 1 320px"><span style="font-weight:500" id="modsTitle"></span><div id="mods" style="display:flex;flex-direction:column;gap:9px"></div></div>
+  </section>
+  <section class="panel" aria-label="Timeline" style="display:flex;flex-direction:column;gap:12px">
+    <div style="display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:space-between;align-items:baseline">
+      <h2 id="tlTitle">Timeline</h2>
+      <span class="small muted" id="tlNote"></span>
     </div>
-  </header>
-
-  <div class="grid">
-    <div class="maincol">
-    <section class="cards" id="cards" aria-label="Objects to build"></section>
-    <section class="panel tablewrap" aria-label="Budget items">
-      <table id="tbl">
-        <thead>
-          <tr>
-            <th></th><th>ID</th><th>Scope</th><th class="num">Qty</th><th>Unit</th>
-            <th class="num">Unit price (JPY)</th><th class="num">Total JPY</th><th class="num">EUR</th><th class="num">PLN</th>
-          </tr>
-        </thead>
-        <tbody id="tbody"></tbody>
-        <tfoot>
-          <tr><td></td><td colspan="5">Total selected scope</td><td class="num" id="fJ"></td><td class="num" id="fE"></td><td class="num" id="fP"></td></tr>
-        </tfoot>
-      </table>
+    <div class="years" id="years"></div>
+  </section>
+  <div class="main">
+    <section class="left" aria-label="Objects">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap"><h2>Objects</h2><span class="small muted" id="objNote"></span></div>
+      <div id="objects" style="display:flex;flex-direction:column;gap:10px"></div>
     </section>
-    </div>
-
-    <aside class="side">
-      <section class="panel">
-        <h2>View for the selected scope</h2>
-        <div class="viewer" id="viewer"></div>
-        <div class="cap"><strong id="capTitle"></strong><small id="capStep"></small></div>
-        <div class="strip" id="strip" role="group" aria-label="Build stages"></div>
-        <p class="striphelp">Click a stage to walk through the build sequence.</p>
-        <p class="hint" id="hint"></p>
-      </section>
-
-      <section class="panel">
-        <h2>Cost of the selected scope</h2>
-        <div class="total-main" id="tE"></div>
-        <p class="count" id="count"></p>
-        <div class="total-row">
-          <div><small>JPY</small><b id="tJ"></b></div>
-          <div><small>PLN</small><b id="tP"></b></div>
-          <div><small id="multLabel">EUR × 1.3</small><b id="tM"></b></div>
+    <section class="right" aria-label="Plant view">
+      <div class="panel view" style="display:flex;flex-direction:column;gap:10px">
+        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
+          <strong style="font-family:var(--display);font-size:26px;font-weight:600" id="viewTitle"></strong><span class="small muted" id="renderName"></span>
         </div>
-        <div class="bars" id="bars"></div>
-      </section>
-
-      <section class="panel">
-        <h2>Exchange rates and factor</h2>
-        <div class="rates">
-          <label for="rEur">1 EUR = … JPY<input id="rEur" type="number" step="0.01" min="0"></label>
-          <label for="rPln">100 JPY = … PLN<input id="rPln" type="number" step="0.01" min="0"></label>
-          <label for="rMult">Factor (column “1,3 ration”)<input id="rMult" type="number" step="0.05" min="0"></label>
-        </div>
-      </section>
-    </aside>
+        <div id="viewer"></div>
+      </div>
+      <div class="panel spend" id="spend"></div>
+    </section>
   </div>
 </div>
-
 <script>
 /*__DATA__*/
-const GROUPS = DATA.groups, STAGES = DATA.renders, IMG = DATA.images;
-const ITEMS = [];
-GROUPS.forEach((g, gi) => g.items.forEach(it => ITEMS.push(Object.assign({ g:gi }, it))));
-const SCAL = ITEMS.filter(it => it.scal);
-const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&":"&amp;", "<":"&lt;", ">":"&gt;", '"':"&quot;" }[c]));
-const kid = id => id.replace(/[^0-9a-zA-Z]/g, "_");
-const inGroup = gi => ITEMS.filter(it => it.g === gi);
-
-function freshState(){
-  const s = { rates:Object.assign({}, DATA.rates), items:{} };
-  ITEMS.forEach(it => s.items[it.id] = { sel:true, qty:it.qty, price:it.price });
-  return s;
-}
-let S = freshState();
-const open = GROUPS.map(() => false);
-let pinned = null;
-
-const nf = new Intl.NumberFormat("en-US", { maximumFractionDigits:0 });
-const fJ = v => "¥" + nf.format(v);
-const fE = v => "€" + nf.format(v);
-const fP = v => nf.format(v) + " PLN";
+const C = DATA.cfg, H = C.horizon, P = C.period, YEARS = Array.from({ length: H }, (_, i) => C.start + i);
 const $ = id => document.getElementById(id);
-const num = v => { const x = parseFloat(String(v).replace(",", ".")); return isFinite(x) ? x : 0; };
-const short = name => name.replace(/ to Last Phase$/i, "").replace(/^Last Phase$/i, "Last");
+const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
+const nf = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
+const cur = { EUR: "€", USD: "$", JPY: "¥", GBP: "£" }[C.report] || "";
+const M = v => (cur || C.report + " ") + (v / 1e6).toFixed(2) + "M";
+const kt = t => (t / 1000).toFixed(1) + " kt";
+let S;
+function fresh() { return { sel: Math.min(H - 1, 2), all: false, target: DATA.target, ramp: DATA.ramp.slice(), off: {}, open: {} }; }
+S = fresh();
 
-function build(){
-  /* object cards */
-  $("cards").innerHTML = GROUPS.map((g, gi) => {
-    const sc = inGroup(gi).filter(it => it.scal).map(it => { const k = kid(it.id);
-      return '<div class="scal"><b id="sb' + k + '"></b><input type="range" id="sl' + k + '" data-slide="' + it.id + '" min="0" max="' + it.scal.max +
-        '" step="1" aria-label="' + esc(it.desc) + '"><small>' + esc(it.desc) + (it.scal.note ? ". " + esc(it.scal.note) : "") + "</small></div>"; }).join("");
-    return '<div class="card' + (g.locked ? " locked" : "") + '" id="card' + gi + '"><label class="top" for="cg' + gi + '">' +
-      (g.locked ? "" : '<input type="checkbox" id="cg' + gi + '" data-group="' + gi + '">') + "<span>" + esc(g.name) + "</span></label>" +
-      '<span class="cost" id="cc' + gi + '"></span>' + (g.locked ? '<span><span class="lock">always included</span></span>' : "") + sc + "</div>";
-  }).join("");
-  /* budget lines, grouped by object */
-  let h = "";
-  GROUPS.forEach((g, gi) => {
-    h += '<tr class="phase"><th>' + (g.locked ? "" : '<input type="checkbox" id="ph' + gi + '" data-group="' + gi + '" aria-label="' + esc(g.name) + '">') + "</th>" +
-      '<th colspan="5"><button type="button" class="tog" data-open="' + gi + '" id="tg' + gi + '" aria-expanded="false"></button>' + esc(g.name) + "</th>" +
-      '<th class="num" id="pJ' + gi + '"></th><th class="num" id="pE' + gi + '"></th><th class="num" id="pP' + gi + '"></th></tr>';
-    inGroup(gi).forEach(it => {
-      const st = S.items[it.id], k = kid(it.id);
-      h += '<tr class="item" id="row' + k + '" data-g="' + gi + '">' +
-        '<td><input type="checkbox" id="c' + k + '" data-item="' + it.id + '"' + (st.sel ? " checked" : "") + ' aria-label="Item ' + esc(it.id) + '"></td>' +
-        '<td class="id">' + esc(it.id) + "</td>" +
-        '<td class="desc">' + esc(it.desc) + (it.flag ? '<span class="pill">' + esc(it.flag) + "</span>" : "") + (it.scal ? '<span class="pill">built in steps</span>' : "") + "</td>" +
-        '<td class="qty"><input type="number" id="q' + k + '" data-qty="' + it.id + '" value="' + st.qty + '" min="0"' + (it.scal ? ' max="' + it.scal.max + '" step="1"' : ' step="any"') + ' aria-label="Quantity ' + esc(it.id) + '"></td>' +
-        "<td>" + esc(it.unit) + "</td>" +
-        '<td class="price"><input type="number" id="p' + k + '" data-price="' + it.id + '" value="' + Math.round(st.price * 100) / 100 + '" min="0" step="any" aria-label="Unit price ' + esc(it.id) + '"></td>' +
-        '<td class="num val" id="vJ' + k + '"></td><td class="num val" id="vE' + k + '"></td><td class="num val" id="vP' + k + '"></td></tr>';
+function model() {
+  const W = DATA.wh, R = DATA.rules;
+  const prod = S.ramp.map(r => S.target * (r || 0));
+  const pos = prod.map(p => p <= 0 ? 0 : Math.ceil(p * W.fgDays / 365 / W.fgTpp * W.peak) + Math.ceil(p * W.rmShare * W.rmDays / 365 / W.rmTpp * W.peak));
+  const units = {}, first = {};
+  for (const id in R) {
+    const r = R[id];
+    units[id] = prod.map((p, i) => {
+      if (p <= 0 && r.driver !== "trigger") return 0;
+      if (r.driver === "trigger") return pos[i] > W.posMain ? 1 : 0;
+      const d = r.driver === "pos" ? pos[i] : p;
+      return Math.min(r.max, Math.max(r.min, Math.ceil(d / r.cap)));
     });
-  });
-  $("tbody").innerHTML = h;
-  $("rEur").value = S.rates.eur; $("rPln").value = S.rates.pln; $("rMult").value = S.rates.mult;
-  $("strip").style.gridTemplateColumns = "repeat(" + STAGES.length + ",minmax(0,1fr))";
-  $("strip").innerHTML = STAGES.map((s, i) => '<button type="button" data-idx="' + i + '" title="' + esc(s) + '">' + esc(short(s)) + "</button>").join("");
-}
-
-/* what each render needs: fixed items linked to it, and step items at or above a unit count */
-function needs(i){
-  const out = [];
-  ITEMS.forEach(it => {
-    const st = S.items[it.id];
-    if (it.scal) it.scal.steps.forEach(([n, r]) => { if (r === STAGES[i]) out.push({ ok: st.sel && st.qty >= n, label: it.id + " ≥ " + n + " " + it.unit }); });
-    else if (it.stage === STAGES[i]) out.push({ ok: st.sel, label: it.id });
-  });
-  return out;
-}
-/* renders are cumulative: show the last one before the first render that still misses something */
-function stageInfo(){
-  let missing = [], next = -1, any = false;
-  for (let i = 0; i < STAGES.length; i++) {
-    const n = needs(i); if (n.length) any = true;
-    const miss = n.filter(x => !x.ok);
-    if (miss.length) { missing = miss; next = i; break; }
+    const k = units[id].findIndex(u => u > 0); first[id] = k < 0 ? null : k;
   }
-  let cur = next >= 0 ? next - 1 : STAGES.length - 1;
-  if (pinned !== null) cur = pinned;
-  return { cur, missing, next, any };
-}
-function applyStage(idx){
-  pinned = idx;
-  ITEMS.forEach(it => {
-    const st = S.items[it.id];
-    if (it.scal) {
-      const reached = it.scal.steps.filter(([n, r]) => STAGES.indexOf(r) >= 0 && STAGES.indexOf(r) <= idx).map(x => x[0]);
-      if (it.scal.steps.length) { st.qty = reached.length ? Math.max(...reached) : 0; st.sel = st.qty > 0; }
-    } else if (it.stage) st.sel = STAGES.indexOf(it.stage) <= idx;
+  const cap = prod.map((p, i) => {
+    const c = Object.keys(R).filter(id => R[id].driver === "prod" && units[id][i] > 0).map(id => units[id][i] * R[id].cap);
+    return c.length ? Math.min(...c) : 0;
   });
-  update();
-}
-
-let shown = null;
-function update(){
-  const eur = S.rates.eur || 1, pln = S.rates.pln / 100;
-  let T = 0, n = 0; const per = [];
-  GROUPS.forEach((g, gi) => {
-    let sub = 0, selCount = 0; const its = inGroup(gi);
-    its.forEach(it => {
-      const st = S.items[it.id], k = kid(it.id), v = st.qty * st.price;
-      $("vJ" + k).textContent = fJ(v); $("vE" + k).textContent = fE(v / eur); $("vP" + k).textContent = fP(v * pln);
-      const row = $("row" + k); row.classList.toggle("off", !st.sel); row.classList.toggle("hid", !open[gi]);
-      $("c" + k).checked = st.sel;
-      if (document.activeElement !== $("q" + k)) $("q" + k).value = st.qty;
-      if (st.sel) { sub += v; selCount++; n++; }
-      if (it.scal) {
-        const sl = $("sl" + k); sl.value = st.sel ? st.qty : 0;
-        $("sb" + k).textContent = (st.sel ? st.qty : 0) + " of " + it.scal.max + " installed (" + Math.round((st.sel ? st.qty : 0) / it.scal.max * 100) + "%)";
+  const spend = new Array(H).fill(0);
+  const L = DATA.lines.map(l => {
+    const on = !S.off[l.pkg];
+    const o = { l, on, spend: new Array(H).fill(0), inst: new Array(H).fill(0), start: null };
+    if (l.type === "Per unit") {
+      let tot = 0;
+      for (let i = 0; i < H; i++) {
+        const add = l.rule ? Math.max(0, units[l.rule][i] - (i ? units[l.rule][i - 1] : 0)) : (l.manual[i] || 0);
+        tot += add; o.inst[i] = tot; o.spend[i] = on ? add * l.price : 0;
       }
-    });
-    per[gi] = sub; T += sub;
-    $("pJ" + gi).textContent = fJ(sub); $("pE" + gi).textContent = fE(sub / eur); $("pP" + gi).textContent = fP(sub * pln);
-    const all = selCount === its.length, some = selCount > 0 && !all;
-    [$("ph" + gi), $("cg" + gi)].forEach(c => { if (c) { c.checked = all; c.indeterminate = some; } });
-    $("card" + gi).className = "card" + (g.locked ? " locked" : "") + (all ? " on" : some ? " part" : " off");
-    $("cc" + gi).textContent = fE(sub / eur) + (some ? "  ·  partly selected" : "");
-    const tg = $("tg" + gi); tg.textContent = open[gi] ? "▾" : "▸"; tg.setAttribute("aria-expanded", open[gi]);
-    tg.setAttribute("aria-label", (open[gi] ? "Hide lines of " : "Show lines of ") + g.name);
-  });
-  $("fJ").textContent = fJ(T); $("fE").textContent = fE(T / eur); $("fP").textContent = fP(T * pln);
-  $("tE").textContent = fE(T / eur); $("tJ").textContent = fJ(T); $("tP").textContent = fP(T * pln);
-  $("tM").textContent = fE(T / eur * S.rates.mult);
-  $("multLabel").textContent = "EUR × " + String(S.rates.mult);
-  $("count").textContent = n + " of " + ITEMS.length + " budget lines selected";
-  const max = Math.max(1, ...per);
-  $("bars").innerHTML = GROUPS.map((g, gi) => '<div class="bar"><span title="' + esc(g.name) + '">' + esc(g.name) + '</span><span class="track"><span class="fill" style="display:block;width:' +
-    (per[gi] / max * 100).toFixed(1) + '%"></span></span><span class="v">' + fE(per[gi] / eur) + "</span></div>").join("");
-  $("btnOpen").textContent = open.every(Boolean) ? "Hide all lines" : "Show all lines";
-
-  const info = stageInfo();
-  [...$("strip").children].forEach((b, i) => {
-    b.className = i === info.cur ? "cur" : i < info.cur ? "done" : "";
-    b.setAttribute("aria-current", i === info.cur ? "step" : "false");
-  });
-  const v = $("viewer"), hint = $("hint");
-  if (info.cur < 0) {
-    shown = null;
-    v.innerHTML = '<div class="ph"><b>no view</b><span>The selected scope does not yet cover the first rendered stage.</span></div>';
-    $("capTitle").textContent = "No view"; $("capStep").textContent = "";
-  } else {
-    const s = STAGES[info.cur];
-    if (IMG[s]) {
-      if (shown !== s) { v.innerHTML = ""; const im = new Image(); im.alt = "Render: " + s; im.src = IMG[s]; v.appendChild(im); }
     } else {
-      v.innerHTML = '<div class="ph"><b>' + esc(s) + '.png</b><span>Render file not found in the renders folder.</span></div>';
+      o.start = l.rule ? (first[l.rule] === null ? null : C.start + first[l.rule]) : l.start;
+      for (let i = 0; i < H; i++) {
+        const y = C.start + i;
+        if (on && o.start !== null && y >= o.start && y < o.start + l.dur) o.spend[i] = l.qty * l.price / l.dur;
+      }
     }
-    shown = s;
-    $("capTitle").textContent = s;
-    $("capStep").textContent = "stage " + (info.cur + 1) + " of " + STAGES.length;
-  }
-  if (!info.any) {
-    hint.className = "hint"; hint.textContent = "No items are linked to renders yet. Fill the Render column in budget.xlsx.";
-  } else if (pinned !== null) {
-    hint.className = "hint ok";
-    hint.textContent = "Build stage picked on the strip. Scope set to everything built up to this render.";
-  } else if (info.next >= 0) {
-    hint.className = "hint";
-    hint.textContent = "Nearest render shown. Missing for the “" + STAGES[info.next] + "” view: " + info.missing.map(m => m.label).join(", ");
-  } else {
-    hint.className = "hint ok";
-    hint.textContent = "The selected scope covers every linked render.";
-  }
+    o.spend.forEach((v, i) => spend[i] += v);
+    return o;
+  });
+  const sp = spend.map(v => v * C.factor);
+  let c = 0; const cum = sp.map(v => c += v);
+  return { prod, pos, units, first, cap, L, sp, cum, within: cum[Math.min(P, H) - 1], after: cum[H - 1] - cum[Math.min(P, H) - 1] };
 }
 
-function setGroup(gi, v){ inGroup(gi).forEach(it => { S.items[it.id].sel = v; }); }
+function lineState(o, i) {
+  const l = o.l, y = C.start + i;
+  if (!o.on) return { st: "none", built: 0, qty: l.type === "Per unit" ? "0 / " + nf.format(l.max || l.qty) : fmtQty(l), when: "excluded" };
+  if (l.type === "Per unit") {
+    const n = o.inst[i], mx = l.max || l.qty;
+    const ys = o.spend.map((v, k) => v > 0 ? "'" + String(C.start + k).slice(2) : null).filter(Boolean);
+    return { st: n >= mx ? "done" : n > 0 ? "part" : "none", built: o.spend.slice(0, i + 1).reduce((a, b) => a + b, 0) * C.factor, qty: nf.format(n) + " / " + nf.format(mx), when: ys.join(", ") || "–" };
+  }
+  if (o.start === null) return { st: "none", built: 0, qty: fmtQty(l), when: l.rule ? "not needed" : "not planned" };
+  const share = y < o.start ? 0 : Math.min(1, (y - o.start + 1) / l.dur);
+  return { st: share >= 1 ? "done" : share > 0 ? "part" : "none", built: l.qty * l.price * share * C.factor, qty: fmtQty(l), when: l.dur > 1 ? o.start + "–" + String(o.start + l.dur - 1).slice(2) : String(o.start) };
+}
+function fmtQty(l) { return (l.qty === 1 && /^(set|ls)$/.test(l.unit)) ? "1 " + l.unit : nf.format(l.qty) + " " + l.unit; }
+
+function renderStage(m, i) {
+  const st = DATA.renders;
+  let next = -1, miss = [];
+  for (let k = 0; k < st.length; k++) {
+    const need = [];
+    m.L.forEach(o => {
+      if (o.l.type === "Per unit" && o.l.steps.length) o.l.steps.forEach(([n, r]) => { if (r === st[k]) need.push(o.on && o.inst[i] >= n); });
+      else if (o.l.render === st[k]) need.push(lineState(o, i).st === "done");
+    });
+    if (need.some(x => !x)) { next = k; break; }
+  }
+  return next >= 0 ? next - 1 : st.length - 1;
+}
+
+function build() {
+  $("title").textContent = "CAPEX Calculator, " + C.project;
+  const vals = DATA.ramp.map(r => r || 0);
+  const t = $("target"); t.min = Math.round(DATA.target * 0.5); t.max = Math.round(DATA.target * 1.5); t.value = S.target;
+  $("ramp").innerHTML = YEARS.map((y, i) => '<label for="r' + i + '">' + y + '<input type="number" id="r' + i + '" data-r="' + i + '" min="0" max="150" step="5" value="' + Math.round(S.ramp[i] * 100) + '"></label>').join("");
+  $("tlTitle").textContent = "Timeline " + YEARS[0] + " – " + YEARS[H - 1];
+  $("tlNote").textContent = "Production · spend incl. ×" + C.factor + " · darker = budget period " + C.start + "–" + (C.start + P - 1);
+}
+
+function update() {
+  const m = model(), all = S.all, i = all ? H - 1 : S.sel, y = C.start + i, LIM = C.limit;
+  const over = m.within > LIM, short = m.prod[i] > m.cap[i];
+  $("targetTxt").textContent = nf.format(S.target) + " t/yr";
+  $("kpis").innerHTML =
+    '<div class="kpi"><span class="small muted">Budget period ' + C.start + '–' + (C.start + P - 1) + ', incl. ×' + C.factor + '</span><b>' + M(m.within) + '</b><span class="small muted">of ' + M(LIM) + ' limit</span></div>' +
+    '<div class="kpi"><span class="small muted">' + (over ? "Over the limit by" : "Headroom in the budget period") + '</span><b style="color:' + (over ? "var(--bad)" : "var(--good)") + '">' + M(Math.abs(LIM - m.within)) + '</b><span class="small muted">after ' + (C.start + P - 1) + '</span></div>' +
+    '<div class="kpi"><span class="small muted">Growth CAPEX ' + (C.start + P) + '–' + YEARS[H - 1] + ', incl. ×' + C.factor + '</span><b>' + M(m.after) + '</b><span class="small muted">outside the current budget</span></div>' +
+    '<div class="kpi"><span class="small muted">Production / capacity in ' + y + '</span><b style="color:' + (short ? "var(--bad)" : "var(--ink)") + '">' + (m.prod[i] > 0 ? kt(m.prod[i]) + " / " + kt(m.cap[i]) : "no production") + '</b><span class="small muted">' + (short ? "Capacity short: modules at maximum" : m.prod[i] > 0 ? "Utilisation " + Math.round(m.prod[i] / m.cap[i] * 100) + "%" : "Construction") + '</span></div>';
+  const mx = Math.max(...DATA.mix.map(g => g[1]), 0.0001);
+  $("mix").innerHTML = DATA.mix.map(g => '<div class="meter"><span>' + esc(g[0]) + '</span><span class="mono small">' + nf.format(S.target * g[1]) + ' t</span><span class="track"><span style="width:' + (g[1] / mx * 100).toFixed(0) + '%"></span></span></div>').join("");
+  $("modsTitle").textContent = "Modules needed at the end of " + y;
+  const R = DATA.rules;
+  $("mods").innerHTML = Object.keys(R).map(id => {
+    const r = R[id], u = m.units[id][i];
+    if (r.driver === "trigger") return '<div class="meter"><span>' + esc(r.name.replace(/ \(trigger\)/, "")) + '</span><span class="mono">' + (m.first[id] === null ? "not needed" : "from " + (C.start + m.first[id])) + '</span><span class="small muted" style="grid-column:1/3">Needed when pallet positions exceed ' + nf.format(DATA.wh.posMain) + '</span></div>';
+    const atMax = u >= r.max && (r.driver === "prod" ? m.prod[i] > u * r.cap : m.pos[i] > u * r.cap);
+    return '<div class="meter"><span>' + esc(r.name) + '</span><span class="mono" style="font-weight:500">' + u + ' / ' + r.max + '</span><span class="track"><span style="width:' + (r.max ? u / r.max * 100 : 0).toFixed(0) + '%;background:' + (atMax ? "var(--bad)" : "var(--accent)") + '"></span></span><span class="small muted" style="grid-column:1/3">' + nf.format(r.cap) + (r.driver === "pos" ? " pallet positions" : " t/yr") + ' per unit, min ' + r.min + (atMax ? " · at maximum" : "") + '</span></div>';
+  }).join("") + '<div class="meter"><span>Pallet positions</span><span class="mono">' + nf.format(m.pos[i]) + ' / ' + nf.format(DATA.wh.posMain) + '</span><span class="track"><span style="width:' + Math.min(100, m.pos[i] / DATA.wh.posMain * 100).toFixed(0) + '%;background:' + (m.pos[i] > DATA.wh.posMain ? "#d98b1c" : "var(--accent)") + '"></span></span></div>';
+  const mxs = Math.max(...m.sp, 1);
+  $("years").innerHTML = YEARS.map((yy, k) => {
+    const per = k < P, cls = ["yr", per ? "per" : "", (all || k < S.sel) ? "past" : "", (!all && k === S.sel) ? "on" : "", m.prod[k] > m.cap[k] ? "short" : ""].join(" ");
+    return '<button type="button" class="' + cls + '" data-y="' + k + '" aria-pressed="' + (!all && k === S.sel) + '"><span class="y">' + yy + '</span><span class="small p">' +
+      (m.prod[k] > 0 ? kt(m.prod[k]) + " · " + Math.round(S.ramp[k] * 100) + "%" : "construction") + '</span><span class="mono small">' + (m.sp[k] > 0 ? M(m.sp[k]) : "–") +
+      '</span><span class="bar"><span style="width:' + (m.sp[k] / mxs * 100).toFixed(1) + '%"></span></span><span style="font-size:11px;opacity:.85">' + (per ? Math.round(m.cum[k] / LIM * 100) + "% of limit" : "after budget") + '</span></button>';
+  }).join("") + '<button type="button" class="all' + (all ? " on" : "") + '" id="allbtn" aria-pressed="' + all + '">Whole plan</button>';
+  $("objNote").textContent = "Built by the end of " + y + ", incl. ×" + C.factor;
+  $("objects").innerHTML = DATA.packages.map((p, pi) => {
+    const os = m.L.filter(o => o.l.pkg === p.name); if (!os.length) return "";
+    const rows = os.map(o => Object.assign({ o }, lineState(o, i)));
+    const built = rows.reduce((a, r) => a + r.built, 0), nd = rows.filter(r => r.st === "done").length, na = rows.filter(r => r.st !== "none").length;
+    const off = !!S.off[p.name];
+    const st = off ? ["p-off", "Excluded"] : nd === rows.length ? ["p-done", "Complete"] : na ? ["p-part", "Partly built"] : ["p-none", "Not yet"];
+    const open = !!S.open[p.name];
+    let sub = rows.length + " lines";
+    const trig = os.find(o => o.l.rule && R[o.l.rule] && R[o.l.rule].driver === "trigger");
+    if (trig) sub = trig.start ? "Triggered in " + trig.start + " when storage exceeds the main building" : "Not needed within the horizon";
+    return '<div class="obj"><div class="objhead">' + (p.locked ? '<span style="width:18px"></span>' : '<input type="checkbox" data-pkg="' + pi + '" aria-label="Include ' + esc(p.name) + '"' + (off ? "" : " checked") + '>') +
+      '<button type="button" class="objtog" data-open="' + pi + '" aria-expanded="' + open + '"><span class="chev" aria-hidden="true">' + (open ? "▼" : "▶") + '</span><span class="nm"><b>' + esc(p.name) + '</b><span class="small muted">' + esc(p.locked ? "Always included · " + sub : sub) +
+      '</span></span><span class="rt"><span class="mono">' + M(built) + '</span><span class="pill ' + st[0] + '">' + st[1] + '</span></span></button></div>' +
+      (open ? '<div class="rows">' + rows.map(r => '<div class="row"><span class="n"><span class="dot d-' + r.st + '" aria-hidden="true"></span><span>' + esc(r.o.l.desc) + '</span></span><span class="r mono">' + esc(r.qty) + '</span><span class="r">' + esc(r.when) + '</span><span class="r mono c">' + (r.built > 0 ? M(r.built) : "–") + '</span></div>').join("") +
+      '<div class="legend"><span><span class="dot d-done"></span>Complete</span><span><span class="dot d-part"></span>In progress or partly installed</span><span><span class="dot d-none"></span>Not yet</span></div></div>' : "") + '</div>';
+  }).join("");
+  const k = renderStage(m, i), rn = k >= 0 ? DATA.renders[k] : null;
+  $("viewTitle").textContent = all ? "Plant at the end of the plan (" + y + ")" : "Plant at the end of " + y;
+  $("renderName").textContent = rn ? "Closest render: " + rn : "";
+  $("viewer").innerHTML = rn && DATA.images[rn] ? '<img src="' + DATA.images[rn] + '" alt="Render: ' + esc(rn) + '">' : '<div class="ph">' + (rn ? esc(rn) + ": render file not found in the renders folder" : "No render for this stage yet") + '</div>';
+  const inPer = i < P && !all, cumNow = inPer ? m.cum[i] : m.within, bad = cumNow > LIM;
+  $("spend").innerHTML = '<div style="display:flex;flex-direction:column;gap:2px"><span class="small muted">' + (all ? "Whole plan incl. ×" + C.factor : "Spend in " + y + " incl. ×" + C.factor) + '</span><b>' + M(all ? m.cum[H - 1] : m.sp[i]) + '</b></div>' +
+    '<div style="display:flex;flex-direction:column;gap:2px"><span class="small muted">Cumulative incl. ×' + C.factor + '</span><b>' + M(m.cum[i]) + '</b></div>' +
+    '<div style="display:flex;flex-direction:column;gap:6px"><span class="small" style="font-weight:500;color:' + (bad ? "var(--bad)" : "var(--good)") + '">' + (inPer ? (bad ? "Over the limit by " + M(cumNow - LIM) : "Headroom " + M(LIM - cumNow)) : (bad ? "Budget period over by " + M(cumNow - LIM) : "Budget period closed with " + M(LIM - cumNow) + " left")) +
+    '</span><span class="lim"><span style="width:' + Math.min(100, cumNow / LIM * 100).toFixed(1) + '%;background:' + (bad ? "var(--bad)" : "var(--accent)") + '"></span></span><span class="small muted">Budget period spend vs ' + M(LIM) + ' limit</span></div>';
+}
+
+document.addEventListener("click", e => {
+  const yb = e.target.closest("[data-y]"); if (yb) { S.sel = +yb.dataset.y; S.all = false; return update(); }
+  if (e.target.closest("#allbtn")) { S.all = true; return update(); }
+  const ob = e.target.closest("[data-open]"); if (ob) { const n = DATA.packages[+ob.dataset.open].name; S.open[n] = !S.open[n]; return update(); }
+});
 document.addEventListener("change", e => {
   const t = e.target;
-  if (t.dataset.item) S.items[t.dataset.item].sel = t.checked;
-  else if (t.dataset.group) setGroup(+t.dataset.group, t.checked);
-  else return;
-  pinned = null; update();
+  if (t.dataset.pkg) { const n = DATA.packages[+t.dataset.pkg].name; S.off[n] = !t.checked; update(); }
 });
 document.addEventListener("input", e => {
   const t = e.target;
-  if (t.dataset.qty) { const it = ITEMS.find(x => x.id === t.dataset.qty); let q = num(t.value); if (it.scal) q = Math.min(it.scal.max, Math.max(0, Math.round(q))); S.items[it.id].qty = q; }
-  else if (t.dataset.price) S.items[t.dataset.price].price = num(t.value);
-  else if (t.dataset.slide) { const st = S.items[t.dataset.slide]; st.qty = +t.value; st.sel = st.qty > 0; }
-  else return;
-  pinned = null; update();
+  if (t.id === "target") { S.target = +t.value; update(); }
+  else if (t.dataset.r) { const v = parseFloat(t.value); S.ramp[+t.dataset.r] = isFinite(v) ? Math.max(0, v) / 100 : 0; update(); }
 });
-[["rEur","eur"],["rPln","pln"],["rMult","mult"]].forEach(([id, k]) => $(id).addEventListener("input", e => { S.rates[k] = num(e.target.value); update(); }));
-$("tbody").addEventListener("click", e => { const b = e.target.closest("[data-open]"); if (b) { open[+b.dataset.open] = !open[+b.dataset.open]; update(); } });
-$("btnAll").addEventListener("click", () => { pinned = null; ITEMS.forEach(it => { S.items[it.id].sel = true; if (it.scal) S.items[it.id].qty = it.scal.max; }); update(); });
-$("btnNone").addEventListener("click", () => { pinned = null; GROUPS.forEach((g, gi) => setGroup(gi, g.locked)); update(); });
-$("btnOpen").addEventListener("click", () => { const v = !open.every(Boolean); open.fill(v); update(); });
-$("btnReset").addEventListener("click", () => { pinned = null; S = freshState(); build(); update(); });
-$("strip").addEventListener("click", e => { const b = e.target.closest("button"); if (b) applyStage(+b.dataset.idx); });
-
-build();
-update();
+$("reset").addEventListener("click", () => { S = fresh(); build(); update(); });
+DATA.packages.forEach(p => { if (p.name === "Production & Warehouse") S.open[p.name] = true; });
+build(); update();
 </script>
 </body>
 </html>
