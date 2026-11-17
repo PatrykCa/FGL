@@ -9,7 +9,7 @@
 <link href="https://fonts.googleapis.com/css2?family=Barlow+Condensed:wght@500;600&family=IBM+Plex+Mono:wght@400;500&family=IBM+Plex+Sans:wght@400;500;600&display=swap" rel="stylesheet">
 <style>
 :root{
-  /* layout: KPIs, plant basis, timeline, then objects (left) and plant view (right) */
+  /* layout: KPIs, then the investment plan (year axis + baskets as bars), then a large plant view with the year's budget beside it */
   --bg:#edf0f3;--surface:#ffffff;--sunken:#f4f6f8;--ink:#16202a;--muted:#5a6775;--line:#d3dae1;
   --accent:#0a5c8f;--accent-soft:#dcebf5;--warn:#7a4700;--warn-soft:#fbefd9;--bad:#b3261e;--good:#1b6b3a;
   --display:"Barlow Condensed","Arial Narrow",Arial,sans-serif;--body:"IBM Plex Sans","Segoe UI",system-ui,sans-serif;--mono:"IBM Plex Mono",ui-monospace,Consolas,monospace;
@@ -17,287 +17,218 @@
 *{box-sizing:border-box}
 html,body{margin:0}
 body{background:var(--bg);color:var(--ink);font-family:var(--body);font-size:14px;line-height:1.45}
-.wrap{max-width:1480px;margin:0 auto;padding:22px 22px 48px;display:flex;flex-direction:column;gap:16px}
-h1{font-family:var(--display);font-weight:600;font-size:34px;line-height:1.05;margin:0}
+.wrap{max-width:1560px;margin:0 auto;padding:22px 22px 48px;display:flex;flex-direction:column;gap:16px}
+h1{font-family:var(--display);font-weight:600;font-size:34px;line-height:1.05;margin:0;text-wrap:balance}
 h2{font-family:var(--display);font-weight:600;font-size:17px;letter-spacing:.06em;text-transform:uppercase;margin:0;color:var(--muted)}
-.sub{color:var(--muted);margin:4px 0 0}
 .panel{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:16px}
 button{font:inherit;color:var(--ink)}
 button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline-offset:2px}
 .mono{font-family:var(--mono);font-variant-numeric:tabular-nums}
-.muted{color:var(--muted)}
-.small{font-size:12px}
+.muted{color:var(--muted)}.small{font-size:12px}
+.btn{min-height:40px;padding:6px 14px;border-radius:6px;border:1px solid var(--line);background:var(--surface);cursor:pointer}
+.btn:hover{border-color:var(--accent)}
 .kpis{display:grid;grid-template-columns:repeat(4,minmax(0,1fr));gap:12px}
 .kpi{background:var(--surface);border:1px solid var(--line);border-radius:10px;padding:14px 16px;display:flex;flex-direction:column;gap:2px}
 .kpi b{font-family:var(--display);font-weight:600;font-size:30px;font-variant-numeric:tabular-nums;line-height:1.1}
-.basis{display:flex;flex-wrap:wrap;gap:24px}
-.basis>div{display:flex;flex-direction:column;gap:8px}
-.ramp{display:grid;grid-template-columns:repeat(auto-fill,minmax(62px,1fr));gap:6px}
-.ramp label{display:flex;flex-direction:column;gap:2px;font-size:12px;color:var(--muted)}
-input[type=number]{font-family:var(--mono);font-size:13px;color:var(--ink);background:var(--sunken);border:1px solid var(--line);border-radius:5px;padding:5px 6px;width:100%;text-align:right}
-input[type=range]{width:100%;accent-color:var(--accent)}
-.meter{display:grid;grid-template-columns:minmax(0,1fr) auto;gap:3px 10px;align-items:center;font-size:13px}
-.track{grid-column:1/3;display:block;height:6px;border-radius:3px;background:#e6ebf0;overflow:hidden}
-.track span{display:block;height:6px;border-radius:3px;background:var(--accent)}
-.btn{min-height:40px;padding:6px 14px;border-radius:6px;border:1px solid var(--line);background:var(--surface);cursor:pointer}
-.btn:hover{border-color:var(--accent)}
-.years{display:flex;gap:4px;flex-wrap:wrap}
-.yr{flex:1 1 104px;min-height:104px;cursor:pointer;padding:10px 24px 10px 26px;text-align:left;display:flex;flex-direction:column;gap:3px;border:0;
-  clip-path:polygon(0 0,calc(100% - 16px) 0,100% 50%,calc(100% - 16px) 100%,0 100%,16px 50%);background:#f4f6f8}
-.yr:first-child{padding-left:14px;clip-path:polygon(0 0,calc(100% - 16px) 0,100% 50%,calc(100% - 16px) 100%,0 100%)}
-.yr .y{font-family:var(--display);font-weight:600;font-size:24px;line-height:1}
-.yr .bar{display:block;height:6px;border-radius:3px;background:#d3dae1;overflow:hidden}
-.yr .bar span{display:block;height:6px;border-radius:3px;background:var(--accent)}
+/* plan grid */
+.planwrap{overflow-x:auto}
+.plan{min-width:1180px;display:flex;flex-direction:column;gap:4px}
+.g{display:grid;grid-template-columns:330px repeat(var(--n),minmax(70px,1fr)) 96px;column-gap:0;align-items:stretch;position:relative}
+.yr{min-height:96px;cursor:pointer;padding:9px 20px 9px 22px;text-align:left;display:flex;flex-direction:column;gap:2px;border:0;margin-right:-10px;
+  clip-path:polygon(0 0,calc(100% - 14px) 0,100% 50%,calc(100% - 14px) 100%,0 100%,14px 50%);background:#f4f6f8}
+.yr.first{padding-left:12px;clip-path:polygon(0 0,calc(100% - 14px) 0,100% 50%,calc(100% - 14px) 100%,0 100%)}
+.yr .y{font-family:var(--display);font-weight:600;font-size:22px;line-height:1}
+.yr .bar{display:block;height:5px;border-radius:3px;background:#d3dae1;overflow:hidden;margin-top:2px}
+.yr .bar span{display:block;height:5px;border-radius:3px;background:var(--accent)}
 .yr.per{background:#e2e8ee}.yr.past{background:#dcebf5}.yr.per.past{background:#c9def0}
 .yr.on{background:var(--accent);color:#fff}.yr.on .bar{background:rgba(255,255,255,.3)}.yr.on .bar span{background:#fff}
-.yr.short .p{color:var(--bad);font-weight:600}.yr.on.short .p{color:#ffd4d0}
-.all{flex:0 1 110px;min-height:104px;border-radius:8px;cursor:pointer;font-weight:600;border:1px solid var(--accent);background:var(--surface);color:var(--accent)}
+.yr.over .t{color:var(--bad);font-weight:600}.yr.on.over .t{color:#ffd4d0}
+.all{margin-left:14px;border-radius:8px;cursor:pointer;font-weight:600;border:1px solid var(--accent);background:var(--surface);color:var(--accent);font-size:13px}
 .all.on{background:var(--accent);color:#fff}
-.main{display:flex;flex-wrap:wrap;gap:18px;align-items:flex-start}
-.left{flex:1 1 460px;min-width:0;display:flex;flex-direction:column;gap:10px}
-.right{flex:1.7 1 600px;min-width:0;display:flex;flex-direction:column;gap:12px}
-.obj{background:var(--surface);border:1px solid var(--line);border-radius:10px;overflow:hidden}
-.objhead{display:flex;align-items:center;gap:10px;padding:10px 14px}
-.objhead input{width:18px;height:18px;accent-color:var(--accent);flex:none;cursor:pointer}
-.objtog{flex:1 1 auto;min-width:0;border:0;background:none;cursor:pointer;text-align:left;display:flex;align-items:center;gap:10px;padding:4px 0;min-height:44px}
-.objtog .chev{flex:none;width:12px;color:var(--muted);font-size:11px}
-.objtog .nm{display:flex;flex-direction:column;gap:2px;flex:1 1 auto;min-width:0}
-.objtog .nm b{font-size:15px;line-height:1.25}
-.objtog .rt{flex:none;display:flex;flex-direction:column;align-items:flex-end;gap:4px}
-.pill{padding:1px 9px;border-radius:10px;font-size:12px;font-weight:500}
+.hcell{display:flex;align-items:flex-end;padding:0 10px 6px 0}
+.row{min-height:58px;border-top:1px solid #eef1f4}
+.cell{grid-row:1}
+.yc{grid-row:1;border-left:1px solid #eef1f4}
+.yc.per{background:#f7f9fb}.yc.sel{background:#e7f1f9}
+.name{grid-column:1;grid-row:1;display:flex;align-items:center;gap:10px;padding:8px 10px 8px 4px;min-width:0}
+.name input{width:18px;height:18px;accent-color:var(--accent);flex:none;cursor:pointer}
+.nmbtn{flex:1 1 auto;min-width:0;border:0;background:none;cursor:pointer;text-align:left;display:flex;flex-direction:column;gap:1px;padding:4px 0;min-height:44px}
+.nmbtn b{font-size:14px;line-height:1.25}
+.pill{padding:1px 8px;border-radius:10px;font-size:11px;font-weight:500;white-space:nowrap}
 .p-done{background:var(--accent-soft);color:#06416a}.p-part{background:var(--warn-soft);color:var(--warn)}.p-none{background:#eef1f4;color:#4a5663}.p-off{background:#eef1f4;color:#4a5663;text-decoration:line-through}
-.rows{border-top:1px solid var(--line);padding:6px 14px 12px;background:#fafbfc}
-.row{display:grid;grid-template-columns:minmax(0,1fr) 72px 92px 86px;gap:10px;align-items:center;padding:6px 0;border-bottom:1px solid #eef1f4;font-size:13px}
-.row .n{display:flex;align-items:center;gap:8px;min-width:0}
-.dot{flex:none;width:8px;height:8px;border-radius:4px}
-.d-done{background:var(--accent)}.d-part{background:#d98b1c}.d-none{box-shadow:inset 0 0 0 1.5px #8a96a3}
-.row .r{text-align:right;font-size:12px;color:#4a5663}
-.legend{display:flex;gap:14px;flex-wrap:wrap;padding-top:8px;font-size:12px;color:var(--muted)}
+.bar2{grid-row:1;align-self:center;height:30px;margin:0 4px;border-radius:6px;display:flex;align-items:center;padding:0 8px;font-size:12px;font-weight:500;white-space:nowrap;overflow:hidden;z-index:2}
+.bar2.in{background:var(--accent);color:#fff}.bar2.out{background:#6d8fa8;color:#fff}.bar2.excl{background:repeating-linear-gradient(135deg,#e6ebf0 0 6px,#f4f6f8 6px 12px);color:var(--muted);border:1px solid var(--line)}
+.ghost{grid-row:1;align-self:center;height:30px;margin:0 4px;border-radius:6px;border:1.5px dashed #8a96a3;z-index:1}
+.act{grid-column:-2;grid-row:1;display:flex;gap:6px;align-items:center;justify-content:flex-end;padding-left:8px}
+.act button{width:40px;height:36px;border-radius:6px;border:1px solid var(--line);background:var(--surface);cursor:pointer;font-size:13px}
+.act button:hover:not(:disabled){border-color:var(--accent)}
+.act button:disabled{opacity:.35;cursor:default}
+.lines{grid-column:1/-1;grid-row:2;background:#fafbfc;border-top:1px solid #eef1f4;padding:6px 12px 10px 34px}
+.ln{display:grid;grid-template-columns:52px minmax(0,1fr) 110px 100px;gap:12px;padding:5px 0;border-bottom:1px solid #eef1f4;font-size:13px}
+.ln .r{text-align:right;font-size:12px}
+.legend{display:flex;gap:16px;flex-wrap:wrap;font-size:12px;color:var(--muted);padding-top:6px}
 .legend span{display:flex;align-items:center;gap:6px}
+.sw{display:inline-block;width:22px;height:10px;border-radius:3px}
+/* bottom */
+.bottom{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
+.view{flex:2.2 1 620px;min-width:0;display:flex;flex-direction:column;gap:10px}
 .view img{display:block;width:100%;aspect-ratio:16/9;object-fit:cover;border-radius:8px;border:1px solid var(--line)}
 .ph{aspect-ratio:16/9;border-radius:8px;border:1px solid var(--line);display:flex;align-items:center;justify-content:center;text-align:center;padding:16px;color:var(--muted);
   background-image:repeating-linear-gradient(135deg,transparent 0 14px,var(--line) 14px 15px)}
-.spend{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end}
-.spend b{font-family:var(--mono);font-weight:500;font-size:20px}
+.side{flex:1 1 320px;min-width:0;display:flex;flex-direction:column;gap:12px}
+.fig{display:flex;flex-direction:column;gap:2px}
+.fig b{font-family:var(--mono);font-weight:500;font-size:20px}
 .lim{display:block;height:10px;border-radius:5px;background:#e6ebf0;overflow:hidden}
-.lim span{display:block;height:10px;border-radius:5px;background:var(--accent)}
-.note{font-size:12px;color:#b45309}
-.mods{display:grid;grid-template-columns:repeat(auto-fill,minmax(330px,1fr));gap:12px}
-.mod{border:1px solid var(--line);border-radius:8px;padding:12px 14px;display:flex;flex-direction:column;gap:8px;background:var(--surface)}
-.mod.off{opacity:.55}
-.tr{display:grid;grid-template-columns:28px minmax(0,1fr) 44px 86px;gap:8px;align-items:center;font-size:13px}
-.tr b{font-weight:600;color:var(--muted);font-size:12px}
-select{font:inherit;font-size:13px;color:var(--ink);background:var(--sunken);border:1px solid var(--line);border-radius:5px;padding:4px 6px;min-height:32px}
-.row.ed{grid-template-columns:minmax(0,1fr) 70px 86px 56px 80px}
-.row input[type=number]{padding:3px 5px;min-height:30px}
-.shift{display:flex;gap:8px;align-items:center;padding:8px 0 4px;font-size:12px;color:var(--muted)}
-.shift button{min-height:32px;padding:2px 10px;border-radius:5px;border:1px solid var(--line);background:var(--surface);cursor:pointer}
-@media (max-width:900px){.row.ed{grid-template-columns:minmax(0,1fr) 86px 56px}.row.ed .q,.row.ed .c{display:none}.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}.spend{grid-template-columns:1fr}.row{grid-template-columns:minmax(0,1fr) 60px 70px}.row .c{display:none}}
+.lim span{display:block;height:10px;border-radius:5px}
+.chg{display:flex;flex-direction:column;gap:6px;font-size:13px}
+.chg div{display:flex;justify-content:space-between;gap:8px;border-bottom:1px solid #eef1f4;padding-bottom:5px}
+@media (max-width:900px){.kpis{grid-template-columns:repeat(2,minmax(0,1fr))}}
 </style>
 </head>
 <body>
 <div class="wrap">
   <div style="display:flex;flex-wrap:wrap;gap:8px 24px;align-items:flex-end;justify-content:space-between">
-    <div><h1 id="title">CAPEX Calculator</h1><p class="sub">Plan what is built and when. Spend per year, the budget limit and the plant view follow. Changes here are a what-if; the budget file stays the source.</p></div>
-    <button class="btn" id="reset" type="button">Restore values from the file</button>
+    <div><h1 id="title">CAPEX Calculator</h1>
+      <p class="muted" style="margin:4px 0 0">The investment path from the budget file. Move a basket in time or leave an option out; spend per year, the budget limit and the plant view follow.</p></div>
+    <button class="btn" id="reset" type="button">Back to the base plan</button>
   </div>
   <div class="kpis" id="kpis"></div>
-  <section class="panel" aria-label="Modules" style="display:flex;flex-direction:column;gap:12px">
+  <section class="panel" aria-label="Investment plan" style="display:flex;flex-direction:column;gap:10px">
     <div style="display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:space-between;align-items:baseline">
-      <h2>Modules: when and how many</h2>
-      <span class="small muted">Tranche 1 and tranche 2: number of units and the year they are installed. Fixed objects: open them below to change start year and duration.</span>
+      <h2 id="planTitle">Investment plan</h2><span class="small muted" id="planNote"></span>
     </div>
-    <div class="mods" id="mods"></div>
-  </section>
-  <section class="panel" aria-label="Timeline" style="display:flex;flex-direction:column;gap:12px">
-    <div style="display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:space-between;align-items:baseline">
-      <h2 id="tlTitle">Timeline</h2>
-      <span class="small muted" id="tlNote"></span>
+    <div class="planwrap"><div class="plan" id="plan"></div></div>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--accent)"></span>In the budget period</span>
+      <span><span class="sw" style="background:#6d8fa8"></span>After the budget period</span>
+      <span><span class="sw" style="border:1.5px dashed #8a96a3"></span>Base plan, where a basket was moved from</span>
+      <span><span class="sw" style="background:repeating-linear-gradient(135deg,#e6ebf0 0 6px,#f4f6f8 6px 12px);border:1px solid var(--line)"></span>Left out</span>
     </div>
-    <div class="years" id="years"></div>
   </section>
-  <div class="main">
-    <section class="left" aria-label="Objects">
-      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:12px;flex-wrap:wrap"><h2>Objects</h2><span class="small muted" id="objNote"></span></div>
-      <div id="objects" style="display:flex;flex-direction:column;gap:10px"></div>
-    </section>
-    <section class="right" aria-label="Plant view">
-      <div class="panel view" style="display:flex;flex-direction:column;gap:10px">
-        <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
-          <strong style="font-family:var(--display);font-size:26px;font-weight:600" id="viewTitle"></strong><span class="small muted" id="renderName"></span>
-        </div>
-        <div id="viewer"></div>
+  <div class="bottom">
+    <section class="panel view" aria-label="Plant view">
+      <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
+        <strong style="font-family:var(--display);font-size:26px;font-weight:600" id="viewTitle"></strong><span class="small muted" id="renderName"></span>
       </div>
-      <div class="panel spend" id="spend"></div>
+      <div id="viewer"></div>
+    </section>
+    <section class="side" aria-label="Budget for the selected year">
+      <div class="panel" style="display:flex;flex-direction:column;gap:12px" id="spend"></div>
+      <div class="panel" style="display:flex;flex-direction:column;gap:8px"><h2>Changes vs base plan</h2><div class="chg" id="changes"></div></div>
     </section>
   </div>
 </div>
 <script>
 /*__DATA__*/
-const C = DATA.cfg, H = C.horizon, P = C.period, YEARS = Array.from({ length: H }, (_, i) => C.start + i);
+const C = DATA.cfg, H = C.horizon, P = Math.min(C.period, H), Y0 = C.start, YEARS = Array.from({ length: H }, (_, i) => Y0 + i), YN = YEARS[H - 1];
 const $ = id => document.getElementById(id);
 const esc = t => String(t).replace(/[&<>"]/g, c => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;" }[c]));
 const nf = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
-const cur = { EUR: "€", USD: "$", JPY: "¥", GBP: "£" }[C.report] || "";
-const M = v => (cur || C.report + " ") + (v / 1e6).toFixed(2) + "M";
-const kt = t => (t / 1000).toFixed(1) + " kt";
+const sym = { EUR: "€", USD: "$", JPY: "¥", GBP: "£" }[C.report] || C.report + " ";
+const M = v => sym + (v / 1e6).toFixed(2) + "M";
+const BASE = {}; DATA.baskets.forEach(b => BASE[b.name] = { start: b.start, incl: b.incl });
+const LINES = {}; DATA.lines.forEach(l => (LINES[l.basket] = LINES[l.basket] || []).push(l));
+const COST = {}; DATA.baskets.forEach(b => COST[b.name] = (LINES[b.name] || []).reduce((a, l) => a + l.qty * l.price, 0));
 let S;
-function fresh() {
-  const L = {};
-  DATA.lines.forEach(l => { L[l.id] = { start: l.start, dur: l.dur, t1u: l.t1u || 0, t1y: l.t1y || C.start + 2, t2u: l.t2u || 0, t2y: l.t2y || C.start + P }; });
-  return { sel: Math.min(H - 1, 2), all: false, L, off: {}, open: {} };
-}
+function fresh() { const B = {}; DATA.baskets.forEach(b => B[b.name] = { start: b.start, incl: b.incl }); return { sel: Math.min(H - 1, 2), all: false, B, open: {} }; }
 S = fresh();
 
-function model() {
-  const spend = new Array(H).fill(0);
-  const L = DATA.lines.map(l => {
-    const on = !S.off[l.pkg], v = S.L[l.id];
-    const o = { l, v, on, spend: new Array(H).fill(0), inst: new Array(H).fill(0), start: null };
-    if (l.type === "Per unit") {
-      let tot = 0;
-      for (let i = 0; i < H; i++) {
-        const y = C.start + i, add = (v.t1y === y ? v.t1u : 0) + (v.t2y === y ? v.t2u : 0);
-        tot += add; o.inst[i] = tot; o.spend[i] = on ? add * l.price : 0;
-      }
-    } else {
-      o.start = v.start;
-      for (let i = 0; i < H; i++) {
-        const y = C.start + i;
-        if (on && o.start && y >= o.start && y < o.start + v.dur) o.spend[i] = l.qty * l.price / v.dur;
-      }
-    }
-    o.spend.forEach((x, i) => spend[i] += x);
-    return o;
+function model(state) {
+  const sp = new Array(H).fill(0);
+  DATA.baskets.forEach(b => {
+    const v = state.B[b.name]; if (!v.incl || !v.start) return;
+    for (let i = 0; i < H; i++) { const y = Y0 + i; if (y >= v.start && y < v.start + b.dur) sp[i] += COST[b.name] / b.dur * C.factor; }
   });
-  const capL = L.filter(o => o.l.type === "Per unit" && o.l.cap > 0 && o.on);
-  const cap = YEARS.map((_, i) => { const c = capL.filter(o => o.inst[i] > 0).map(o => o.inst[i] * o.l.cap); return c.length ? Math.min(...c) : 0; });
-  const sp = spend.map(x => x * C.factor);
   let c = 0; const cum = sp.map(x => c += x);
-  const pe = Math.min(P, H) - 1;
-  return { L, cap, sp, cum, within: cum[pe], after: cum[H - 1] - cum[pe] };
+  return { sp, cum, within: cum[P - 1], after: cum[H - 1] - cum[P - 1] };
 }
-
-function lineState(o, i) {
-  const l = o.l, y = C.start + i;
-  if (!o.on) return { st: "none", built: 0, qty: l.type === "Per unit" ? "0 / " + nf.format(l.max || l.qty) : fmtQty(l), when: "excluded" };
-  if (l.type === "Per unit") {
-    const n = o.inst[i], mx = l.max || l.qty;
-    const ys = o.spend.map((v, k) => v > 0 ? "'" + String(C.start + k).slice(2) : null).filter(Boolean);
-    return { st: n >= mx ? "done" : n > 0 ? "part" : "none", built: o.spend.slice(0, i + 1).reduce((a, b) => a + b, 0) * C.factor, qty: nf.format(n) + " / " + nf.format(mx), when: ys.join(", ") || "–" };
+function status(b, y) {
+  const v = S.B[b.name];
+  if (!v.incl) return ["p-off", "Left out", "off"];
+  if (!v.start || y < v.start) return ["p-none", "Not yet", "none"];
+  if (y < v.start + b.dur - 1) return ["p-part", "In progress", "part"];
+  return ["p-done", "Complete", "done"];
+}
+function renderIndex(y) {
+  const built = l => status(DATA.baskets.find(b => b.name === l.basket) || { name: l.basket, dur: 1 }, y)[2] === "done";
+  for (let k = 0; k < DATA.renders.length; k++) {
+    const need = DATA.lines.filter(l => l.render === DATA.renders[k]);
+    if (need.some(l => !built(l))) return k - 1;
   }
-  if (!o.start) return { st: "none", built: 0, qty: fmtQty(l), when: "not planned" };
-  const d = o.v.dur, share = y < o.start ? 0 : Math.min(1, (y - o.start + 1) / d);
-  return { st: share >= 1 ? "done" : share > 0 ? "part" : "none", built: l.qty * l.price * share * C.factor, qty: fmtQty(l), when: d > 1 ? o.start + "–" + String(o.start + d - 1).slice(2) : String(o.start) };
+  return DATA.renders.length - 1;
 }
-function fmtQty(l) { return (l.qty === 1 && /^(set|ls)$/.test(l.unit)) ? "1 " + l.unit : nf.format(l.qty) + " " + l.unit; }
-
-function renderStage(m, i) {
-  const st = DATA.renders;
-  let next = -1, miss = [];
-  for (let k = 0; k < st.length; k++) {
-    const need = [];
-    m.L.forEach(o => {
-      if (o.l.type === "Per unit" && o.l.steps.length) o.l.steps.forEach(([n, r]) => { if (r === st[k]) need.push(o.on && o.inst[i] >= n); });
-      else if (o.l.render === st[k]) need.push(lineState(o, i).st === "done");
-    });
-    if (need.some(x => !x)) { next = k; break; }
-  }
-  return next >= 0 ? next - 1 : st.length - 1;
-}
-
-function build() {
-  $("title").textContent = "CAPEX Calculator, " + C.project;
-  $("tlTitle").textContent = "Timeline " + YEARS[0] + " – " + YEARS[H - 1];
-  $("tlNote").textContent = "Spend incl. ×" + C.factor + " · bar = spend · darker = budget period " + C.start + "–" + (C.start + P - 1);
-}
-const yearOpts = (sel, blank) => (blank ? '<option value=""' + (sel ? "" : " selected") + '>not planned</option>' : "") + YEARS.map(y => '<option' + (y === sel ? " selected" : "") + '>' + y + '</option>').join("");
 
 function update() {
-  const m = model(), all = S.all, i = all ? H - 1 : S.sel, y = C.start + i, LIM = C.limit;
-  const over = m.within > LIM;
-  const capNote = m.cap[i] > 0 ? "Limited by the module with the lowest capacity" : "No modules installed yet";
+  const m = model(S), mb = model(fresh()), i = S.all ? H - 1 : S.sel, y = Y0 + i, LIM = C.limit, over = m.within > LIM;
+  const pend = Y0 + P - 1;
+  const moved = DATA.baskets.filter(b => S.B[b.name].start !== BASE[b.name].start || S.B[b.name].incl !== BASE[b.name].incl);
+  $("title").textContent = "CAPEX Calculator, " + C.project;
   $("kpis").innerHTML =
-    '<div class="kpi"><span class="small muted">Budget period ' + C.start + '–' + (C.start + P - 1) + ', incl. ×' + C.factor + '</span><b>' + M(m.within) + '</b><span class="small muted">of ' + M(LIM) + ' limit</span></div>' +
-    '<div class="kpi"><span class="small muted">' + (over ? "Over the limit by" : "Headroom in the budget period") + '</span><b style="color:' + (over ? "var(--bad)" : "var(--good)") + '">' + M(Math.abs(LIM - m.within)) + '</b><span class="small muted">after ' + (C.start + P - 1) + '</span></div>' +
-    '<div class="kpi"><span class="small muted">After the budget period, ' + (C.start + P) + '–' + YEARS[H - 1] + '</span><b>' + M(m.after) + '</b><span class="small muted">incl. ×' + C.factor + ', outside the current budget</span></div>' +
-    '<div class="kpi"><span class="small muted">Installed capacity, end of ' + y + '</span><b>' + (m.cap[i] > 0 ? kt(m.cap[i]) + "/yr" : "–") + '</b><span class="small muted">' + capNote + '</span></div>';
-  $("mods").innerHTML = m.L.filter(o => o.l.type === "Per unit").map(o => {
-    const l = o.l, v = o.v, mx = l.max, k = esc(l.id);
-    const tr = (n, u, yy, lim) => '<div class="tr"><b>T' + n + '</b><input type="range" min="0" max="' + lim + '" step="1" value="' + u + '" data-mod="' + k + '" data-f="t' + n + 'u" aria-label="' + esc(l.desc) + ' tranche ' + n + ' units"><span class="mono" style="text-align:right">' + u + '</span><select data-mod="' + k + '" data-f="t' + n + 'y" aria-label="' + esc(l.desc) + ' tranche ' + n + ' year">' + yearOpts(yy) + '</select></div>';
-    const cost = (v.t1u + v.t2u) * l.price * C.factor;
-    return '<div class="mod' + (o.on ? "" : " off") + '"><div style="display:flex;justify-content:space-between;gap:10px;align-items:baseline"><b style="font-size:14px">' + esc(l.desc) + '</b><span class="mono small" style="white-space:nowrap;flex:none">' + (v.t1u + v.t2u) + ' / ' + mx + '</span></div>' +
-      tr(1, v.t1u, v.t1y, mx - v.t2u) + tr(2, v.t2u, v.t2y, mx - v.t1u) +
-      '<span class="small muted">' + M(cost) + ' incl. ×' + C.factor + ' · ' + esc(l.pkg) + (l.cap ? ' · ' + nf.format(l.cap) + ' t/yr per unit' : '') + (o.on ? '' : ' · object excluded') + '</span></div>';
-  }).join("");
-  const mxs = Math.max(...m.sp, 1);
-  $("years").innerHTML = YEARS.map((yy, k) => {
-    const per = k < P, cls = ["yr", per ? "per" : "", (all || k < S.sel) ? "past" : "", (!all && k === S.sel) ? "on" : ""].join(" ");
-    return '<button type="button" class="' + cls + '" data-y="' + k + '" aria-pressed="' + (!all && k === S.sel) + '"><span class="y">' + yy + '</span><span class="small p">' +
-      (m.cap[k] > 0 ? kt(m.cap[k]) + " capacity" : "construction") + '</span><span class="mono small">' + (m.sp[k] > 0 ? M(m.sp[k]) : "–") +
-      '</span><span class="bar"><span style="width:' + (m.sp[k] / mxs * 100).toFixed(1) + '%"></span></span><span style="font-size:11px;opacity:.85">' + (per ? Math.round(m.cum[k] / LIM * 100) + "% of limit" : "after budget") + '</span></button>';
-  }).join("") + '<button type="button" class="all' + (all ? " on" : "") + '" id="allbtn" aria-pressed="' + all + '">Whole plan</button>';
-  $("objNote").textContent = "Built by the end of " + y + ", incl. ×" + C.factor;
-  $("objects").innerHTML = DATA.packages.map((p, pi) => {
-    const os = m.L.filter(o => o.l.pkg === p.name); if (!os.length) return "";
-    const rows = os.map(o => Object.assign({ o }, lineState(o, i)));
-    const built = rows.reduce((a, r) => a + r.built, 0), nd = rows.filter(r => r.st === "done").length, na = rows.filter(r => r.st !== "none").length;
-    const off = !!S.off[p.name];
-    const st = off ? ["p-off", "Excluded"] : nd === rows.length ? ["p-done", "Complete"] : na ? ["p-part", "Partly built"] : ["p-none", "Not yet"];
-    const open = !!S.open[p.name];
-    const fixedStarts = os.filter(o => o.l.type !== "Per unit" && o.start).map(o => o.start);
-    let sub = rows.length + " lines" + (fixedStarts.length ? " · from " + Math.min(...fixedStarts) : "");
-    return '<div class="obj"><div class="objhead">' + (p.locked ? '<span style="width:18px"></span>' : '<input type="checkbox" data-pkg="' + pi + '" aria-label="Include ' + esc(p.name) + '"' + (off ? "" : " checked") + '>') +
-      '<button type="button" class="objtog" data-open="' + pi + '" aria-expanded="' + open + '"><span class="chev" aria-hidden="true">' + (open ? "▼" : "▶") + '</span><span class="nm"><b>' + esc(p.name) + '</b><span class="small muted">' + esc(p.locked ? "Always included · " + sub : sub) +
-      '</span></span><span class="rt"><span class="mono">' + M(built) + '</span><span class="pill ' + st[0] + '">' + st[1] + '</span></span></button></div>' +
-      (open ? '<div class="rows"><div class="shift">Move all fixed lines <button type="button" data-shift="' + pi + '" data-d="-1">◀ 1 year</button><button type="button" data-shift="' + pi + '" data-d="1">1 year ▶</button></div>' + rows.map(r => {
-        const l = r.o.l, k = esc(l.id);
-        const ctl = l.type === "Per unit" ? '<span class="r" style="grid-column:span 2">' + esc(r.when) + ' (modules panel)</span>' :
-          '<select data-line="' + k + '" data-f="start" aria-label="Start year ' + esc(l.desc) + '">' + yearOpts(r.o.v.start, true) + '</select><input type="number" min="1" max="5" step="1" value="' + r.o.v.dur + '" data-line="' + k + '" data-f="dur" aria-label="Duration in years ' + esc(l.desc) + '" title="Duration (years)">';
-        return '<div class="row ed"><span class="n"><span class="dot d-' + r.st + '" aria-hidden="true"></span><span>' + esc(l.desc) + '</span></span><span class="r mono q">' + esc(r.qty) + '</span>' + ctl + '<span class="r mono c">' + (r.built > 0 ? M(r.built) : "–") + '</span></div>';
-      }).join("") +
-      '<div class="legend"><span><span class="dot d-done"></span>Complete</span><span><span class="dot d-part"></span>In progress or partly installed</span><span><span class="dot d-none"></span>Not yet</span></div></div>' : "") + '</div>';
-  }).join("");
-  const k = renderStage(m, i), rn = k >= 0 ? DATA.renders[k] : null;
-  $("viewTitle").textContent = all ? "Plant at the end of the plan (" + y + ")" : "Plant at the end of " + y;
+    '<div class="kpi"><span class="small muted">Budget period ' + Y0 + '–' + pend + ', incl. ×' + C.factor + '</span><b>' + M(m.within) + '</b><span class="small muted">of ' + M(LIM) + ' limit</span></div>' +
+    '<div class="kpi"><span class="small muted">' + (over ? "Over the limit by" : "Headroom in the budget period") + '</span><b style="color:' + (over ? "var(--bad)" : "var(--good)") + '">' + M(Math.abs(LIM - m.within)) + '</b><span class="small muted">base plan: ' + M(LIM - mb.within) + ' headroom</span></div>' +
+    '<div class="kpi"><span class="small muted">After the budget period, ' + (pend + 1) + '–' + YN + '</span><b>' + M(m.after) + '</b><span class="small muted">incl. ×' + C.factor + ', outside the current budget</span></div>' +
+    '<div class="kpi"><span class="small muted">Changes vs base plan</span><b>' + moved.length + '</b><span class="small muted">' + (moved.length ? "baskets moved or left out" : "the plan is as in the budget file") + '</span></div>';
+  $("planTitle").textContent = "Investment plan " + Y0 + " – " + YN;
+  $("planNote").textContent = "Click a year to see the plant and the budget at its end · ◀ ▶ move a basket by one year · costs incl. ×" + C.factor;
+  const mx = Math.max(...m.sp, 1);
+  let h = '<div class="g" style="--n:' + H + '"><div class="hcell cell" style="grid-column:1"><span class="small muted">Basket · cost · status at the end of ' + y + '</span></div>';
+  YEARS.forEach((yy, k) => {
+    const per = k < P, cls = ["yr", "cell", k === 0 ? "first" : "", per ? "per" : "", (S.all || k < S.sel) ? "past" : "", (!S.all && k === S.sel) ? "on" : "", per && m.cum[k] > LIM ? "over" : ""].join(" ");
+    h += '<button type="button" class="' + cls + '" style="grid-column:' + (k + 2) + '" data-y="' + k + '" aria-pressed="' + (!S.all && k === S.sel) + '"><span class="y">' + yy + '</span><span class="mono small">' + (m.sp[k] > 0 ? M(m.sp[k]) : "–") +
+      '</span><span class="bar"><span style="width:' + (m.sp[k] / mx * 100).toFixed(1) + '%"></span></span><span class="t" style="font-size:11px;opacity:.9">' + (per ? Math.round(m.cum[k] / LIM * 100) + "% of limit" : "after budget") + '</span></button>';
+  });
+  h += '<button type="button" class="all cell' + (S.all ? " on" : "") + '" style="grid-column:' + (H + 2) + '" id="allbtn" aria-pressed="' + S.all + '">Whole plan</button></div>';
+  DATA.baskets.forEach((b, bi) => {
+    const v = S.B[b.name], st = status(b, y), open = !!S.open[b.name], base = BASE[b.name];
+    h += '<div class="g row" style="--n:' + H + '">';
+    YEARS.forEach((yy, k) => { h += '<div class="yc' + (k < P ? " per" : "") + (!S.all && k === S.sel ? " sel" : "") + '" style="grid-column:' + (k + 2) + '"></div>'; });
+    h += '<div class="name"><input type="checkbox" data-incl="' + bi + '"' + (v.incl ? " checked" : "") + ' aria-label="Include ' + esc(b.name) + '">' +
+      '<button type="button" class="nmbtn" data-open="' + bi + '" aria-expanded="' + open + '"><b>' + (open ? "▾ " : "▸ ") + esc(b.name) + '</b><span class="small muted">' + M(COST[b.name] * C.factor) + ' · ' + (LINES[b.name] || []).length + ' lines · ' + esc(b.pkg) + '</span></button>' +
+      '<span class="pill ' + st[0] + '">' + st[1] + '</span></div>';
+    const col = s => Math.max(2, Math.min(H + 1, s - Y0 + 2));
+    if (base.start && (base.start !== v.start) && base.start <= YN) h += '<div class="ghost" style="grid-column:' + col(base.start) + ' / span ' + Math.max(1, Math.min(b.dur, YN - base.start + 1)) + '"></div>';
+    if (v.start && v.start <= YN) {
+      const endY = v.start + b.dur - 1, cls = !v.incl ? "excl" : (endY <= Y0 + P - 1 ? "in" : "out");
+      h += '<div class="bar2 ' + cls + '" style="grid-column:' + col(v.start) + ' / span ' + Math.max(1, Math.min(b.dur, YN - v.start + 1)) + '" title="' + esc(b.desc) + '">' + v.start + (b.dur > 1 ? "–" + String(endY).slice(2) : "") + '</div>';
+    }
+    h += '<div class="act">' + (b.move ? '<button type="button" data-mv="' + bi + '" data-d="-1" aria-label="Move ' + esc(b.name) + ' one year earlier"' + (!v.start || v.start <= Y0 ? " disabled" : "") + '>◀</button><button type="button" data-mv="' + bi + '" data-d="1" aria-label="Move ' + esc(b.name) + ' one year later"' + (!v.start || v.start + b.dur - 1 >= YN ? " disabled" : "") + '>▶</button>' : '<span class="small muted">fixed</span>') + '</div>';
+    if (open) h += '<div class="lines">' + (b.desc ? '<div class="small muted" style="padding:2px 0 6px">' + esc(b.desc) + '</div>' : "") + (LINES[b.name] || []).map(l => '<div class="ln"><span class="mono small muted">' + esc(l.id) + '</span><span>' + esc(l.desc) + '</span><span class="r mono">' + nf.format(l.qty) + " " + esc(l.unit) + '</span><span class="r mono">' + M(l.qty * l.price * C.factor) + '</span></div>').join("") + '</div>';
+    h += '</div>';
+  });
+  $("plan").innerHTML = h;
+  const k = renderIndex(y), rn = k >= 0 ? DATA.renders[k] : null;
+  $("viewTitle").textContent = S.all ? "Plant at the end of the plan (" + y + ")" : "Plant at the end of " + y;
   $("renderName").textContent = rn ? "Closest render: " + rn : "";
-  $("viewer").innerHTML = rn && DATA.images[rn] ? '<img src="' + DATA.images[rn] + '" alt="Render: ' + esc(rn) + '">' : '<div class="ph">' + (rn ? esc(rn) + ": render file not found in the renders folder" : "No render for this stage yet") + '</div>';
-  const inPer = i < P && !all, cumNow = inPer ? m.cum[i] : m.within, bad = cumNow > LIM;
-  $("spend").innerHTML = '<div style="display:flex;flex-direction:column;gap:2px"><span class="small muted">' + (all ? "Whole plan incl. ×" + C.factor : "Spend in " + y + " incl. ×" + C.factor) + '</span><b>' + M(all ? m.cum[H - 1] : m.sp[i]) + '</b></div>' +
-    '<div style="display:flex;flex-direction:column;gap:2px"><span class="small muted">Cumulative incl. ×' + C.factor + '</span><b>' + M(m.cum[i]) + '</b></div>' +
-    '<div style="display:flex;flex-direction:column;gap:6px"><span class="small" style="font-weight:500;color:' + (bad ? "var(--bad)" : "var(--good)") + '">' + (inPer ? (bad ? "Over the limit by " + M(cumNow - LIM) : "Headroom " + M(LIM - cumNow)) : (bad ? "Budget period over by " + M(cumNow - LIM) : "Budget period closed with " + M(LIM - cumNow) + " left")) +
-    '</span><span class="lim"><span style="width:' + Math.min(100, cumNow / LIM * 100).toFixed(1) + '%;background:' + (bad ? "var(--bad)" : "var(--accent)") + '"></span></span><span class="small muted">Budget period spend vs ' + M(LIM) + ' limit</span></div>';
+  $("viewer").innerHTML = rn && DATA.images[rn] ? '<img src="' + DATA.images[rn] + '" alt="Render: ' + esc(rn) + '">' : '<div class="ph">' + (rn ? esc(rn) + ": render file not found in the renders folder" : "Nothing built yet that appears on a render") + '</div>';
+  const inPer = i < P && !S.all, cumNow = inPer ? m.cum[i] : m.within, bad = cumNow > LIM;
+  $("spend").innerHTML = '<h2>' + (S.all ? "Whole plan" : "End of " + y) + '</h2>' +
+    '<div class="fig"><span class="small muted">' + (S.all ? "Whole plan" : "Spend in " + y) + ', incl. ×' + C.factor + '</span><b>' + M(S.all ? m.cum[H - 1] : m.sp[i]) + '</b></div>' +
+    '<div class="fig"><span class="small muted">Cumulative, incl. ×' + C.factor + '</span><b>' + M(m.cum[i]) + '</b></div>' +
+    '<div class="fig" style="gap:6px"><span class="small" style="font-weight:500;color:' + (bad ? "var(--bad)" : "var(--good)") + '">' + (inPer ? (bad ? "Over the limit by " + M(cumNow - LIM) : "Headroom " + M(LIM - cumNow)) : (bad ? "Budget period over by " + M(cumNow - LIM) : "Budget period closes with " + M(LIM - cumNow) + " left")) +
+    '</span><span class="lim"><span style="width:' + Math.min(100, cumNow / LIM * 100).toFixed(1) + '%;background:' + (bad ? "var(--bad)" : "var(--accent)") + '"></span></span><span class="small muted">Budget period ' + Y0 + '–' + pend + ' vs ' + M(LIM) + ' limit</span></div>';
+  $("changes").innerHTML = moved.length ? moved.map(b => {
+    const v = S.B[b.name], base = BASE[b.name];
+    const what = v.incl !== base.incl ? (v.incl ? "added back" : "left out") : (v.start > base.start ? "+" : "") + (v.start - base.start) + " yr → " + v.start;
+    return '<div><span>' + esc(b.name) + '</span><span class="mono small">' + what + '</span></div>';
+  }).join("") + '<div style="border:0"><span class="muted small">Budget period effect</span><span class="mono small" style="color:' + (m.within > mb.within ? "var(--bad)" : "var(--good)") + '">' + (m.within >= mb.within ? "+" : "−") + M(Math.abs(m.within - mb.within)) + '</span></div>'
+    : '<span class="small muted">No changes. Move a basket with ◀ ▶ or untick it to leave it out.</span>';
 }
 
 document.addEventListener("click", e => {
-  const yb = e.target.closest("[data-y]"); if (yb) { S.sel = +yb.dataset.y; S.all = false; return update(); }
-  if (e.target.closest("#allbtn")) { S.all = true; return update(); }
-  const sh = e.target.closest("[data-shift]");
-  if (sh) { const n = DATA.packages[+sh.dataset.shift].name, d = +sh.dataset.d;
-    DATA.lines.filter(l => l.pkg === n && l.type !== "Per unit").forEach(l => { const v = S.L[l.id]; if (v.start) v.start = Math.max(YEARS[0], Math.min(YEARS[H - 1], v.start + d)); });
-    return update(); }
-  const ob = e.target.closest("[data-open]"); if (ob) { const n = DATA.packages[+ob.dataset.open].name; S.open[n] = !S.open[n]; return update(); }
+  const t = e.target;
+  const yb = t.closest("[data-y]"); if (yb) { S.sel = +yb.dataset.y; S.all = false; return update(); }
+  if (t.closest("#allbtn")) { S.all = true; return update(); }
+  const mv = t.closest("[data-mv]");
+  if (mv && !mv.disabled) { const b = DATA.baskets[+mv.dataset.mv], v = S.B[b.name]; v.start = Math.max(Y0, Math.min(YN - b.dur + 1, v.start + +mv.dataset.d)); update();
+    const again = document.querySelector('[data-mv="' + mv.dataset.mv + '"][data-d="' + mv.dataset.d + '"]'); if (again && !again.disabled) again.focus(); return; }
+  const ob = t.closest("[data-open]"); if (ob) { const n = DATA.baskets[+ob.dataset.open].name; S.open[n] = !S.open[n]; return update(); }
 });
-function setField(t) {
-  if (t.dataset.mod) { const v = S.L[t.dataset.mod], f = t.dataset.f; v[f] = f.endsWith("y") ? +t.value : Math.max(0, Math.round(+t.value)); return true; }
-  if (t.dataset.line) { const v = S.L[t.dataset.line];
-    if (t.dataset.f === "start") v.start = t.value ? +t.value : null;
-    else { const d = Math.round(+t.value); if (!isFinite(d) || d < 1) return false; v.dur = Math.min(10, d); }
-    return true; }
-  return false;
-}
 document.addEventListener("change", e => {
   const t = e.target;
-  if (t.dataset.pkg) { const n = DATA.packages[+t.dataset.pkg].name; S.off[n] = !t.checked; return update(); }
-  if (t.tagName === "SELECT" || t.type === "number") { if (setField(t)) update(); }
+  if (t.dataset.incl) { S.B[DATA.baskets[+t.dataset.incl].name].incl = t.checked; update(); }
 });
-document.addEventListener("input", e => {
-  const t = e.target;
-  if (t.type === "range" && t.dataset.mod) { setField(t); const keep = t.dataset.mod + t.dataset.f; update();
-    const el = document.querySelector('[data-mod="' + CSS.escape(t.dataset.mod) + '"][data-f="' + t.dataset.f + '"]'); if (el) el.focus(); }
-});
-$("reset").addEventListener("click", () => { S = fresh(); build(); update(); });
-build(); update();
+$("reset").addEventListener("click", () => { S = fresh(); update(); });
+update();
 </script>
 </body>
 </html>
