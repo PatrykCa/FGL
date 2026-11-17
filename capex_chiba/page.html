@@ -240,7 +240,7 @@ function update() {
   const base = fresh();
   const m = model(S), mb = model(base), i = S.all ? H - 1 : S.sel, y = Y0 + i, over = m.within > LIM, pend = Y0 + P - 1;
   const ch = changes();
-  $("title").textContent = "CAPEX Calculator, " + C.project;
+  $("title").textContent = "CAPEX Calculator, ";
   $("kpis").innerHTML =
     '<div class="kpi"><span class="small muted">Budget period ' + Y0 + '–' + pend + ', incl. ×' + C.factor + '</span><b>' + M(m.within) + '</b><span class="small muted">of ' + M(LIM) + ' limit</span></div>' +
     '<div class="kpi"><span class="small muted">' + (over ? "Over the limit by" : "Headroom in the budget period") + '</span><b style="color:' + (over ? "var(--bad)" : "var(--good)") + '">' + M(Math.abs(LIM - m.within)) + '</b><span class="small muted">base plan: ' + M(BASECFG.limit - mb.within) + ' headroom</span></div>' +
