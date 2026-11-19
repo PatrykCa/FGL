@@ -175,7 +175,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
         <span class="small muted">Orange frame: stages reached in the selected year. Click a stage to show it.</span>
         <div class="figs" id="spend"></div>
       </section>
-      <section class="panel" style="display:flex;flex-direction:column;gap:6px"><h2>Changes vs base plan</h2><div class="chg" id="changes"></div></section>
+      <details class="panel"><summary style="cursor:pointer"><h2 style="display:inline">Changes vs base plan</h2></summary><div class="chg" id="changes" style="margin-top:8px"></div></details>
     </aside>
   </div>
   <section class="panel" aria-label="Scope and cost" style="display:flex;flex-direction:column;gap:8px">
@@ -284,7 +284,7 @@ function update() {
     '<div class="kpi"><span class="small muted">Budget period ' + Y0 + '–' + pend + ', incl. ×' + C.factor + '</span><b>' + M(m.within) + '</b><span class="small muted">of ' + M(LIM) + ' limit</span></div>' +
     '<div class="kpi"><span class="small muted">' + (over ? "Over the limit by" : "Headroom in the budget period") + '</span><b style="color:' + (over ? "var(--bad)" : "var(--good)") + '">' + M(Math.abs(LIM - m.within)) + '</b><span class="small muted">base plan: ' + M(BASECFG.limit - mb.within) + ' headroom</span></div>' +
     '<div class="kpi"><span class="small muted">Whole plan, incl. ×' + C.factor + '</span><b>' + M(m.total) + '</b><span class="small muted">' + M(m.after) + ' after ' + pend + (m.outside > 1 ? ', ' + M(m.outside) + ' after ' + YN : '') + '</span></div>' +
-    '<div class="kpi"><span class="small muted">Changes vs base plan</span><b>' + ch.length + '</b><span class="small muted">' + (ch.length ? "listed under the plant view" : "the plan is as in the budget file") + '</span></div>';
+    '<div class="kpi"><span class="small muted">Changes vs base plan</span><b>' + ch.length + '</b><span class="small muted">' + (ch.length ? "click Changes vs base plan under the plant view" : "the plan is as in the budget file") + '</span></div>';
 
   /* scope table */
   const allOpen = DATA.baskets.every(b => S.open[b.name]);
