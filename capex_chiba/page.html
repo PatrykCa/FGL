@@ -33,7 +33,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 /* plan grid */
 .planwrap{overflow-x:auto}
 .plan{min-width:860px;display:flex;flex-direction:column;gap:0}
-.g{display:grid;grid-template-columns:300px repeat(var(--n),minmax(56px,1fr)) 132px;column-gap:0;align-items:stretch;position:relative}
+.g{display:grid;grid-template-columns:240px repeat(var(--n),minmax(50px,1fr)) 132px;column-gap:0;align-items:stretch;position:relative}
 .yr{min-height:62px;cursor:pointer;padding:7px 12px 7px 17px;text-align:left;display:flex;flex-direction:column;gap:2px;border:0;margin-right:-10px;
   clip-path:polygon(0 0,calc(100% - 14px) 0,100% 50%,calc(100% - 14px) 100%,0 100%,14px 50%);background:#f4f6f8}
 .yr.first{padding-left:10px;clip-path:polygon(0 0,calc(100% - 14px) 0,100% 50%,calc(100% - 14px) 100%,0 100%)}
@@ -98,7 +98,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 .sw{display:inline-block;width:22px;height:10px;border-radius:3px}
 /* bottom */
 .main{display:flex;flex-wrap:wrap;gap:16px;align-items:flex-start}
-.left{flex:1.5 1 700px;min-width:0}
+.left{flex:1.75 1 860px;min-width:0}
 .right{flex:1 1 460px;min-width:0;position:sticky;top:10px;display:flex;flex-direction:column;gap:12px}
 .figs{display:grid;grid-template-columns:repeat(3,minmax(0,1fr));gap:12px;align-items:end}
 .view{display:flex;flex-direction:column;gap:8px}
@@ -117,7 +117,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 
 /* scope table */
 .tbl{display:flex;flex-direction:column}
-.tr2{display:grid;grid-template-columns:26px 44px minmax(0,1fr) 84px 44px 104px 96px;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid #eef1f4;font-size:13px}
+.tr2{display:grid;grid-template-columns:26px 44px minmax(0,1fr) 84px 44px 104px 120px 96px;gap:8px;align-items:center;padding:4px 0;border-bottom:1px solid #eef1f4;font-size:13px}
 .tr2.head{font-size:11px;text-transform:uppercase;letter-spacing:.05em;color:var(--muted);font-weight:600;border-bottom:1px solid var(--line)}
 .tr2.grp{background:var(--sunken);font-weight:600;padding:6px 0;border-top:1px solid var(--line)}
 .tr2.grp button{border:0;background:none;cursor:pointer;text-align:left;font-weight:600;padding:4px 0;display:flex;gap:8px;align-items:center;min-height:32px}
@@ -139,7 +139,7 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
 <div class="wrap">
   <div style="display:flex;flex-wrap:wrap;gap:8px 24px;align-items:flex-end;justify-content:space-between">
     <div><h1 id="title">CAPEX Calculator</h1>
-      <p class="muted" style="margin:4px 0 0">Change the scope (quantities, prices, lines in or out) and the timing of the baskets. Costs, the budget limit and the plant view update at once. What-if only: the budget file stays the source.</p></div>
+      <p class="muted" style="margin:4px 0 0">Move the baskets in time, and change the scope (quantities, prices, lines in or out) in the table below. Costs, the budget limit and the plant view update at once. What-if only: the budget file stays the source.</p></div>
     <button class="btn" id="reset" type="button">Back to the base plan</button>
   </div>
   <section class="panel settings" aria-label="Plan settings">
@@ -152,16 +152,20 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
   </section>
   <div class="kpis" id="kpis"></div>
   <div class="main">
-    <section class="panel left" aria-label="Scope and cost" style="display:flex;flex-direction:column;gap:8px">
-      <div style="display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:space-between;align-items:center">
-        <h2>Scope and cost</h2>
-        <div style="display:flex;gap:8px;align-items:center"><span class="small muted" id="tblNote"></span><button class="btn" type="button" id="expand">Show all lines</button></div>
-      </div>
-      <div class="tbl" id="tbl"></div>
-    </section>
+    <section class="panel left" aria-label="Investment plan" style="display:flex;flex-direction:column;gap:8px">
+    <div style="display:flex;flex-wrap:wrap;gap:4px 16px;justify-content:space-between;align-items:baseline">
+      <h2 id="planTitle">Investment plan</h2><span class="small muted" id="planNote"></span>
+    </div>
+    <div class="planwrap"><div class="plan" id="plan"></div></div>
+    <div class="legend">
+      <span><span class="sw" style="background:var(--accent)"></span>Budget period</span>
+      <span><span class="sw" style="background:#6d8fa8"></span>After it</span>
+      <span><span class="sw" style="border:1.5px dashed #8a96a3"></span>Base plan position</span>
+      <span><span class="sdot s-done"></span>Complete</span><span><span class="sdot s-part"></span>In progress</span><span><span class="sdot s-none"></span>Not yet</span>
+    </div>
+  </section>
     <aside class="right" aria-label="Plant view and budget">
       <section class="panel view">
-        <div class="ypills" id="ypills" aria-label="Year"></div>
         <div style="display:flex;justify-content:space-between;align-items:baseline;gap:8px;flex-wrap:wrap">
           <strong style="font-family:var(--display);font-size:24px;font-weight:600" id="viewTitle"></strong><span class="nav" id="stageNav"></span>
         </div>
@@ -174,18 +178,13 @@ button:focus-visible,input:focus-visible{outline:2px solid var(--accent);outline
       <section class="panel" style="display:flex;flex-direction:column;gap:6px"><h2>Changes vs base plan</h2><div class="chg" id="changes"></div></section>
     </aside>
   </div>
-  <section class="panel" aria-label="Investment plan" style="display:flex;flex-direction:column;gap:8px">
-    <div style="display:flex;flex-wrap:wrap;gap:4px 16px;justify-content:space-between;align-items:baseline">
-      <h2 id="planTitle">Investment plan</h2><span class="small muted" id="planNote"></span>
-    </div>
-    <div class="planwrap"><div class="plan" id="plan"></div></div>
-    <div class="legend">
-      <span><span class="sw" style="background:var(--accent)"></span>Budget period</span>
-      <span><span class="sw" style="background:#6d8fa8"></span>After it</span>
-      <span><span class="sw" style="border:1.5px dashed #8a96a3"></span>Base plan position</span>
-      <span><span class="sdot s-done"></span>Complete</span><span><span class="sdot s-part"></span>In progress</span><span><span class="sdot s-none"></span>Not yet</span>
-    </div>
-  </section>
+  <section class="panel" aria-label="Scope and cost" style="display:flex;flex-direction:column;gap:8px">
+      <div style="display:flex;flex-wrap:wrap;gap:6px 16px;justify-content:space-between;align-items:center">
+        <h2>Scope and cost</h2>
+        <div style="display:flex;gap:8px;align-items:center"><span class="small muted" id="tblNote"></span><button class="btn" type="button" id="expand">Show all lines</button></div>
+      </div>
+      <div class="tbl" id="tbl"></div>
+    </section>
 </div>
 <script>
 /*__DATA__*/
@@ -197,6 +196,8 @@ const n0 = new Intl.NumberFormat("en-US", { maximumFractionDigits: 0 });
 const sym = { EUR: "€", USD: "$", JPY: "¥", GBP: "£" }[C.report] || C.report + " ";
 const M = v => sym + (v / 1e6).toFixed(2) + "M";
 const K = v => sym + n0.format(v);
+const LS = { EUR: "€", USD: "$", JPY: "¥", GBP: "£" }[C.local] || ((C.local || "") + " ");
+const KL = v => LS + n0.format(v * (C.localRate || 1));
 const short = n => n.replace(/ to Last Phase$/i, "").replace(/^Last Phase$/i, "Last");
 const LINES = {}; DATA.lines.forEach(l => (LINES[l.basket] = LINES[l.basket] || []).push(l));
 const BYB = {}; DATA.baskets.forEach(b => BYB[b.name] = b);
@@ -289,12 +290,12 @@ function update() {
   const allOpen = DATA.baskets.every(b => S.open[b.name]);
   $("expand").textContent = allOpen ? "Hide all lines" : "Show all lines";
   $("tblNote").textContent = "Costs incl. ×" + C.factor;
-  let t = '<div class="tr2 head"><span></span><span class="id">ID</span><span>Scope</span><span class="r">Qty</span><span class="u">Unit</span><span class="r pr">Unit price</span><span class="r">Total</span></div>';
+  let t = '<div class="tr2 head"><span></span><span class="id">ID</span><span>Scope</span><span class="r">Qty</span><span class="u">Unit</span><span class="r pr">Unit price, ' + C.report + '</span><span class="r">Total, ' + C.local + '</span><span class="r">Total, ' + C.report + '</span></div>';
   DATA.baskets.forEach((b, bi) => {
     const v = S.B[b.name], open = !!S.open[b.name], st = status(b, y);
     t += '<div class="tr2 grp' + (v.incl ? '' : ' bkoff') + '"><input type="checkbox" data-incl="' + bi + '"' + (v.incl ? ' checked' : '') + ' aria-label="Include ' + esc(b.name) + '">' +
       '<button type="button" data-open="' + bi + '" aria-expanded="' + open + '" style="grid-column:2 / 6"><span class="sdot s-' + st[1] + '" aria-label="' + st[0] + '"></span>' + (open ? '▾ ' : '▸ ') + esc(b.name) + '<span class="small muted" style="font-weight:400">' + yrs(v) + '</span></button>' +
-      '<span></span><span class="r mono">' + M(costOf(S, b.name) * C.factor) + '</span></div>';
+      '<span></span><span class="r mono small">' + KL(costOf(S, b.name) * C.factor) + '</span><span class="r mono">' + M(costOf(S, b.name) * C.factor) + '</span></div>';
     if (open) (LINES[b.name] || []).forEach(l => {
       const lv = S.L[l.id], k = esc(l.id);
       t += '<div class="tr2' + (lv.on ? '' : ' off') + (v.incl ? '' : ' bkoff') + '"><input type="checkbox" data-lon="' + k + '"' + (lv.on ? ' checked' : '') + ' aria-label="Include ' + esc(l.desc) + '">' +
@@ -302,15 +303,13 @@ function update() {
         '<input type="number" min="0" step="any" value="' + +lv.qty.toFixed(2) + '" data-lq="' + k + '" class="' + (lv.qty !== l.qty ? 'chg' : '') + '" aria-label="Quantity ' + esc(l.desc) + '">' +
         '<span class="u small muted">' + esc(l.unit) + '</span>' +
         '<input class="pr' + (Math.abs(lv.price - l.price) > 0.005 ? ' chg' : '') + '" type="number" min="0" step="any" value="' + +lv.price.toFixed(2) + '" data-lp="' + k + '" aria-label="Unit price in ' + C.report + ' ' + esc(l.desc) + '">' +
-        '<span class="r mono tot">' + K(lineCost(S, l) * C.factor) + '</span></div>';
+        '<span class="r mono tot">' + KL(lineCost(S, l) * C.factor) + '</span><span class="r mono tot">' + K(lineCost(S, l) * C.factor) + '</span></div>';
     });
   });
-  t += '<div class="tr2" style="font-weight:600;border-bottom:0;padding-top:8px"><span></span><span></span><span>Total, all baskets in the plan</span><span></span><span></span><span></span><span class="r mono">' + M(m.total) + '</span></div>';
+  t += '<div class="tr2" style="font-weight:600;border-bottom:0;padding-top:8px"><span></span><span></span><span>Total, all baskets in the plan</span><span></span><span></span><span></span><span class="r mono small">' + KL(m.total) + '</span><span class="r mono">' + M(m.total) + '</span></div>';
   $("tbl").innerHTML = t;
 
   /* year pills + view */
-  $("ypills").innerHTML = YEARS.map((yy, k) => '<button type="button" data-y="' + k + '" class="' + [k < P ? "per" : "", !S.all && k === S.sel ? "on" : "", k < P && m.cum[k] > LIM ? "over" : ""].join(" ") + '" aria-pressed="' + (!S.all && k === S.sel) + '">' + yy + '</button>').join("") +
-    '<button type="button" id="allbtn" class="' + (S.all ? "on" : "") + '" aria-pressed="' + S.all + '">All</button>';
   const NR = DATA.renders.length, reach = new Array(NR).fill(null);
   for (let q = 0; q < H; q++) { const idx = renderIndex(Y0 + q); for (let r = 0; r <= idx; r++) if (reach[r] === null) reach[r] = q; }
   const curIdx = renderIndex(y), prevIdx = (S.all || i === 0) ? -1 : renderIndex(y - 1);
